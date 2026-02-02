@@ -1,0 +1,15 @@
+node_modules/
+dist/
+
+# Generated docs
+*.docx
+*.pdf
+
+# Local debug scripts
+debug*.ts
+
+# OS/editor junk
+.DS_Store
+*.swp
+*.swo
+*~

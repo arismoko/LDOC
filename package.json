@@ -1,0 +1,25 @@
+{
+  "name": "ldoc",
+  "version": "0.1.0",
+  "description": "Legal Document DSL - Compile markdown-like syntax to DOCX",
+  "module": "src/index.ts",
+  "type": "module",
+  "bin": {
+    "ldoc": "./src/cli/index.ts"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "test": "bun test",
+    "ldoc": "bun run src/cli/index.ts"
+  },
+  "dependencies": {
+    "docx": "^9.4.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^22.13.9"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
