@@ -13,6 +13,79 @@ A lightweight markup language for legal documents that compiles to DOCX.
 - **Tables** — Simple bracket syntax
 - **Compiles to DOCX** — Properly formatted with styles
 
+## Spec Checklist
+
+This is a running checklist derived from `legal-dsl-spec.md`.
+
+### Syntax & Core Structure
+
+- [x] `@document <Title>`
+- [x] Markdown headers: `#`, `##`, `###`
+- [x] `@meta` block (nested keys)
+- [x] Comments: `//` and `/* ... */`
+- [x] `@todo` comments
+- [x] `.ldoc` file extension
+
+### Modifiers (Formatting)
+
+- [x] Alignment: `@center`, `@right`
+- [x] `@indent` (Indent block paragraphs)
+- [ ] `@box` (Missing: parsed, DOCX output not implemented)
+- [x] Text styles: `@bold`, `@italic`, `@small`, `@caps`
+- [x] Chaining/nesting: `@center @bold ...` and indented blocks
+
+### Lists & Numbering
+
+- [x] Nesting depth via `@` count: `@`, `@@`, `@@@`, ...
+- [x] Decimal styles: `@1`, `@@2.1`, ...
+- [x] Alpha styles: `@@a`, `@@@@A`, ...
+- [x] Roman styles: `@@@i`, `@@@I`, ...
+- [x] Bullets: `@-`, `@@-`, ...
+- [x] Continuation paragraphs inside items (indentation)
+- [ ] `@numbering ...` defaults (Missing)
+
+### Inline Features
+
+- [x] Variables: `{{var}}`, `{{nested.path}}`
+- [x] Filters: `{{var | upper}}`, `lower`, `capitalize`
+- [x] Defined terms: first-use formatting for `"Term"`
+- [ ] Cross-reference validation + real links/fields (Partial: `[[...]]` renders as text)
+- [x] Blanks: `___` and longer underscore runs
+- [x] Emphasis: `*italic*`, `**bold**`, `***both***`
+
+### Tables
+
+- [x] `@table` + row syntax `[a, b, c]`
+- [x] First row treated as header
+- [x] Quoted cell values for commas
+- [ ] Table styling/modifiers (Partial: basic table output only)
+
+### Page & Layout
+
+- [x] `@pagebreak`
+- [ ] Headers/footers: `@header`, `@footer`, `@firstpage` (Missing)
+- [ ] `@margins` (Missing)
+- [ ] `@spacing` (Missing)
+- [ ] `@landscape` (Missing)
+- [ ] `@columns` (Missing)
+
+### Templates, Imports, Control Flow
+
+- [ ] `@import` resolution/loading (Partial: parsed only)
+- [ ] `@define name(params)` (Missing)
+- [ ] `@params` / `@template` blocks (Missing)
+- [ ] `@if` / `@else` / `@end` (Missing)
+- [ ] `@repeat` (Missing)
+
+### Tooling
+
+- [x] CLI: `compile`, `parse`, `watch`
+- [ ] LSP: autocomplete/diagnostics/navigation (Missing)
+
+### Round-trip
+
+- [ ] DOCX -> `.ldoc` conversion (Missing)
+
 ## Installation
 
 ```bash

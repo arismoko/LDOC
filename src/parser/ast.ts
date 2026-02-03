@@ -7,6 +7,7 @@ export type Node =
   | NumberedItemNode
   | BulletItemNode
   | ModifierNode
+  | EmptyParagraphNode
   | ParagraphNode
   | TableNode
   | TableRowNode
@@ -111,6 +112,12 @@ export interface ParagraphNode extends BaseNode {
   content: InlineNode[];
 }
 
+export interface EmptyParagraphNode extends BaseNode {
+  type: "empty_paragraph";
+  // Number of consecutive blank lines to render
+  count: number;
+}
+
 export interface TableNode extends BaseNode {
   type: "table";
   rows: TableRowNode[];
@@ -196,6 +203,7 @@ export interface NodeVisitor<T = void> {
   visitBulletItem?(node: BulletItemNode): T;
   visitModifier?(node: ModifierNode): T;
   visitParagraph?(node: ParagraphNode): T;
+  visitEmptyParagraph?(node: EmptyParagraphNode): T;
   visitTable?(node: TableNode): T;
   visitTableRow?(node: TableRowNode): T;
   visitText?(node: TextNode): T;
@@ -228,6 +236,8 @@ export function visit<T>(node: Node, visitor: NodeVisitor<T>): T | undefined {
       return visitor.visitModifier?.(node);
     case "paragraph":
       return visitor.visitParagraph?.(node);
+    case "empty_paragraph":
+      return visitor.visitEmptyParagraph?.(node);
     case "table":
       return visitor.visitTable?.(node);
     case "table_row":

@@ -108,6 +108,34 @@ describe("Parser", () => {
     expect(para.content.some((n: any) => n.type === "variable")).toBe(true);
   });
 
+  test("soft-wraps single newlines within paragraphs", () => {
+    const parser = new Parser();
+    const ast = parser.parse("Hello\nWorld");
+    expect(ast.body).toHaveLength(1);
+    expect(ast.body[0].type).toBe("paragraph");
+    const p: any = ast.body[0];
+    const text = p.content.map((n: any) => (n.type === "text" ? n.value : "")).join("");
+    expect(text).toBe("Hello World");
+  });
+
+  test("soft-wraps single newlines within list item content", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@1 Hello\nWorld\n\n@2 Next");
+    expect(ast.body[0].type).toBe("numbered_item");
+    const item: any = ast.body[0];
+    const text = item.content.map((n: any) => (n.type === "text" ? n.value : "")).join("");
+    expect(text).toBe("Hello World");
+  });
+
+  test("@1 with empty line uses first indented paragraph as content", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@1\n  Hello\n  World\n@2 Next");
+    const item: any = ast.body[0];
+    expect(item.type).toBe("numbered_item");
+    const text = item.content.map((n: any) => (n.type === "text" ? n.value : "")).join("");
+    expect(text).toBe("Hello World");
+  });
+
   test("parses meta block", () => {
     const parser = new Parser();
     const ast = parser.parse(`@meta
@@ -119,6 +147,36 @@ Hello world`);
 
     expect(ast.meta).toBeDefined();
     expect(ast.meta?.data.date).toBe("January 1, 2026");
+  });
+
+  test("preserves blank lines as spacing", () => {
+    const parser = new Parser();
+    const ast = parser.parse("Hello\n\nWorld");
+
+    expect(ast.body[0].type).toBe("paragraph");
+    expect(ast.body[1].type).toBe("empty_paragraph");
+    expect((ast.body[1] as any).count).toBe(1);
+    expect(ast.body[2].type).toBe("paragraph");
+  });
+
+  test("preserves blank lines between list item and following paragraph", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@1 One\n\nTwo");
+    expect(ast.body[0].type).toBe("numbered_item");
+    expect(ast.body[1].type).toBe("empty_paragraph");
+    expect((ast.body[1] as any).count).toBe(1);
+    expect(ast.body[2].type).toBe("paragraph");
+  });
+
+  test("preserves blank lines inside modifier blocks", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@center\n  Hello\n\n  World\n");
+    expect(ast.body[0].type).toBe("modifier");
+    const m: any = ast.body[0];
+    // content should include: paragraph, empty_paragraph, paragraph
+    expect(m.content[0].type).toBe("paragraph");
+    expect(m.content[1].type).toBe("empty_paragraph");
+    expect(m.content[2].type).toBe("paragraph");
   });
 });
 

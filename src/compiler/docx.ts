@@ -27,6 +27,7 @@ import {
   NumberedItemNode,
   BulletItemNode,
   ModifierNode,
+  EmptyParagraphNode,
   ParagraphNode,
   TableNode,
   TableRowNode,
@@ -255,11 +256,12 @@ export class DocxCompiler {
   private compileNode(
     node: Node,
     style: TextStyle = {},
-    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType]
+    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
+    indentLeftTwip?: number
   ): (Paragraph | Table)[] {
     switch (node.type) {
       case "header":
-        return [this.compileHeader(node, alignment)];
+        return [this.compileHeader(node, alignment, indentLeftTwip)];
 
       case "numbered_item":
         return this.compileNumberedItem(node, style, alignment);
@@ -268,16 +270,21 @@ export class DocxCompiler {
         return this.compileBulletItem(node, style, alignment);
 
       case "modifier":
-        return this.compileModifier(node, style, alignment);
+        return this.compileModifier(node, style, alignment, indentLeftTwip);
+
+      case "empty_paragraph":
+        return Array.from({ length: Math.max(0, node.count) }, () =>
+          new Paragraph({ indent: indentLeftTwip ? { left: indentLeftTwip } : undefined })
+        );
 
       case "paragraph":
-        return [this.compileParagraph(node, style, alignment)];
+        return [this.compileParagraph(node, style, alignment, indentLeftTwip)];
 
       case "table":
         return [this.compileTable(node)];
 
       case "page_break":
-        return [new Paragraph({ children: [new PageBreak()] })];
+        return [new Paragraph({ children: [new PageBreak()], indent: indentLeftTwip ? { left: indentLeftTwip } : undefined })];
 
       case "comment":
         return []; // Comments are not rendered
@@ -289,7 +296,8 @@ export class DocxCompiler {
 
   private compileHeader(
     node: HeaderNode,
-    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType]
+    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
+    indentLeftTwip?: number
   ): Paragraph {
     const headingLevel = this.getHeadingLevel(node.level);
 
@@ -297,6 +305,7 @@ export class DocxCompiler {
       children: this.compileInlineNodes(node.content),
       heading: headingLevel,
       alignment: alignment ?? AlignmentType.LEFT,
+      indent: indentLeftTwip ? { left: indentLeftTwip } : undefined,
     });
   }
 
@@ -319,9 +328,15 @@ export class DocxCompiler {
       })
     );
 
+    const continuationIndent = this.getListTextIndentTwip(level);
+
     // Compile children
     for (const child of node.children) {
-      results.push(...this.compileNode(child, style, alignment));
+      if (child.type === "numbered_item" || child.type === "bullet_item") {
+        results.push(...this.compileNode(child, style, alignment));
+      } else {
+        results.push(...this.compileNode(child, style, alignment, continuationIndent));
+      }
     }
 
     return results;
@@ -342,8 +357,14 @@ export class DocxCompiler {
       })
     );
 
+    const continuationIndent = this.getListTextIndentTwip(node.level - 1);
+
     for (const child of node.children) {
-      results.push(...this.compileNode(child, style, alignment));
+      if (child.type === "numbered_item" || child.type === "bullet_item") {
+        results.push(...this.compileNode(child, style, alignment));
+      } else {
+        results.push(...this.compileNode(child, style, alignment, continuationIndent));
+      }
     }
 
     return results;
@@ -352,12 +373,14 @@ export class DocxCompiler {
   private compileModifier(
     node: ModifierNode,
     parentStyle: TextStyle,
-    parentAlignment?: (typeof AlignmentType)[keyof typeof AlignmentType]
+    parentAlignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
+    indentLeftTwip?: number
   ): (Paragraph | Table)[] {
     const results: (Paragraph | Table)[] = [];
 
     let style = { ...parentStyle };
     let alignment = parentAlignment;
+    let indent = indentLeftTwip;
 
     switch (node.modifier) {
       case "center":
@@ -379,7 +402,8 @@ export class DocxCompiler {
         style.size = 20; // 10pt
         break;
       case "indent":
-        // Handled in paragraph options
+        // Indent all paragraphs in this block (0.5in per @indent level)
+        indent = (indent ?? 0) + convertInchesToTwip(0.5);
         break;
       case "box":
         // TODO: Implement box styling
@@ -405,7 +429,7 @@ export class DocxCompiler {
     }
 
     for (const child of node.content) {
-      results.push(...this.compileNode(child, style, alignment));
+      results.push(...this.compileNode(child, style, alignment, indent));
     }
 
     return results;
@@ -414,11 +438,13 @@ export class DocxCompiler {
   private compileParagraph(
     node: ParagraphNode,
     style: TextStyle,
-    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType]
+    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
+    indentLeftTwip?: number
   ): Paragraph {
     const options: IParagraphOptions = {
       children: this.compileInlineNodes(node.content, style),
       alignment: alignment ?? AlignmentType.LEFT,
+      indent: indentLeftTwip ? { left: indentLeftTwip } : undefined,
     };
 
     // Apply heading style if set
@@ -427,6 +453,12 @@ export class DocxCompiler {
     }
 
     return new Paragraph(options);
+  }
+
+  private getListTextIndentTwip(levelIndex: number): number {
+    // Matches numbering config left indents (0->0.5in, 1->1.0in, ...).
+    const inches = 0.5 * (levelIndex + 1);
+    return convertInchesToTwip(inches);
   }
 
   private compileTable(node: TableNode): Table {

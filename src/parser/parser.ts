@@ -31,6 +31,95 @@ export class Parser {
   private pos: number = 0;
   private definedTerms: Set<string> = new Set();
 
+  private isBlockStart(type: TokenType): boolean {
+    return (
+      type === TokenType.HEADER ||
+      type === TokenType.NUMBERED_ITEM ||
+      type === TokenType.BULLET ||
+      type === TokenType.MODIFIER ||
+      type === TokenType.TABLE ||
+      type === TokenType.PAGEBREAK ||
+      type === TokenType.DOCUMENT ||
+      type === TokenType.META ||
+      type === TokenType.IMPORT ||
+      type === TokenType.DEFINE ||
+      type === TokenType.COMMENT ||
+      type === TokenType.TODO
+    );
+  }
+
+  private makeSpaceToken(line: number, column: number): Token {
+    return { type: TokenType.TEXT, value: " ", line, column, indent: 0 };
+  }
+
+  private softWrapIntoTokens(tokens: Token[], newlineToken: Token): void {
+    // Avoid accumulating multiple spaces
+    const last = tokens[tokens.length - 1];
+    if (last?.type === TokenType.TEXT && last.value.endsWith(" ")) return;
+    tokens.push(this.makeSpaceToken(newlineToken.line, newlineToken.column));
+  }
+
+  private consumeSoftWrappedLine(tokens: Token[]): void {
+    // Consume one NEWLINE and then consume tokens on the next line until NEWLINE/EOF/INDENT/DEDENT.
+    // If the NEWLINE starts a blank line (NEWLINE NEWLINE), do not consume.
+    if (!this.check(TokenType.NEWLINE)) return;
+    if (this.tokens[this.pos + 1]?.type === TokenType.NEWLINE) return;
+
+    // If next token after newline is a block start or an indent/dedent, treat as paragraph boundary.
+    const newlineTok = this.peek();
+    const nextType = this.tokens[this.pos + 1]?.type;
+    if (nextType === undefined) return;
+    if (nextType === TokenType.INDENT || nextType === TokenType.DEDENT || this.isBlockStart(nextType)) {
+      return;
+    }
+
+    // Consume newline, inject a space, then consume the following inline tokens.
+    this.advance();
+    this.softWrapIntoTokens(tokens, newlineTok);
+    while (
+      !this.isAtEnd() &&
+      !this.check(TokenType.NEWLINE) &&
+      !this.check(TokenType.EOF) &&
+      !this.check(TokenType.INDENT) &&
+      !this.check(TokenType.DEDENT)
+    ) {
+      // Stop if we hit a block start mid-line (shouldn't happen often, but safe)
+      if (this.isBlockStart(this.peek().type)) break;
+      tokens.push(this.advance());
+    }
+  }
+
+  private consumeNewlines(): number {
+    let count = 0;
+    while (this.check(TokenType.NEWLINE)) {
+      this.advance();
+      count++;
+    }
+    return count;
+  }
+
+  private lookaheadNewlinesThenIndent(): { newlines: number; indentAfter: boolean } {
+    let i = this.pos;
+    let n = 0;
+    while (this.tokens[i]?.type === TokenType.NEWLINE) {
+      i++;
+      n++;
+    }
+    return { newlines: n, indentAfter: this.tokens[i]?.type === TokenType.INDENT };
+  }
+
+  private pushBlankLines(target: Node[], line: number, column: number, newlineCount: number): void {
+    // 2+ newlines => 1+ blank lines (N newlines = N-1 blank lines)
+    if (newlineCount >= 2) {
+      target.push({
+        type: "empty_paragraph",
+        line,
+        column,
+        count: newlineCount - 1,
+      } as any);
+    }
+  }
+
   parse(input: string): DocumentNode {
     const lexer = new Lexer(input);
     this.tokens = lexer.tokenize();
@@ -70,15 +159,17 @@ export class Parser {
       }
     }
 
-    // Parse body
+    // Parse body (preserve blank lines as spacing)
     while (!this.isAtEnd()) {
-      this.skipNewlines();
-      if (this.isAtEnd()) break;
+      if (this.check(TokenType.NEWLINE)) {
+        const start = this.peek();
+        const n = this.consumeNewlines();
+        this.pushBlankLines(body, start.line, start.column, n);
+        continue;
+      }
 
       const node = this.parseNode();
-      if (node) {
-        body.push(node);
-      }
+      if (node) body.push(node);
     }
 
     return {
@@ -156,21 +247,39 @@ export class Parser {
     const level = token.level ?? 1;
     const style = this.parseNumberingStyle(token.style ?? "");
 
-    // Parse content on the same line
+    // Parse content on the same line; allow soft-wrapped lines until a blank line or block start.
     const contentTokens: Token[] = [];
     while (!this.isAtEnd() && !this.check(TokenType.NEWLINE) && !this.check(TokenType.EOF)) {
       contentTokens.push(this.advance());
     }
-    this.skipNewlines();
+    // Soft-wrap continuation lines into the same numbered paragraph.
+    while (this.check(TokenType.NEWLINE)) {
+      const before = this.pos;
+      this.consumeSoftWrappedLine(contentTokens);
+      if (this.pos === before) break;
+    }
 
-    const content = this.tokensToInlineNodes(contentTokens);
+    let content = this.tokensToInlineNodes(contentTokens);
     const children: Node[] = [];
 
-    // Parse children if indented
-    if (this.check(TokenType.INDENT)) {
+    // Parse children if indented; preserve blank lines inside the block.
+    // If there is no indented block, leave NEWLINE tokens for the outer loop so
+    // blank lines between this item and the next node are preserved at the document level.
+    const la = this.lookaheadNewlinesThenIndent();
+    if (la.indentAfter) {
+      const start = this.peek();
+      const n = this.consumeNewlines();
+      this.pushBlankLines(children, start.line, start.column, n);
+
+      // Now we're positioned at INDENT
       this.advance();
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
-        this.skipNewlines();
+        if (this.check(TokenType.NEWLINE)) {
+          const start = this.peek();
+          const n = this.consumeNewlines();
+          this.pushBlankLines(children, start.line, start.column, n);
+          continue;
+        }
         if (this.check(TokenType.DEDENT)) break;
 
         const child = this.parseNode();
@@ -180,6 +289,17 @@ export class Parser {
       }
       if (this.check(TokenType.DEDENT)) {
         this.advance();
+      }
+    }
+
+    // If the numbered item has no inline content, and the first child is a paragraph,
+    // treat that paragraph as the list item's content (avoids rendering an empty "1." line).
+    if (content.length === 0) {
+      const idx = children.findIndex((n) => n.type === "paragraph");
+      if (idx !== -1) {
+        const p = children[idx] as any;
+        content = p.content ?? [];
+        children.splice(idx, 1);
       }
     }
 
@@ -199,21 +319,36 @@ export class Parser {
     const token = this.advance();
     const level = token.level ?? 1;
 
-    // Parse content on the same line
+    // Parse content on the same line; allow soft-wrapped lines until a blank line or block start.
     const contentTokens: Token[] = [];
     while (!this.isAtEnd() && !this.check(TokenType.NEWLINE) && !this.check(TokenType.EOF)) {
       contentTokens.push(this.advance());
     }
-    this.skipNewlines();
+    while (this.check(TokenType.NEWLINE)) {
+      const before = this.pos;
+      this.consumeSoftWrappedLine(contentTokens);
+      if (this.pos === before) break;
+    }
 
-    const content = this.tokensToInlineNodes(contentTokens);
+    let content = this.tokensToInlineNodes(contentTokens);
     const children: Node[] = [];
 
-    // Parse children if indented
-    if (this.check(TokenType.INDENT)) {
+    // Parse children if indented; preserve blank lines inside the block.
+    const la = this.lookaheadNewlinesThenIndent();
+    if (la.indentAfter) {
+      const start = this.peek();
+      const n = this.consumeNewlines();
+      this.pushBlankLines(children, start.line, start.column, n);
+
+      // Now we're positioned at INDENT
       this.advance();
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
-        this.skipNewlines();
+        if (this.check(TokenType.NEWLINE)) {
+          const start = this.peek();
+          const n = this.consumeNewlines();
+          this.pushBlankLines(children, start.line, start.column, n);
+          continue;
+        }
         if (this.check(TokenType.DEDENT)) break;
 
         const child = this.parseNode();
@@ -223,6 +358,15 @@ export class Parser {
       }
       if (this.check(TokenType.DEDENT)) {
         this.advance();
+      }
+    }
+
+    if (content.length === 0) {
+      const idx = children.findIndex((n) => n.type === "paragraph");
+      if (idx !== -1) {
+        const p = children[idx] as any;
+        content = p.content ?? [];
+        children.splice(idx, 1);
       }
     }
 
@@ -244,13 +388,23 @@ export class Parser {
 
     // Check if content is on same line or indented block
     if (this.check(TokenType.NEWLINE)) {
-      this.skipNewlines();
+      // Only consume newlines if an indented block follows.
+      // Otherwise leave them for the outer loop to preserve blank lines between nodes.
+      const la = this.lookaheadNewlinesThenIndent();
+      if (la.indentAfter) {
+        const start = this.peek();
+        const n = this.consumeNewlines();
+        this.pushBlankLines(content, start.line, start.column, n);
 
-      // Indented block
-      if (this.check(TokenType.INDENT)) {
+        // Now we're positioned at INDENT
         this.advance();
         while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
-          this.skipNewlines();
+          if (this.check(TokenType.NEWLINE)) {
+            const start = this.peek();
+            const n = this.consumeNewlines();
+            this.pushBlankLines(content, start.line, start.column, n);
+            continue;
+          }
           if (this.check(TokenType.DEDENT)) break;
 
           const child = this.parseNode();
@@ -465,13 +619,39 @@ export class Parser {
     const startToken = this.peek();
     const contentTokens: Token[] = [];
 
-    while (
-      !this.isAtEnd() &&
-      !this.check(TokenType.NEWLINE) &&
-      !this.check(TokenType.EOF) &&
-      !this.check(TokenType.INDENT) &&
-      !this.check(TokenType.DEDENT)
-    ) {
+    while (!this.isAtEnd()) {
+      if (this.check(TokenType.EOF) || this.check(TokenType.INDENT) || this.check(TokenType.DEDENT)) {
+        break;
+      }
+
+      if (this.check(TokenType.NEWLINE)) {
+        // Blank line = paragraph break
+        if (this.tokens[this.pos + 1]?.type === TokenType.NEWLINE) {
+          break;
+        }
+
+        // Single newline: soft wrap if the next token continues inline content
+        const nextType = this.tokens[this.pos + 1]?.type;
+        if (
+          nextType !== undefined &&
+          nextType !== TokenType.INDENT &&
+          nextType !== TokenType.DEDENT &&
+          !this.isBlockStart(nextType)
+        ) {
+          const nl = this.peek();
+          this.advance();
+          this.softWrapIntoTokens(contentTokens, nl);
+          continue;
+        }
+
+        // Otherwise paragraph break
+        break;
+      }
+
+      if (this.isBlockStart(this.peek().type)) {
+        break;
+      }
+
       contentTokens.push(this.advance());
     }
 

@@ -8,7 +8,9 @@
 @center 
   @h1
     LAST WILL AND TESTAMENT
+
     OF
+
     {{testator}}
 
 I, {{testator}}, of State of {{state}} County of {{county}}, state of residence at the time of death, revoke any prior wills and codicils and make this my will.
@@ -21,9 +23,9 @@ I have two children. Their names and dates of birth are: Danielle K. Jensen, bor
   ## ARTICLE ONE
   PAYMENT OF EXPENSES AND TAXES
 
-@1 My personal representative shall make payments from my estate as follows:
-
-My personal representative shall pay from the residue of my estate or shall direct the trustee of the {{trust_name}}, dated {{trust_date}}, to pay, or both, as determined in the sole discretion of my personal representative.
+@1 
+  My personal representative shall make payments from my estate as follows:
+  My personal representative shall pay from the residue of my estate or shall direct the trustee of the {{trust_name}}, dated {{trust_date}}, to pay, or both, as determined in the sole discretion of my personal representative.
 
 @@1.1 the expenses of my last illness and funeral, my valid debts, the expenses of administering my estate, including non-probate assets;
 
