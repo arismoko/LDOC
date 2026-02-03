@@ -1,0 +1,7 @@
+@document
+  title: B
+
+@import ./cycle-a.ldoc
+
+@define B
+  B

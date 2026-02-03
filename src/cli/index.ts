@@ -2,7 +2,7 @@
 
 // CLI for Legal Document DSL
 
-import { parse } from "../parser";
+import { Parser } from "../parser/parser";
 import { compile } from "../compiler";
 
 const HELP = `
@@ -79,7 +79,7 @@ async function compileCommand(args: string[]) {
 
   try {
     const input = await Bun.file(inputFile).text();
-    const ast = parse(input);
+    const ast = new Parser().parse(input, { sourcePath: inputFile });
     const buffer = await compile(ast);
 
     await Bun.write(outputFile, buffer);
@@ -127,7 +127,7 @@ async function doCompile(inputFile: string, outputFile: string) {
 
   try {
     const input = await Bun.file(inputFile).text();
-    const ast = parse(input);
+    const ast = new Parser().parse(input, { sourcePath: inputFile });
     const buffer = await compile(ast);
 
     await Bun.write(outputFile, buffer);
@@ -149,7 +149,7 @@ async function parseCommand(args: string[]) {
 
   try {
     const input = await Bun.file(inputFile).text();
-    const ast = parse(input);
+    const ast = new Parser().parse(input, { sourcePath: inputFile });
 
     if (asJson) {
       console.log(JSON.stringify(ast, null, 2));

@@ -8,6 +8,9 @@ export type Node =
   | MetaNode
   | DefineNode
   | UseNode
+  | IfNode
+  | RepeatNode
+  | ForeachNode
   | HeaderNode
   | NumberedItemNode
   | BulletItemNode
@@ -41,6 +44,7 @@ export interface DocumentNode extends BaseNode {
   document?: Record<string, any>;
   meta?: MetaNode;
   imports: ImportNode[];
+  sourcePath?: string;
   body: Node[];
 }
 
@@ -90,6 +94,27 @@ export interface UseNode extends BaseNode {
   name: string;
   label?: string;
   args: Record<string, string>;
+}
+
+export interface IfNode extends BaseNode {
+  type: "if";
+  condition: string;
+  thenBranch: Node[];
+  elseBranch: Node[];
+}
+
+export interface RepeatNode extends BaseNode {
+  type: "repeat";
+  count: number;
+  body: Node[];
+}
+
+export interface ForeachNode extends BaseNode {
+  type: "foreach";
+  item: string;
+  // Path or identifier to iterate over (e.g. items, parties.signatories)
+  iterable: string;
+  body: Node[];
 }
 
 export interface HeaderNode extends BaseNode {
@@ -242,6 +267,9 @@ export interface NodeVisitor<T = void> {
   visitImport?(node: ImportNode): T;
   visitDefine?(node: DefineNode): T;
   visitUse?(node: UseNode): T;
+  visitIf?(node: IfNode): T;
+  visitRepeat?(node: RepeatNode): T;
+  visitForeach?(node: ForeachNode): T;
   visitHeader?(node: HeaderNode): T;
   visitNumberedItem?(node: NumberedItemNode): T;
   visitBulletItem?(node: BulletItemNode): T;
@@ -279,6 +307,12 @@ export function visit<T>(node: Node, visitor: NodeVisitor<T>): T | undefined {
       return visitor.visitDefine?.(node);
     case "use":
       return visitor.visitUse?.(node);
+    case "if":
+      return visitor.visitIf?.(node as IfNode);
+    case "repeat":
+      return visitor.visitRepeat?.(node as RepeatNode);
+    case "foreach":
+      return visitor.visitForeach?.(node as ForeachNode);
     case "header":
       return visitor.visitHeader?.(node);
     case "numbered_item":

@@ -24,17 +24,17 @@ import {
   WidthType,
   TableLayoutType,
   convertInchesToTwip,
-  INumberingOptions,
-  IParagraphOptions,
-  IRunOptions,
 } from "docx";
 
-import {
+import type { INumberingOptions, IParagraphOptions, IRunOptions } from "docx";
+
+import type {
   Node,
   DocumentNode,
   DocHeaderFooterNode,
   DocLayoutNode,
   AnchorNode,
+  DefineNode,
   HeaderNode,
   NumberedItemNode,
   BulletItemNode,
@@ -51,8 +51,9 @@ import {
   BlankNode,
   PageBreakNode,
   NumberingStyle,
-  walkTree,
 } from "../parser/ast";
+
+import { resolveDefinesFromImports } from "../import/resolver";
 
 interface CompilerContext {
   variables: Record<string, any>;
@@ -293,8 +294,8 @@ export class DocxCompiler {
 
     log("compile:meta-vars");
 
-    // Expand @define/@use before indexing anchors and compiling
-    const expandedAst = this.expandDefinesAndUses(ast);
+    // Expand @define/@use, resolve @import, and prune control flow before indexing anchors and compiling
+    const expandedAst = await this.expandDefinesAndUses(ast, this.ctx.variables);
 
     log(`compile:expanded body=${expandedAst.body.length}`);
 
@@ -424,21 +425,32 @@ export class DocxCompiler {
     return buf;
   }
 
-  private expandDefinesAndUses(ast: DocumentNode): DocumentNode {
-    type Def = { params: string[]; template: Node[] };
+  private async expandDefinesAndUses(ast: DocumentNode, globals: Record<string, any>): Promise<DocumentNode> {
+    type Def = { params: string[]; template: Node[]; sourcePath?: string };
 
     const defines = new Map<string, Def>();
     const bodyWithoutDefines: Node[] = [];
 
     const clone = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
 
+    // Imported defines (library) first
+    const imported = await resolveDefinesFromImports(ast);
+    for (const [name, def] of imported.defines.entries()) {
+      defines.set(name, {
+        params: (def.node as any).params ?? [],
+        template: (def.node as any).template ?? [],
+        sourcePath: def.sourcePath,
+      });
+    }
+
+    // Local defines override imported ones
     for (const node of ast.body) {
       if (node.type === "define") {
         const name = (node as any).name as string;
-        if (defines.has(name)) throw new Error(`Duplicate @define: ${name}`);
         defines.set(name, {
           params: ((node as any).params ?? []) as string[],
           template: ((node as any).template ?? []) as Node[],
+          sourcePath: ast.sourcePath,
         });
         continue;
       }
@@ -520,6 +532,320 @@ export class DocxCompiler {
       return node;
     };
 
+    const getPathValue = (root: any, path: string[]): any => {
+      let v = root;
+      for (const key of path) {
+        if (v && typeof v === "object" && key in v) v = v[key];
+        else return undefined;
+      }
+      return v;
+    };
+
+    const parseLiteral = (raw: string): any => {
+      const s = raw.trim();
+      if (s === "true") return true;
+      if (s === "false") return false;
+      if (s === "null") return null;
+      if (/^-?\d+(?:\.\d+)?$/.test(s)) return Number(s);
+      // quoted string
+      if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+        return s.slice(1, -1);
+      }
+      return s;
+    };
+
+    const truthy = (v: any): boolean => {
+      if (v === undefined || v === null) return false;
+      if (typeof v === "boolean") return v;
+      if (typeof v === "number") return v !== 0 && !Number.isNaN(v);
+      if (typeof v === "string") return v.length > 0 && v.toLowerCase() !== "false";
+      if (Array.isArray(v)) return v.length > 0;
+      return true;
+    };
+
+    const tokenizeCond = (raw: string): string[] => {
+      const s = raw.trim();
+      const out: string[] = [];
+      let i = 0;
+      while (i < s.length) {
+        const ch = s[i];
+        if (/\s/.test(ch)) {
+          i++;
+          continue;
+        }
+        if (ch === '"' || ch === "'") {
+          const quote = ch;
+          i++;
+          let buf = "";
+          while (i < s.length) {
+            const c = s[i];
+            if (c === "\\") {
+              const next = s[i + 1];
+              if (next === undefined) break;
+              buf += next;
+              i += 2;
+              continue;
+            }
+            if (c === quote) {
+              i++;
+              break;
+            }
+            buf += c;
+            i++;
+          }
+          out.push(`"${buf}"`);
+          continue;
+        }
+        if (s.startsWith("==", i) || s.startsWith("!=", i)) {
+          out.push(s.slice(i, i + 2));
+          i += 2;
+          continue;
+        }
+        if (ch === "!") {
+          out.push("!");
+          i++;
+          continue;
+        }
+        const start = i;
+        while (i < s.length && !/\s/.test(s[i]) && !["!", "=", "(" , ")"].includes(s[i])) {
+          if (s.startsWith("==", i) || s.startsWith("!=", i)) break;
+          i++;
+        }
+        out.push(s.slice(start, i));
+      }
+      return out.filter(Boolean);
+    };
+
+    const evalCond = (raw: string, locals: Record<string, any>): boolean => {
+      const tokens = tokenizeCond(raw);
+      let i = 0;
+      const peek = () => tokens[i];
+      const next = () => tokens[i++];
+
+      let negate = false;
+      const first = peek();
+      if (first === "not" || first === "!") {
+        negate = true;
+        next();
+      }
+
+      const leftTok = next();
+      if (!leftTok) throw new Error(`Invalid condition: ${raw}`);
+      const op = peek() === "==" || peek() === "!=" ? next() : undefined;
+      const rightTok = op ? next() : undefined;
+      if (op && !rightTok) throw new Error(`Invalid condition: ${raw}`);
+
+      const readValue = (tok: string): any => {
+        // literal
+        if (
+          tok === "true" ||
+          tok === "false" ||
+          tok === "null" ||
+          /^-?\d+(?:\.\d+)?$/.test(tok) ||
+          (tok.startsWith('"') && tok.endsWith('"')) ||
+          (tok.startsWith("'") && tok.endsWith("'"))
+        ) {
+          return parseLiteral(tok);
+        }
+
+        const path = tok.split(".").filter(Boolean);
+        if (path.length === 0) return undefined;
+
+        // locals first
+        if (path[0] in locals) {
+          if (path.length === 1) return locals[path[0]];
+          return getPathValue(locals[path[0]], path.slice(1));
+        }
+        return getPathValue(globals, path);
+      };
+
+      const left = readValue(leftTok);
+      let result: boolean;
+      if (!op) {
+        result = truthy(left);
+      } else {
+        const right = readValue(rightTok!);
+        // Compare numbers if both are numbers; else compare strings
+        if (typeof left === "number" && typeof right === "number") {
+          result = op === "==" ? left === right : left !== right;
+        } else if (typeof left === "boolean" && typeof right === "boolean") {
+          result = op === "==" ? left === right : left !== right;
+        } else {
+          const ls = left === undefined || left === null ? "" : String(left);
+          const rs = right === undefined || right === null ? "" : String(right);
+          result = op === "==" ? ls === rs : ls !== rs;
+        }
+      }
+
+      return negate ? !result : result;
+    };
+
+    const pruneControls = (nodes: any[], locals: Record<string, any>, depth: number, scopePrefix?: string): any[] => {
+      const out: any[] = [];
+      for (const n of nodes) {
+        if (!n || typeof n !== "object") continue;
+        if (n.type === "if") {
+          const cond = String(n.condition ?? "");
+          const ok = evalCond(cond, locals);
+          const branch = ok ? (n.thenBranch ?? []) : (n.elseBranch ?? []);
+          out.push(...pruneControls(branch, locals, depth + 1, scopePrefix));
+          continue;
+        }
+
+        if (n.type === "repeat") {
+          const count = Number(n.count ?? 0);
+          if (!Number.isFinite(count) || count < 0 || Math.floor(count) !== count) {
+            throw new Error(`Invalid @repeat count: ${n.count}`);
+          }
+          if (count > 100) {
+            throw new Error(`@repeat count exceeds maximum (100): ${count}`);
+          }
+          const body = (n.body ?? []) as any[];
+          for (let i = 0; i < count; i++) {
+            const cloned = body.map((x) => clone(x));
+            const iterScope = scopePrefix ? `${scopePrefix}.r${i + 1}` : `r${i + 1}`;
+            const scoped = applyScope(cloned, iterScope);
+            out.push(...pruneControls(scoped, locals, depth + 1, iterScope));
+          }
+          continue;
+        }
+
+        if (n.type === "foreach") {
+          const item = String(n.item ?? "").trim();
+          const iterableExpr = String(n.iterable ?? "").trim();
+          if (!item || !iterableExpr) {
+            throw new Error("Invalid @foreach");
+          }
+
+          const resolveValue = (expr: string): any => {
+            const parts = expr.split(".").filter(Boolean);
+            if (parts.length === 0) return undefined;
+            const root = parts[0]!;
+
+            const rootVal = root in locals ? locals[root] : getPathValue(globals, [root]);
+            if (parts.length === 1) return rootVal;
+            return getPathValue(rootVal, parts.slice(1));
+          };
+
+          const rawVal = resolveValue(iterableExpr);
+          if (rawVal === undefined || rawVal === null) {
+            throw new Error(`@foreach iterable not found: ${iterableExpr}`);
+          }
+
+          let items: any[];
+          if (Array.isArray(rawVal)) {
+            items = rawVal;
+          } else if (typeof rawVal === "string") {
+            const s = rawVal.trim();
+            if (!s) items = [];
+            else if (s.includes(",")) items = s.split(",").map((x) => x.trim()).filter(Boolean);
+            else items = [s];
+          } else if (typeof rawVal === "object") {
+            items = Object.keys(rawVal);
+          } else {
+            throw new Error(`@foreach iterable must be array, object, or string. Got: ${typeof rawVal}`);
+          }
+
+          if (items.length > 100) {
+            throw new Error(`@foreach length exceeds maximum (100): ${items.length}`);
+          }
+
+          const body = (n.body ?? []) as any[];
+
+          const substituteLocalsInInline = (inline: any[], env: Record<string, any>): any[] => {
+            const resolveLocalPath = (v: any, path: string[]): any => {
+              let cur = v;
+              for (const key of path) {
+                if (cur && typeof cur === "object" && key in cur) cur = cur[key];
+                else return undefined;
+              }
+              return cur;
+            };
+
+            return inline.map((node) => {
+              if (!node || typeof node !== "object") return node;
+
+              if (node.type === "variable" && Array.isArray(node.path) && node.path.length > 0) {
+                const root = node.path[0];
+                if (root in env) {
+                  const val = node.path.length === 1 ? env[root] : resolveLocalPath(env[root], node.path.slice(1));
+                  if (val !== undefined) {
+                    const text = applyFilters(String(val), node.filters ?? []);
+                    return { type: "text", line: node.line, column: node.column, value: text };
+                  }
+                }
+              }
+
+              if (node.type === "emphasis" && Array.isArray(node.content)) {
+                return { ...node, content: substituteLocalsInInline(node.content, env) };
+              }
+
+              return node;
+            });
+          };
+
+          const substituteLocalsInNode = (node: any, env: Record<string, any>): any => {
+            if (!node || typeof node !== "object") return node;
+
+            if (node.type === "paragraph" || node.type === "header") {
+              return { ...node, content: substituteLocalsInInline(node.content ?? [], env) };
+            }
+            if (node.type === "numbered_item" || node.type === "bullet_item") {
+              return {
+                ...node,
+                content: substituteLocalsInInline(node.content ?? [], env),
+                children: (node.children ?? []).map((c: any) => substituteLocalsInNode(c, env)),
+              };
+            }
+            if (node.type === "modifier") {
+              return { ...node, content: (node.content ?? []).map((c: any) => substituteLocalsInNode(c, env)) };
+            }
+            if (node.type === "table") {
+              return {
+                ...node,
+                rows: (node.rows ?? []).map((r: any) => ({
+                  ...r,
+                  cells: (r.cells ?? []).map((cell: any[]) => substituteLocalsInInline(cell ?? [], env)),
+                })),
+              };
+            }
+            if (node.type === "doc_header" || node.type === "doc_footer") {
+              return { ...node, content: (node.content ?? []).map((c: any) => substituteLocalsInNode(c, env)) };
+            }
+            return node;
+          };
+
+          for (let i = 0; i < items.length; i++) {
+            const env = { ...locals, [item]: items[i], index: i + 1, [`${item}_index`]: i + 1 };
+
+            const cloned = body.map((x) => clone(x));
+            const rewritten = cloned.map((x) => substituteLocalsInNode(x, env));
+            const iterScope = scopePrefix ? `${scopePrefix}.for${item}${i + 1}` : `for${item}${i + 1}`;
+            const scoped = applyScope(rewritten, iterScope);
+            out.push(...pruneControls(scoped, env, depth + 1, iterScope));
+          }
+          continue;
+        }
+
+        // Recurse into blocks that can contain nodes
+        if (Array.isArray(n.content)) {
+          n.content = pruneControls(n.content, locals, depth + 1, scopePrefix);
+        }
+        if (Array.isArray(n.children)) {
+          n.children = pruneControls(n.children, locals, depth + 1, scopePrefix);
+        }
+        if (Array.isArray(n.body)) {
+          n.body = pruneControls(n.body, locals, depth + 1, scopePrefix);
+        }
+        if (Array.isArray(n.rows)) {
+          // tables: rows are objects with cells inline; they won't contain IfNodes in rows array in our AST
+        }
+
+        out.push(n);
+      }
+      return out;
+    };
+
     const hasAnchorNodes = (nodes: Node[]): boolean => {
       const stack: any[] = [...nodes];
       while (stack.length) {
@@ -553,10 +879,22 @@ export class DocxCompiler {
     const usedLabels = new Set<string>();
     const autoCounts = new Map<string, number>();
 
-    const expandSeq = (nodes: Node[], callStack: string[] = [], depth = 0, scopePrefix?: string): Node[] => {
+    const expandSeq = (
+      nodes: Node[],
+      callStack: string[] = [],
+      depth = 0,
+      scopePrefix?: string,
+      locals: Record<string, any> = {}
+    ): Node[] => {
       if (depth > 50) throw new Error("@use expansion too deep (possible recursion)");
       const out: Node[] = [];
       for (const node of nodes) {
+        if ((node as any).type === "if" || (node as any).type === "repeat" || (node as any).type === "foreach") {
+          const keep = pruneControls([clone(node as any)], locals, depth, scopePrefix);
+          out.push(...(keep as any));
+          continue;
+        }
+
         if ((node as any).type !== "use") {
           out.push(node);
           continue;
@@ -605,13 +943,13 @@ export class DocxCompiler {
         const cloned = def.template.map((n) => clone(n));
         const rewritten = def.params.length > 0 ? cloned.map((n: any) => rewriteParams(n, paramSet, useArgs)) : cloned;
         const scoped = fullScope ? applyScope(rewritten as any, fullScope) : (rewritten as any);
-        const expanded = expandSeq(scoped as any, [...callStack, useName], depth + 1, fullScope);
+        const expanded = expandSeq(scoped as any, [...callStack, useName], depth + 1, fullScope, useArgs);
         out.push(...expanded);
       }
       return out;
     };
 
-    const expandedBody = expandSeq(bodyWithoutDefines);
+    const expandedBody = expandSeq(pruneControls(bodyWithoutDefines.map((n) => clone(n)) as any, {}, 0), [], 0, undefined, {});
     return { ...ast, body: expandedBody };
   }
 
@@ -628,7 +966,8 @@ export class DocxCompiler {
     }
 
     if (Object.keys(spacing).length > 0) {
-      options.spacing = spacing;
+      // docx typings treat paragraph options as readonly-ish in places; mutate safely.
+      (options as any).spacing = spacing;
     }
   }
 

@@ -3,6 +3,14 @@ import { Lexer, TokenType } from "../src/parser/lexer";
 import { Parser } from "../src/parser/parser";
 import { DocxCompiler } from "../src/compiler/docx";
 import JSZip from "jszip";
+import { resolve } from "node:path";
+
+function must<T>(value: T): NonNullable<T> {
+  if (value === undefined || value === null) {
+    throw new Error("Expected value to be defined");
+  }
+  return value as NonNullable<T>;
+}
 
 describe("Lexer", () => {
   test("tokenizes numbered items with levels", () => {
@@ -11,12 +19,15 @@ describe("Lexer", () => {
 
     const numbered = tokens.filter((t) => t.type === TokenType.NUMBERED_ITEM);
     expect(numbered).toHaveLength(3);
-    expect(numbered[0].level).toBe(1);
-    expect(numbered[0].style).toBe("1");
-    expect(numbered[1].level).toBe(2);
-    expect(numbered[1].style).toBe("a");
-    expect(numbered[2].level).toBe(3);
-    expect(numbered[2].style).toBe("i");
+    const n0 = must(numbered[0]);
+    const n1 = must(numbered[1]);
+    const n2 = must(numbered[2]);
+    expect(n0.level).toBe(1);
+    expect(n0.style).toBe("1");
+    expect(n1.level).toBe(2);
+    expect(n1.style).toBe("a");
+    expect(n2.level).toBe(3);
+    expect(n2.style).toBe("i");
   });
 
   test("tokenizes modifiers", () => {
@@ -25,8 +36,10 @@ describe("Lexer", () => {
 
     const modifiers = tokens.filter((t) => t.type === TokenType.MODIFIER);
     expect(modifiers).toHaveLength(2);
-    expect(modifiers[0].value).toBe("center");
-    expect(modifiers[1].value).toBe("bold");
+    const m0 = must(modifiers[0]);
+    const m1 = must(modifiers[1]);
+    expect(m0.value).toBe("center");
+    expect(m1.value).toBe("bold");
   });
 
   test("tokenizes variables", () => {
@@ -35,8 +48,10 @@ describe("Lexer", () => {
 
     const vars = tokens.filter((t) => t.type === TokenType.VARIABLE);
     expect(vars).toHaveLength(2);
-    expect(vars[0].value).toBe("name");
-    expect(vars[1].value).toBe("property.address");
+    const v0 = must(vars[0]);
+    const v1 = must(vars[1]);
+    expect(v0.value).toBe("name");
+    expect(v1.value).toBe("property.address");
   });
 
   test("tokenizes headers", () => {
@@ -45,9 +60,12 @@ describe("Lexer", () => {
 
     const headers = tokens.filter((t) => t.type === TokenType.HEADER);
     expect(headers).toHaveLength(3);
-    expect(headers[0].level).toBe(1);
-    expect(headers[1].level).toBe(2);
-    expect(headers[2].level).toBe(3);
+    const h0 = must(headers[0]);
+    const h1 = must(headers[1]);
+    const h2 = must(headers[2]);
+    expect(h0.level).toBe(1);
+    expect(h1.level).toBe(2);
+    expect(h2.level).toBe(3);
   });
 
   test("tokenizes bullets", () => {
@@ -56,8 +74,10 @@ describe("Lexer", () => {
 
     const bullets = tokens.filter((t) => t.type === TokenType.BULLET);
     expect(bullets).toHaveLength(2);
-    expect(bullets[0].level).toBe(1);
-    expect(bullets[1].level).toBe(2);
+    const b0 = must(bullets[0]);
+    const b1 = must(bullets[1]);
+    expect(b0.level).toBe(1);
+    expect(b1.level).toBe(2);
   });
 
   test("tokenizes emphasis", () => {
@@ -75,12 +95,15 @@ describe("Lexer", () => {
 
     const mods = tokens.filter((t) => t.type === TokenType.MODIFIER);
     expect(mods).toHaveLength(3);
-    expect(mods[0].value).toBe("indent");
-    expect(mods[0].count).toBe(2);
-    expect(mods[1].value).toBe("outdent");
-    expect(mods[1].count).toBe(3);
-    expect(mods[2].value).toBe("indent");
-    expect(mods[2].count).toBe(2);
+    const md0 = must(mods[0]);
+    const md1 = must(mods[1]);
+    const md2 = must(mods[2]);
+    expect(md0.value).toBe("indent");
+    expect(md0.count).toBe(2);
+    expect(md1.value).toBe("outdent");
+    expect(md1.count).toBe(3);
+    expect(md2.value).toBe("indent");
+    expect(md2.count).toBe(2);
   });
 
   test("tokenizes explicit end-block sentinel", () => {
@@ -106,8 +129,9 @@ describe("Parser", () => {
   test("parses @anchor", () => {
     const parser = new Parser();
     const ast = parser.parse("@anchor Foo\n# Heading\n");
-    expect(ast.body[0].type).toBe("anchor");
-    expect((ast.body[0] as any).name).toBe("Foo");
+    const n0 = must(ast.body[0]);
+    expect(n0.type).toBe("anchor");
+    expect((n0 as any).name).toBe("Foo");
   });
 
   test("parses numbered items with children", () => {
@@ -125,8 +149,9 @@ describe("Parser", () => {
     const parser = new Parser();
     const ast = parser.parse("@center Hello world");
 
-    expect(ast.body[0].type).toBe("modifier");
-    const modifier = ast.body[0] as any;
+    const n0 = must(ast.body[0]);
+    expect(n0.type).toBe("modifier");
+    const modifier = n0 as any;
     expect(modifier.modifier).toBe("center");
   });
 
@@ -134,7 +159,7 @@ describe("Parser", () => {
     const parser = new Parser();
     const ast = parser.parse("Hello {{name}}");
 
-    const para = ast.body[0] as any;
+    const para = must(ast.body[0]) as any;
     expect(para.type).toBe("paragraph");
     expect(para.content.some((n: any) => n.type === "variable")).toBe(true);
   });
@@ -143,8 +168,9 @@ describe("Parser", () => {
     const parser = new Parser();
     const ast = parser.parse("Hello\nWorld");
     expect(ast.body).toHaveLength(1);
-    expect(ast.body[0].type).toBe("paragraph");
-    const p: any = ast.body[0];
+    const n0 = must(ast.body[0]);
+    expect(n0.type).toBe("paragraph");
+    const p: any = n0;
     const text = p.content.map((n: any) => (n.type === "text" ? n.value : "")).join("");
     expect(text).toBe("Hello World");
   });
@@ -152,8 +178,9 @@ describe("Parser", () => {
   test("soft-wraps single newlines within list item content", () => {
     const parser = new Parser();
     const ast = parser.parse("@1 Hello\nWorld\n\n@2 Next");
-    expect(ast.body[0].type).toBe("numbered_item");
-    const item: any = ast.body[0];
+    const n0 = must(ast.body[0]);
+    expect(n0.type).toBe("numbered_item");
+    const item: any = n0;
     const text = item.content.map((n: any) => (n.type === "text" ? n.value : "")).join("");
     expect(text).toBe("Hello World");
   });
@@ -161,7 +188,7 @@ describe("Parser", () => {
   test("@1 with empty line uses first indented paragraph as content", () => {
     const parser = new Parser();
     const ast = parser.parse("@1\n  Hello\n  World\n@2 Next");
-    const item: any = ast.body[0];
+    const item: any = must(ast.body[0]);
     expect(item.type).toBe("numbered_item");
     const text = item.content.map((n: any) => (n.type === "text" ? n.value : "")).join("");
     expect(text).toBe("Hello World");
@@ -209,56 +236,62 @@ Hello world`);
     const parser = new Parser();
     const ast = parser.parse("Hello\n\nWorld");
 
-    expect(ast.body[0].type).toBe("paragraph");
-    expect(ast.body[1].type).toBe("empty_paragraph");
-    expect((ast.body[1] as any).count).toBe(1);
-    expect(ast.body[2].type).toBe("paragraph");
+    const n0 = must(ast.body[0]);
+    const n1 = must(ast.body[1]);
+    const n2 = must(ast.body[2]);
+    expect(n0.type).toBe("paragraph");
+    expect(n1.type).toBe("empty_paragraph");
+    expect((n1 as any).count).toBe(1);
+    expect(n2.type).toBe("paragraph");
   });
 
   test("preserves blank lines between list item and following paragraph", () => {
     const parser = new Parser();
     const ast = parser.parse("@1 One\n\nTwo");
-    expect(ast.body[0].type).toBe("numbered_item");
-    expect(ast.body[1].type).toBe("empty_paragraph");
-    expect((ast.body[1] as any).count).toBe(1);
-    expect(ast.body[2].type).toBe("paragraph");
+    const n0 = must(ast.body[0]);
+    const n1 = must(ast.body[1]);
+    const n2 = must(ast.body[2]);
+    expect(n0.type).toBe("numbered_item");
+    expect(n1.type).toBe("empty_paragraph");
+    expect((n1 as any).count).toBe(1);
+    expect(n2.type).toBe("paragraph");
   });
 
   test("preserves blank lines inside modifier blocks", () => {
     const parser = new Parser();
     const ast = parser.parse("@center\n  Hello\n\n  World\n");
-    expect(ast.body[0].type).toBe("modifier");
-    const m: any = ast.body[0];
+    expect(must(ast.body[0]).type).toBe("modifier");
+    const m: any = must(ast.body[0]);
     // content should include: paragraph, empty_paragraph, paragraph
-    expect(m.content[0].type).toBe("paragraph");
-    expect(m.content[1].type).toBe("empty_paragraph");
-    expect(m.content[2].type).toBe("paragraph");
+    expect(must(m.content[0]).type).toBe("paragraph");
+    expect(must(m.content[1]).type).toBe("empty_paragraph");
+    expect(must(m.content[2]).type).toBe("paragraph");
   });
 
   test("@; closes modifier block early", () => {
     const parser = new Parser();
     const ast = parser.parse("@box\n  In box\n@;\nOutside\n");
-    expect(ast.body[0].type).toBe("modifier");
-    const m: any = ast.body[0];
+    expect(must(ast.body[0]).type).toBe("modifier");
+    const m: any = must(ast.body[0]);
     expect(m.modifier).toBe("box");
-    expect(m.content[0].type).toBe("paragraph");
-    expect(ast.body[1].type).toBe("paragraph");
+    expect(must(m.content[0]).type).toBe("paragraph");
+    expect(must(ast.body[1]).type).toBe("paragraph");
   });
 
   test("@; closes @meta block early", () => {
     const parser = new Parser();
     const ast = parser.parse("@meta\n  a: 1\n@;\nHello\n");
     expect(ast.meta?.data.a).toBe("1");
-    expect(ast.body[0].type).toBe("paragraph");
+    expect(must(ast.body[0]).type).toBe("paragraph");
   });
 
   test("@; closes @table block early", () => {
     const parser = new Parser();
     const ast = parser.parse("@table\n  [A]\n@;\nHello\n");
-    expect(ast.body[0].type).toBe("table");
-    const t: any = ast.body[0];
+    expect(must(ast.body[0]).type).toBe("table");
+    const t: any = must(ast.body[0]);
     expect(t.rows.length).toBe(1);
-    expect(ast.body[1].type).toBe("paragraph");
+    expect(must(ast.body[1]).type).toBe("paragraph");
   });
 
   test("@; at top-level is an error", () => {
@@ -269,9 +302,9 @@ Hello world`);
   test("parses @define and @use", () => {
     const parser = new Parser();
     const ast = parser.parse("@define Foo\n  Hello\n\n# Title\n\n@use Foo\n");
-    expect(ast.body[0].type).toBe("define");
-    expect((ast.body[0] as any).name).toBe("Foo");
-    expect((ast.body[0] as any).template.length).toBeGreaterThan(0);
+    expect(must(ast.body[0]).type).toBe("define");
+    expect((must(ast.body[0]) as any).name).toBe("Foo");
+    expect((must(ast.body[0]) as any).template.length).toBeGreaterThan(0);
     expect(ast.body.some((n: any) => n.type === "use")).toBe(true);
   });
 
@@ -283,6 +316,83 @@ Hello world`);
     expect(def.params).toEqual(["title", "subject"]);
     expect(use.args.title).toBe("T");
     expect(use.args.subject).toBe("S");
+  });
+
+  test("parses @if/@else/@end", () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@if true
+  Hello
+@else
+  World
+@end
+`);
+
+    expect(must(ast.body[0]).type).toBe("if");
+    const n: any = must(ast.body[0]);
+    expect(n.condition).toBe("true");
+    expect(n.thenBranch.length).toBeGreaterThan(0);
+    expect(n.elseBranch.length).toBeGreaterThan(0);
+  });
+
+  test("parses @repeat", () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@repeat 3
+  Hello
+ @end
+`);
+    expect(must(ast.body[0]).type).toBe("repeat");
+    const r: any = must(ast.body[0]);
+    expect(r.count).toBe(3);
+    expect(r.body.length).toBeGreaterThan(0);
+  });
+
+  test("rejects @repeat without @end", () => {
+    const parser = new Parser();
+    expect(() => parser.parse("@repeat 2\n  x\n")).toThrow(/@repeat missing @end/);
+  });
+
+  test("rejects @repeat above max", () => {
+    const parser = new Parser();
+    expect(() => parser.parse("@repeat 101\n  x\n@end\n")).toThrow(/exceeds maximum/);
+  });
+
+  test("rejects @repeat closed with @;", () => {
+    const parser = new Parser();
+    expect(() => parser.parse("@repeat 1\n  x\n@;\n@end\n")).toThrow(/cannot close @repeat/);
+  });
+
+  test("parses @foreach", () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@foreach item in items
+  {{item}}
+@end
+`);
+
+    expect(must(ast.body[0]).type).toBe("foreach");
+    const f: any = must(ast.body[0]);
+    expect(f.item).toBe("item");
+    expect(f.iterable).toBe("items");
+    expect(f.body.length).toBeGreaterThan(0);
+  });
+
+  test("rejects @foreach without @end", () => {
+    const parser = new Parser();
+    expect(() => parser.parse("@foreach x in items\n  y\n")).toThrow(/@foreach missing @end/);
+  });
+
+  test("rejects @else without @if", () => {
+    const parser = new Parser();
+    expect(() => parser.parse("@else\n  x\n@end\n")).toThrow(/Unmatched @else/);
+  });
+
+  test("rejects @end without @if", () => {
+    const parser = new Parser();
+    expect(() => parser.parse("@end\n")).toThrow(/Unmatched @end/);
+  });
+
+  test("rejects @if without @end", () => {
+    const parser = new Parser();
+    expect(() => parser.parse("@if true\n  x\n")).toThrow(/missing @end/i);
   });
 });
 
@@ -455,6 +565,33 @@ Hello {{name}}`);
     await expect(compiler.compile(ast)).rejects.toThrow(/Recursive @use/);
   });
 
+  test("@import loads defines from another file", async () => {
+    const mainPath = resolve(process.cwd(), "tests/fixtures/imports/main.ldoc");
+    const input = await Bun.file(mainPath).text();
+    const ast = new Parser().parse(input, { sourcePath: mainPath });
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain("Imported clause");
+  });
+
+  test("@import detects cycles", async () => {
+    const mainPath = resolve(process.cwd(), "tests/fixtures/imports/cycle-a.ldoc");
+    const input = await Bun.file(mainPath).text();
+    const ast = new Parser().parse(input, { sourcePath: mainPath });
+    const compiler = new DocxCompiler();
+    await expect(compiler.compile(ast)).rejects.toThrow(/Import cycle detected/);
+  });
+
+  test("@import missing file errors", async () => {
+    const mainPath = resolve(process.cwd(), "tests/fixtures/imports/main.ldoc");
+    const input = `@document\n  title: X\n\n@import ./nope.ldoc\n`;
+    const ast = new Parser().parse(input, { sourcePath: mainPath });
+    const compiler = new DocxCompiler();
+    await expect(compiler.compile(ast)).rejects.toThrow(/Import not found/);
+  });
+
   test("throws on unknown @use", async () => {
     const parser = new Parser();
     const ast = parser.parse("@use Missing\n");
@@ -568,5 +705,73 @@ Body.`);
     expect(xml).toContain("w:shd");
     expect(xml).toContain("F5F5F5");
     expect(xml).toContain("999999");
+  });
+
+  test("@repeat expands N times", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@repeat 3\n  Hi\n@end\nDone\n`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    const text = Array.from(xml.matchAll(/<w:t[^>]*>(.*?)<\/w:t>/g)).map((m) => m[1]);
+    const hiCount = text.filter((t) => t === "Hi").length;
+    expect(hiCount).toBe(3);
+    expect(text.join(" ")).toContain("Done");
+  });
+
+  test("@repeat 0 emits nothing", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@repeat 0\n  Hi\n@end\nDone\n`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).not.toContain(">Hi<");
+    expect(xml).toContain("Done");
+  });
+
+  test("@foreach iterates comma-separated string param", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@define L(items)
+  @foreach item in items
+    {{item}}
+  @end
+
+@use L(items="a,b,c")
+`);
+
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    const text = Array.from(xml.matchAll(/<w:t[^>]*>(.*?)<\/w:t>/g)).map((m) => m[1]);
+    expect(text.join(" ")).toContain("a");
+    expect(text.join(" ")).toContain("b");
+    expect(text.join(" ")).toContain("c");
+  });
+
+  test("@foreach iterates object keys", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@meta
+  items:
+    apple: 1
+    banana: 2
+
+@foreach k in items
+  {{k}}
+@end
+`);
+
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    expect(xml).toContain("apple");
+    expect(xml).toContain("banana");
   });
 });

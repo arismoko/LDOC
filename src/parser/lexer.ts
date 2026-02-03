@@ -8,6 +8,13 @@ export enum TokenType {
   DEFINE = "DEFINE",
   USE = "USE",
 
+  // Control flow
+  IF = "IF",
+  ELSE = "ELSE",
+  END = "END",
+  REPEAT = "REPEAT",
+  FOREACH = "FOREACH",
+
   // Numbered items: @, @@, @@@, @@@@
   NUMBERED_ITEM = "NUMBERED_ITEM",
 
@@ -118,6 +125,7 @@ const KEYWORDS = new Set([
   "else",
   "end",
   "repeat",
+  "foreach",
   "params",
   "template",
 ]);
@@ -221,7 +229,7 @@ export class Lexer {
         value: "@;",
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1],
+        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
       });
 
       // Flush any deferred dedents for this terminator line
@@ -330,7 +338,7 @@ export class Lexer {
       return;
     }
 
-    const currentIndent = this.indentStack[this.indentStack.length - 1];
+    const currentIndent = this.indentStack[this.indentStack.length - 1] ?? 0;
 
     if (indent > currentIndent) {
       this.indentStack.push(indent);
@@ -344,14 +352,14 @@ export class Lexer {
         // Count how many dedents will be needed.
         let count = 0;
         for (let i = this.indentStack.length - 1; i > 0; i--) {
-          if (this.indentStack[i] > indent) count++;
+          if ((this.indentStack[i] ?? 0) > indent) count++;
           else break;
         }
         this.pendingDedents = count;
         return;
       }
 
-      while (this.indentStack.length > 1 && this.indentStack[this.indentStack.length - 1] > indent) {
+      while (this.indentStack.length > 1 && (this.indentStack[this.indentStack.length - 1] ?? 0) > indent) {
         this.indentStack.pop();
         this.tokens.push(this.makeToken(TokenType.DEDENT, "", indent));
       }
@@ -377,7 +385,7 @@ export class Lexer {
         value: "@".repeat(level) + "-",
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1],
+        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
         level,
       });
       return;
@@ -437,7 +445,7 @@ export class Lexer {
         value: word,
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1],
+        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
         count,
       });
       return;
@@ -451,7 +459,7 @@ export class Lexer {
         value: word,
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1],
+        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
       });
       return;
     }
@@ -469,7 +477,7 @@ export class Lexer {
       value: marker,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1],
+      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
       level,
       style,
       marker,
@@ -536,7 +544,7 @@ export class Lexer {
       value: text,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1],
+      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
       level,
     });
   }
@@ -560,7 +568,7 @@ export class Lexer {
       value: name,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1],
+      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
   }
 
@@ -583,7 +591,7 @@ export class Lexer {
       value: ref,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1],
+      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
   }
 
@@ -604,7 +612,7 @@ export class Lexer {
       value: term,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1],
+      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
   }
 
@@ -648,7 +656,7 @@ export class Lexer {
         value: "*".repeat(stars) + this.input.slice(textStart, this.pos),
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1],
+        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
       });
       return;
     }
@@ -662,7 +670,7 @@ export class Lexer {
       value: text,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1],
+      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
   }
 
@@ -680,7 +688,7 @@ export class Lexer {
       value: "_".repeat(count),
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1],
+      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
   }
 
@@ -716,7 +724,7 @@ export class Lexer {
       value: JSON.stringify(content),
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1],
+      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
   }
 
@@ -746,7 +754,7 @@ export class Lexer {
         value: text,
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1],
+        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
       });
     }
   }
@@ -834,6 +842,16 @@ export class Lexer {
         return TokenType.DOC_COLUMNS;
       case "anchor":
         return TokenType.DOC_ANCHOR;
+      case "if":
+        return TokenType.IF;
+      case "else":
+        return TokenType.ELSE;
+      case "end":
+        return TokenType.END;
+      case "repeat":
+        return TokenType.REPEAT;
+      case "foreach":
+        return TokenType.FOREACH;
       case "todo":
         return TokenType.TODO;
       default:
@@ -862,7 +880,7 @@ export class Lexer {
       value,
       line: this.line,
       column: this.column,
-      indent: indent ?? this.indentStack[this.indentStack.length - 1],
+      indent: indent ?? (this.indentStack[this.indentStack.length - 1] ?? 0),
     };
   }
 }

@@ -1,7 +1,8 @@
 // Parser for Legal Document DSL
 
-import { Lexer, Token, TokenType } from "./lexer";
-import {
+import { Lexer, TokenType } from "./lexer";
+import type { Token } from "./lexer";
+import type {
   Node,
   DocumentNode,
   MetaNode,
@@ -30,6 +31,7 @@ export class Parser {
   private tokens: Token[] = [];
   private pos: number = 0;
   private definedTerms: Set<string> = new Set();
+  private sourcePath?: string;
 
   private isBlockStart(type: TokenType): boolean {
     return (
@@ -48,6 +50,11 @@ export class Parser {
       type === TokenType.DOC_LANDSCAPE ||
       type === TokenType.DOC_COLUMNS ||
       type === TokenType.DOC_ANCHOR ||
+      type === TokenType.IF ||
+      type === TokenType.ELSE ||
+      type === TokenType.END ||
+      type === TokenType.REPEAT ||
+      type === TokenType.FOREACH ||
       type === TokenType.END_BLOCK ||
       type === TokenType.DOCUMENT ||
       type === TokenType.META ||
@@ -62,7 +69,13 @@ export class Parser {
   private parseRestOfLineRaw(): string {
     let raw = "";
     while (!this.isAtEnd() && !this.check(TokenType.NEWLINE) && !this.check(TokenType.EOF)) {
-      raw += this.advance().value;
+      const t = this.advance();
+      // Preserve quotes for string-like tokens on directive lines
+      if (t.type === TokenType.DEFINED_TERM) {
+        raw += `"${t.value}"`;
+      } else {
+        raw += t.value;
+      }
     }
     return raw.trim();
   }
@@ -149,11 +162,13 @@ export class Parser {
     }
   }
 
-  parse(input: string): DocumentNode {
+  parse(input: string, options?: { sourcePath?: string }): DocumentNode {
     const lexer = new Lexer(input);
     this.tokens = lexer.tokenize();
     this.pos = 0;
     this.definedTerms = new Set();
+
+    this.sourcePath = options?.sourcePath;
 
     return this.parseDocument();
   }
@@ -244,6 +259,7 @@ export class Parser {
       document,
       meta,
       imports,
+      sourcePath: this.sourcePath,
       body,
     };
   }
@@ -289,6 +305,21 @@ export class Parser {
 
       case TokenType.USE:
         return this.parseUse();
+
+      case TokenType.IF:
+        return this.parseIf();
+
+      case TokenType.REPEAT:
+        return this.parseRepeat();
+
+      case TokenType.FOREACH:
+        return this.parseForeach();
+
+      case TokenType.ELSE:
+        throw new Error(`Unmatched @else at line ${token.line}, column ${token.column}`);
+
+      case TokenType.END:
+        throw new Error(`Unmatched @end at line ${token.line}, column ${token.column}`);
 
       case TokenType.HEADER:
         return this.parseHeader();
@@ -342,6 +373,260 @@ export class Parser {
     }
 
     return result;
+  }
+
+  private parseIf(): Node {
+    const token = this.advance();
+    const condition = this.parseRestOfLineRaw();
+    if (!condition) {
+      throw new Error(`@if requires a condition at line ${token.line}, column ${token.column}`);
+    }
+
+    const thenBranch: Node[] = [];
+    const elseBranch: Node[] = [];
+
+    const la = this.lookaheadNewlinesThenIndent();
+    if (!la.indentAfter) {
+      throw new Error(`@if must be followed by an indented block (line ${token.line})`);
+    }
+
+    // consume newline(s) up to indent
+    this.consumeNewlines();
+    if (!this.check(TokenType.INDENT)) {
+      throw new Error(`@if expected an indented block (line ${token.line})`);
+    }
+    this.advance();
+
+    while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+      if (this.check(TokenType.END_BLOCK)) {
+        throw new Error(`@; cannot close @if. Use @end (line ${this.peek().line})`);
+      }
+
+      if (this.check(TokenType.NEWLINE)) {
+        const start = this.peek();
+        const n = this.consumeNewlines();
+        this.pushBlankLines(thenBranch, start.line, start.column, n);
+        continue;
+      }
+
+      if (this.check(TokenType.DEDENT)) break;
+      const child = this.parseNode();
+      if (child) thenBranch.push(child);
+    }
+
+    if (!this.check(TokenType.DEDENT)) {
+      throw new Error(`@if missing block end (line ${token.line})`);
+    }
+    this.advance();
+
+    // Optional else
+    this.skipNewlines();
+    if (this.check(TokenType.ELSE)) {
+      this.advance();
+
+      const la2 = this.lookaheadNewlinesThenIndent();
+      if (!la2.indentAfter) {
+        throw new Error(`@else must be followed by an indented block (line ${token.line})`);
+      }
+      this.consumeNewlines();
+      if (!this.check(TokenType.INDENT)) {
+        throw new Error(`@else expected an indented block (line ${token.line})`);
+      }
+      this.advance();
+
+      while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+        if (this.check(TokenType.END_BLOCK)) {
+          throw new Error(`@; cannot close @if. Use @end (line ${this.peek().line})`);
+        }
+
+        if (this.check(TokenType.NEWLINE)) {
+          const start = this.peek();
+          const n = this.consumeNewlines();
+          this.pushBlankLines(elseBranch, start.line, start.column, n);
+          continue;
+        }
+
+        if (this.check(TokenType.DEDENT)) break;
+        const child = this.parseNode();
+        if (child) elseBranch.push(child);
+      }
+
+      if (!this.check(TokenType.DEDENT)) {
+        throw new Error(`@else missing block end (line ${token.line})`);
+      }
+      this.advance();
+    }
+
+    this.skipNewlines();
+    if (!this.check(TokenType.END)) {
+      const t = this.peek();
+      throw new Error(`@if missing @end (line ${t.line}, column ${t.column})`);
+    }
+    this.advance();
+    // enforce no inline content after @end
+    if (!this.check(TokenType.NEWLINE) && !this.check(TokenType.EOF)) {
+      const rest = this.parseRestOfLineRaw();
+      if (rest) {
+        throw new Error(`@end does not take arguments (line ${token.line}). Got: ${rest}`);
+      }
+    }
+
+    return {
+      type: "if",
+      line: token.line,
+      column: token.column,
+      condition,
+      thenBranch,
+      elseBranch,
+    } as any;
+  }
+
+  private parseRepeat(): Node {
+    const token = this.advance();
+    const raw = this.parseRestOfLineRaw();
+    if (!raw) {
+      throw new Error(`@repeat requires a count at line ${token.line}, column ${token.column}`);
+    }
+
+    const n = Number.parseInt(raw.trim(), 10);
+    if (!Number.isFinite(n) || String(n) !== raw.trim() || n < 0) {
+      throw new Error(`@repeat count must be a non-negative integer (line ${token.line}). Got: ${raw}`);
+    }
+    if (n > 100) {
+      throw new Error(`@repeat count exceeds maximum (100) (line ${token.line}). Got: ${n}`);
+    }
+
+    const body: Node[] = [];
+
+    const la = this.lookaheadNewlinesThenIndent();
+    if (!la.indentAfter) {
+      throw new Error(`@repeat must be followed by an indented block (line ${token.line})`);
+    }
+
+    this.consumeNewlines();
+    if (!this.check(TokenType.INDENT)) {
+      throw new Error(`@repeat expected an indented block (line ${token.line})`);
+    }
+    this.advance();
+
+    while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+      if (this.check(TokenType.END_BLOCK)) {
+        throw new Error(`@; cannot close @repeat. Use @end (line ${this.peek().line})`);
+      }
+
+      if (this.check(TokenType.NEWLINE)) {
+        const start = this.peek();
+        const nn = this.consumeNewlines();
+        this.pushBlankLines(body, start.line, start.column, nn);
+        continue;
+      }
+
+      if (this.check(TokenType.DEDENT)) break;
+      const child = this.parseNode();
+      if (child) body.push(child);
+    }
+
+    if (!this.check(TokenType.DEDENT)) {
+      throw new Error(`@repeat missing block end (line ${token.line})`);
+    }
+    this.advance();
+
+    this.skipNewlines();
+    if (!this.check(TokenType.END)) {
+      const t = this.peek();
+      throw new Error(`@repeat missing @end (line ${t.line}, column ${t.column})`);
+    }
+    this.advance();
+    if (!this.check(TokenType.NEWLINE) && !this.check(TokenType.EOF)) {
+      const rest = this.parseRestOfLineRaw();
+      if (rest) {
+        throw new Error(`@end does not take arguments (line ${token.line}). Got: ${rest}`);
+      }
+    }
+
+    return {
+      type: "repeat",
+      line: token.line,
+      column: token.column,
+      count: n,
+      body,
+    } as any;
+  }
+
+  private parseForeach(): Node {
+    const token = this.advance();
+    const raw = this.parseRestOfLineRaw();
+    if (!raw) {
+      throw new Error(`@foreach requires syntax: @foreach <item> in <iterable> (line ${token.line})`);
+    }
+
+    const m = raw.match(/^([A-Za-z_][A-Za-z0-9_]*)\s+in\s+(.+)$/);
+    if (!m) {
+      throw new Error(`Invalid @foreach syntax at line ${token.line}. Expected: @foreach <item> in <iterable>. Got: ${raw}`);
+    }
+
+    const item = m[1]!;
+    const iterable = (m[2] ?? "").trim();
+    if (!iterable) {
+      throw new Error(`@foreach missing iterable at line ${token.line}`);
+    }
+
+    const body: Node[] = [];
+
+    const la = this.lookaheadNewlinesThenIndent();
+    if (!la.indentAfter) {
+      throw new Error(`@foreach must be followed by an indented block (line ${token.line})`);
+    }
+
+    this.consumeNewlines();
+    if (!this.check(TokenType.INDENT)) {
+      throw new Error(`@foreach expected an indented block (line ${token.line})`);
+    }
+    this.advance();
+
+    while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+      if (this.check(TokenType.END_BLOCK)) {
+        throw new Error(`@; cannot close @foreach. Use @end (line ${this.peek().line})`);
+      }
+
+      if (this.check(TokenType.NEWLINE)) {
+        const start = this.peek();
+        const nn = this.consumeNewlines();
+        this.pushBlankLines(body, start.line, start.column, nn);
+        continue;
+      }
+
+      if (this.check(TokenType.DEDENT)) break;
+      const child = this.parseNode();
+      if (child) body.push(child);
+    }
+
+    if (!this.check(TokenType.DEDENT)) {
+      throw new Error(`@foreach missing block end (line ${token.line})`);
+    }
+    this.advance();
+
+    this.skipNewlines();
+    if (!this.check(TokenType.END)) {
+      const t = this.peek();
+      throw new Error(`@foreach missing @end (line ${t.line}, column ${t.column})`);
+    }
+    this.advance();
+    if (!this.check(TokenType.NEWLINE) && !this.check(TokenType.EOF)) {
+      const rest = this.parseRestOfLineRaw();
+      if (rest) {
+        throw new Error(`@end does not take arguments (line ${token.line}). Got: ${rest}`);
+      }
+    }
+
+    return {
+      type: "foreach",
+      line: token.line,
+      column: token.column,
+      item,
+      iterable,
+      body,
+    } as any;
   }
 
   private parseDefine(): Node {
@@ -427,7 +712,7 @@ export class Parser {
     if (!m) {
       throw new Error(`Invalid @define signature at line ${line}, column ${column}: ${raw}`);
     }
-    const name = m[1];
+    const name = m[1]!;
     const inner = (m[2] ?? "").trim();
     if (!inner) return { name, params: [] };
 
@@ -474,7 +759,7 @@ export class Parser {
     if (!m) {
       throw new Error(`Invalid @use signature at line ${line}, column ${column}: ${raw}`);
     }
-    const name = m[1];
+    const name = m[1]!;
     const inner = (m[2] ?? "").trim();
     if (!inner) return { name, args: {}, label };
 
@@ -485,18 +770,18 @@ export class Parser {
     let i = 0;
     const s = inner;
     const skipWs = () => {
-      while (i < s.length && /\s/.test(s[i])) i++;
+      while (i < s.length && /\s/.test(s[i]!)) i++;
     };
     const readIdent = (): string => {
       const start = i;
-      while (i < s.length && /[A-Za-z0-9_]/.test(s[i])) i++;
+      while (i < s.length && /[A-Za-z0-9_]/.test(s[i]!)) i++;
       return s.slice(start, i);
     };
     const readQuoted = (quote: '"' | "'"): string => {
       i++; // opening
       let out = "";
       while (i < s.length) {
-        const ch = s[i];
+        const ch = s[i]!;
         if (ch === "\\") {
           const next = s[i + 1];
           if (next === undefined) break;
@@ -515,7 +800,7 @@ export class Parser {
     };
     const readBare = (): string => {
       const start = i;
-      while (i < s.length && !/[\s,]/.test(s[i])) i++;
+      while (i < s.length && !/[\s,]/.test(s[i]!)) i++;
       return s.slice(start, i);
     };
 
@@ -1151,7 +1436,10 @@ export class Parser {
 
         case TokenType.VARIABLE:
           const parts = token.value.split("|").map((s) => s.trim());
-          const namePart = parts[0];
+          const namePart = (parts[0] ?? "").trim();
+          if (!namePart) {
+            throw new Error(`Empty variable at line ${token.line}, column ${token.column}`);
+          }
           const filters = parts.slice(1);
           const path = namePart.split(".");
 
@@ -1256,7 +1544,10 @@ export class Parser {
         i += 2;
 
         const parts = varName.split("|").map((s) => s.trim());
-        const namePart = parts[0];
+        const namePart = (parts[0] ?? "").trim();
+        if (!namePart) {
+          throw new Error(`Empty variable in inline content`);
+        }
 
         nodes.push({
           type: "variable",
