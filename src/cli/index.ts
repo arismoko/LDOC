@@ -4,6 +4,7 @@
 
 import { Parser } from "../parser/parser";
 import { compile } from "../compiler";
+import { docxToLdoc } from "../decompiler";
 
 const HELP = `
 ldoc - Legal Document DSL Compiler
@@ -12,11 +13,13 @@ Usage:
   ldoc compile <input.ldoc> [-o output.docx]
   ldoc watch <input.ldoc>
   ldoc parse <input.ldoc> [--json]
+  ldoc decompile <input.docx> [-o output.ldoc]
 
 Commands:
   compile   Compile .ldoc to .docx
   watch     Watch file and recompile on changes
   parse     Parse and output AST (for debugging)
+  decompile Convert .docx to .ldoc (lossy)
 
 Options:
   -o, --output    Output file path (default: <input>.docx)
@@ -28,6 +31,8 @@ Examples:
   ldoc compile agreement.ldoc -o output/agreement.docx
   ldoc watch agreement.ldoc
   ldoc parse agreement.ldoc --json
+  ldoc decompile agreement.docx
+  ldoc decompile agreement.docx -o agreement.ldoc
 `;
 
 async function main() {
@@ -38,7 +43,7 @@ async function main() {
     process.exit(0);
   }
 
-  const command = args[0];
+  const command = args[0] ?? "";
 
   switch (command) {
     case "compile":
@@ -53,15 +58,49 @@ async function main() {
       await parseCommand(args.slice(1));
       break;
 
+    case "decompile":
+      await decompileCommand(args.slice(1));
+      break;
+
     default:
       // Assume it's a file to compile
       if (command.endsWith(".ldoc")) {
         await compileCommand(args);
+      } else if (command.endsWith(".docx")) {
+        await decompileCommand(args);
       } else {
         console.error(`Unknown command: ${command}`);
         console.log(HELP);
         process.exit(1);
       }
+  }
+}
+
+async function decompileCommand(args: string[]) {
+  const inputFile = args.find((a) => a.endsWith(".docx"));
+  if (!inputFile) {
+    console.error("Error: No input .docx file specified");
+    process.exit(1);
+  }
+
+  const outputIndex = args.indexOf("-o") !== -1 ? args.indexOf("-o") : args.indexOf("--output");
+  const outputFile =
+    outputIndex !== -1 ? (args[outputIndex + 1] ?? "") : inputFile.replace(".docx", ".ldoc");
+  if (!outputFile) {
+    console.error("Error: Missing output path after -o/--output");
+    process.exit(1);
+  }
+
+  console.log(`Decompiling ${inputFile} -> ${outputFile}`);
+
+  try {
+    const buf = await Bun.file(inputFile).arrayBuffer();
+    const ldoc = await docxToLdoc(buf);
+    await Bun.write(outputFile, ldoc);
+    console.log(`✓ Written ${outputFile} (${ldoc.length} chars)`);
+  } catch (error) {
+    console.error("Decompile error:", error);
+    process.exit(1);
   }
 }
 
@@ -73,7 +112,12 @@ async function compileCommand(args: string[]) {
   }
 
   const outputIndex = args.indexOf("-o") !== -1 ? args.indexOf("-o") : args.indexOf("--output");
-  const outputFile = outputIndex !== -1 ? args[outputIndex + 1] : inputFile.replace(".ldoc", ".docx");
+  const outputFile =
+    outputIndex !== -1 ? (args[outputIndex + 1] ?? "") : inputFile.replace(".ldoc", ".docx");
+  if (!outputFile) {
+    console.error("Error: Missing output path after -o/--output");
+    process.exit(1);
+  }
 
   console.log(`Compiling ${inputFile} -> ${outputFile}`);
 

@@ -3,6 +3,7 @@ import { Lexer, TokenType } from "../src/parser/lexer";
 import { Parser } from "../src/parser/parser";
 import { DocxCompiler } from "../src/compiler/docx";
 import JSZip from "jszip";
+import { docxToLdoc } from "../src/decompiler";
 import { resolve } from "node:path";
 
 function must<T>(value: T): NonNullable<T> {
@@ -1052,6 +1053,48 @@ describe("Table styling", () => {
     const headerRow = tblRows.find(r => r.includes('w:tblHeader'));
     expect(headerRow).toBeDefined();
     expect(headerRow).toContain('<w:b');
+  });
+});
+
+describe("DOCX -> LDOC (decompile)", () => {
+  test("round-trip headings, emphasis, lists, and tables", async () => {
+    const input = `# Title
+
+This is **bold** and *italic* and ***both***.
+
+@ Item one
+@@ Nested item
+@- Bullet one
+@@- Nested bullet
+
+@table
+  [A, B]
+  [1, 2]
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    expect(out).toContain("# Title");
+    expect(out).toContain("**bold**");
+    expect(out).toContain("*italic*");
+    expect(out).toContain("***both***");
+
+    // Lists should reappear with the same marker grammar (auto numbering may not match original)
+    expect(out).toMatch(/\n@ /);
+    expect(out).toMatch(/\n@@ /);
+    expect(out).toMatch(/\n@- /);
+    expect(out).toMatch(/\n@@- /);
+
+    expect(out).toContain("@table");
+    // Table header row is bold by default in our DOCX styling.
+    expect(out).toMatch(/\[(\*\*A\*\*|A), (\*\*B\*\*|B)\]/);
+    expect(out).toMatch(/\[(\*\*1\*\*|1), (\*\*2\*\*|2)\]/);
+  });
+
+  test("errors on non-docx input", async () => {
+    await expect(docxToLdoc(new Uint8Array([1, 2, 3]))).rejects.toThrow(/document\.xml|zip|corrupt/i);
   });
 });
 
