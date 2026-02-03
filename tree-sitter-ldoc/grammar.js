@@ -21,6 +21,16 @@ module.exports = grammar({
         $.modifier_line,
         $.table_block,
         $.pagebreak,
+        $.doc_header,
+        $.doc_footer,
+        $.firstpage,
+        $.evenpage,
+        $.margins,
+        $.spacing,
+        $.landscape,
+        $.columns,
+        $.anchor,
+        $.end_block,
         $.comment,
         $.paragraph,
         $._newline
@@ -115,7 +125,8 @@ module.exports = grammar({
       choice(
         "@center",
         "@right",
-        "@indent",
+        seq("@indent", optional(seq(":", $.integer))),
+        seq("@outdent", optional(seq(":", $.integer))),
         "@box",
         "@bold",
         "@italic",
@@ -209,8 +220,22 @@ module.exports = grammar({
     // Helpers
     identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
 
+    integer: ($) => /[0-9]+/,
+
     _indent: ($) => /[ \t]+/,
 
     _newline: ($) => /\n/,
   },
 });
+    doc_header: ($) => seq("@header", optional(/[^\n]+/)),
+    doc_footer: ($) => seq("@footer", optional(/[^\n]+/)),
+    firstpage: ($) => seq("@firstpage", optional(/[^\n]+/)),
+    evenpage: ($) => seq("@evenpage", optional(/[^\n]+/)),
+
+    margins: ($) => seq("@margins", optional(/[^\n]+/)),
+    spacing: ($) => seq("@spacing", optional(/[^\n]+/)),
+    landscape: ($) => seq("@landscape", optional(/[^\n]+/)),
+    columns: ($) => seq("@columns", optional(/[^\n]+/)),
+
+    anchor: ($) => seq("@anchor", optional(/[^\n]+/)),
+    end_block: ($) => "@;",

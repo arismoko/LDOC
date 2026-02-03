@@ -35,6 +35,16 @@ export enum TokenType {
 
   // Control
   PAGEBREAK = "PAGEBREAK",
+  DOC_HEADER = "DOC_HEADER",
+  DOC_FOOTER = "DOC_FOOTER",
+  DOC_FIRSTPAGE = "DOC_FIRSTPAGE",
+  DOC_EVENPAGE = "DOC_EVENPAGE",
+  DOC_MARGINS = "DOC_MARGINS",
+  DOC_SPACING = "DOC_SPACING",
+  DOC_LANDSCAPE = "DOC_LANDSCAPE",
+  DOC_COLUMNS = "DOC_COLUMNS",
+  DOC_ANCHOR = "DOC_ANCHOR",
+  END_BLOCK = "END_BLOCK",
   COMMENT = "COMMENT",
   TODO = "TODO",
 
@@ -51,6 +61,8 @@ export interface Token {
   line: number;
   column: number;
   indent: number;
+  // For modifiers
+  count?: number; // e.g. @indent:2
   // For numbered items
   level?: number; // Number of @ symbols
   style?: string; // '1', 'a', 'i', 'A', 'I', '1.1', etc.
@@ -68,6 +80,7 @@ const MODIFIERS = new Set([
   "center",
   "right",
   "indent",
+  "outdent",
   "box",
   "bold",
   "italic",
@@ -92,10 +105,12 @@ const KEYWORDS = new Set([
   "header",
   "footer",
   "firstpage",
+  "evenpage",
   "margins",
   "spacing",
   "landscape",
   "columns",
+  "anchor",
   "numbering",
   "if",
   "else",
@@ -177,6 +192,36 @@ export class Lexer {
     if (this.pos >= this.input.length) return;
 
     const char = this.peek();
+
+    // Explicit block terminator (closes innermost open block)
+    // Must be a standalone line: optional leading whitespace + `@;` + optional trailing whitespace
+    if (char === "@" && this.peek(1) === ";") {
+      const startCol = this.column;
+      this.advance(); // @
+      this.advance(); // ;
+
+      // Only allow trailing whitespace before newline/EOF
+      while (this.pos < this.input.length && (this.peek() === " " || this.peek() === "\t")) {
+        this.advance();
+      }
+
+      if (this.pos < this.input.length && this.peek() !== "\n") {
+        const context = this.input.slice(Math.max(0, this.pos - 10), this.pos + 20);
+        throw new Error(
+          `Invalid @; terminator: unexpected characters before newline at line ${this.line}, column ${startCol}. ` +
+            `Context: "${context.replace(/\n/g, "\\n")}"`
+        );
+      }
+
+      this.tokens.push({
+        type: TokenType.END_BLOCK,
+        value: "@;",
+        line: this.line,
+        column: startCol,
+        indent: this.indentStack[this.indentStack.length - 1],
+      });
+      return;
+    }
 
     // Comments
     if (char === "/" && this.peek(1) === "/") {
@@ -262,6 +307,14 @@ export class Lexer {
       this.advance();
     }
 
+    // Special case: the explicit block terminator `@;` is evaluated at the current
+    // indentation context. This allows writing `@;` at the parent indentation level
+    // (i.e., with no leading tabs/spaces) to close the current block, without having
+    // the lexer emit DEDENT tokens before the terminator.
+    if (this.peek() === "@" && this.peek(1) === ";") {
+      return;
+    }
+
     // Skip empty lines
     if (this.peek() === "\n" || this.pos >= this.input.length) {
       return;
@@ -315,12 +368,52 @@ export class Lexer {
 
     // Is it a modifier?
     if (level === 1 && MODIFIERS.has(word)) {
+      let count: number | undefined;
+
+      // Parameter forms:
+      // - @indent:2
+      // - @indent 2   (only when the number is the only thing left on the line)
+      if (this.peek() === ":") {
+        this.advance();
+        const start = this.pos;
+        while (/[0-9]/.test(this.peek())) {
+          this.advance();
+        }
+        const raw = this.input.slice(start, this.pos);
+        if (raw) count = parseInt(raw, 10);
+      } else {
+        // Try space form safely
+        const savePos = this.pos;
+        const saveCol = this.column;
+        this.skipInlineWhitespace();
+
+        const start = this.pos;
+        while (/[0-9]/.test(this.peek())) {
+          this.advance();
+        }
+        const raw = this.input.slice(start, this.pos);
+
+        // Only treat as a count if the rest of the line is whitespace then newline/EOF
+        const afterDigitsPos = this.pos;
+        while (this.peek() === " " || this.peek() === "\t") {
+          this.advance();
+        }
+        if (raw && (this.peek() === "\n" || this.pos >= this.input.length)) {
+          count = parseInt(raw, 10);
+        } else {
+          // Roll back; it was content
+          this.pos = savePos;
+          this.column = saveCol;
+        }
+      }
+
       this.tokens.push({
         type: TokenType.MODIFIER,
         value: word,
         line: this.line,
         column: startCol,
         indent: this.indentStack[this.indentStack.length - 1],
+        count,
       });
       return;
     }
@@ -696,6 +789,24 @@ export class Lexer {
         return TokenType.TABLE;
       case "pagebreak":
         return TokenType.PAGEBREAK;
+      case "header":
+        return TokenType.DOC_HEADER;
+      case "footer":
+        return TokenType.DOC_FOOTER;
+      case "firstpage":
+        return TokenType.DOC_FIRSTPAGE;
+      case "evenpage":
+        return TokenType.DOC_EVENPAGE;
+      case "margins":
+        return TokenType.DOC_MARGINS;
+      case "spacing":
+        return TokenType.DOC_SPACING;
+      case "landscape":
+        return TokenType.DOC_LANDSCAPE;
+      case "columns":
+        return TokenType.DOC_COLUMNS;
+      case "anchor":
+        return TokenType.DOC_ANCHOR;
       case "todo":
         return TokenType.TODO;
       default:

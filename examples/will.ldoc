@@ -15,9 +15,17 @@
 
 I, {{testator}}, of State of {{state}} County of {{county}}, state of residence at the time of death, revoke any prior wills and codicils and make this my will.
 
-## MY FAMILY
+@box
+  MY **FAMILY**
+@;
+
 
 I have two children. Their names and dates of birth are: Danielle K. Jensen, born on September 6, 2007; and Lauren A. Groshone, born on March 8, 2011. My Personal Representative may accept these dates as conclusive in making any determination for which they are pertinent. All references to "my children" shall include my children as of the date of this instrument.
+@1 
+  My personal representative shall make payments from my estate as follows:
+  My personal representative shall pay from the residue of my estate or
+  shall direct the trustee of the {{trust_name}}, dated {{trust_date}},
+  to pay, or both, as determined in the sole discretion of my personal representative.
 
 @center
   ## ARTICLE ONE

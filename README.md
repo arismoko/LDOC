@@ -19,7 +19,10 @@ This is a running checklist derived from `legal-dsl-spec.md`.
 
 ### Syntax & Core Structure
 
-- [x] `@document <Title>`
+- [x] `@document` (block metadata/settings; does not auto-render)
+
+Notes:
+- `@document` must be a block (indented key/value). Inline `@document <Title>` is intentionally not supported.
 - [x] Markdown headers: `#`, `##`, `###`
 - [x] `@meta` block (nested keys)
 - [x] Comments: `//` and `/* ... */`
@@ -30,7 +33,8 @@ This is a running checklist derived from `legal-dsl-spec.md`.
 
 - [x] Alignment: `@center`, `@right`
 - [x] `@indent` (Indent block paragraphs)
-- [ ] `@box` (Missing: parsed, DOCX output not implemented)
+- [x] `@outdent` (Outdent block paragraphs)
+- [x] `@box` (Bordered box)
 - [x] Text styles: `@bold`, `@italic`, `@small`, `@caps`
 - [x] Chaining/nesting: `@center @bold ...` and indented blocks
 
@@ -49,7 +53,7 @@ This is a running checklist derived from `legal-dsl-spec.md`.
 - [x] Variables: `{{var}}`, `{{nested.path}}`
 - [x] Filters: `{{var | upper}}`, `lower`, `capitalize`
 - [x] Defined terms: first-use formatting for `"Term"`
-- [ ] Cross-reference validation + real links/fields (Partial: `[[...]]` renders as text)
+- [x] Cross-reference validation + real links/fields (`[[...]]` -> internal DOCX hyperlink; fails compile if missing)
 - [x] Blanks: `___` and longer underscore runs
 - [x] Emphasis: `*italic*`, `**bold**`, `***both***`
 
@@ -63,10 +67,10 @@ This is a running checklist derived from `legal-dsl-spec.md`.
 ### Page & Layout
 
 - [x] `@pagebreak`
-- [ ] Headers/footers: `@header`, `@footer`, `@firstpage` (Missing)
-- [ ] `@margins` (Missing)
-- [ ] `@spacing` (Missing)
-- [ ] `@landscape` (Missing)
+- [x] Headers/footers: `@header`, `@footer`, `@firstpage`
+- [x] `@margins` (Section page margins)
+- [x] `@spacing` (Default paragraph spacing)
+- [x] `@landscape` (Landscape page orientation)
 - [ ] `@columns` (Missing)
 
 ### Templates, Imports, Control Flow
@@ -118,7 +122,9 @@ bun run ldoc parse document.ldoc --json
 ### Document structure
 
 ```ldoc
-@document Real Estate Purchase Agreement
+@document
+  title: Real Estate Purchase Agreement
+  short_title: Purchase Agreement
 
 @meta
   date: February 15, 2026

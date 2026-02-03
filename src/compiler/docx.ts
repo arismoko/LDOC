@@ -5,6 +5,13 @@ import {
   Packer,
   Paragraph,
   TextRun,
+  Bookmark,
+  InternalHyperlink,
+  Header,
+  Footer,
+  PageNumber,
+  PageOrientation,
+  LineRuleType,
   Table,
   TableRow,
   TableCell,
@@ -13,7 +20,9 @@ import {
   LevelFormat,
   PageBreak,
   BorderStyle,
+  ShadingType,
   WidthType,
+  TableLayoutType,
   convertInchesToTwip,
   INumberingOptions,
   IParagraphOptions,
@@ -23,6 +32,9 @@ import {
 import {
   Node,
   DocumentNode,
+  DocHeaderFooterNode,
+  DocLayoutNode,
+  AnchorNode,
   HeaderNode,
   NumberedItemNode,
   BulletItemNode,
@@ -34,6 +46,7 @@ import {
   InlineNode,
   TextNode,
   VariableNode,
+  CrossRefNode,
   EmphasisNode,
   BlankNode,
   PageBreakNode,
@@ -55,9 +68,35 @@ interface TextStyle {
   heading?: 1 | 2 | 3 | 4 | 5 | 6;
 }
 
+const BOX_DEFAULTS = {
+  border: {
+    style: BorderStyle.SINGLE,
+    // size is in eighths of a point; 8 = 1pt
+    size: 8,
+    color: "999999",
+  },
+  shading: {
+    type: ShadingType.CLEAR,
+    fill: "F5F5F5",
+  },
+  padding: {
+    top: convertInchesToTwip(0.15),
+    bottom: convertInchesToTwip(0.15),
+    left: convertInchesToTwip(0.25),
+    right: convertInchesToTwip(0.25),
+  },
+} as const;
+
 export class DocxCompiler {
   private ctx: CompilerContext;
   private numberingConfig: INumberingOptions;
+
+  private defaultSpacing?: { before?: number; after?: number; line?: number };
+
+  private bookmarkByKey: Map<string, string> = new Map();
+  private bookmarkNames: Set<string> = new Set();
+  private missingCrossRefs: Set<string> = new Set();
+  private missingVariables: Map<string, { line: number; column: number }> = new Map();
 
   constructor(variables: Record<string, any> = {}) {
     this.ctx = {
@@ -216,35 +255,128 @@ export class DocxCompiler {
   }
 
   async compile(ast: DocumentNode): Promise<Buffer> {
+    this.bookmarkByKey = new Map();
+    this.bookmarkNames = new Set();
+    this.missingCrossRefs = new Set();
+    this.missingVariables = new Map();
+
+    // Extract document-level settings/metadata
+    if (!this.ctx.variables.document || typeof this.ctx.variables.document !== "object") {
+      this.ctx.variables.document = {};
+    }
+    if (ast.document && typeof ast.document === "object") {
+      this.ctx.variables.document = { ...(this.ctx.variables.document as any), ...ast.document };
+    }
+
     // Extract variables from meta
     if (ast.meta) {
       this.ctx.variables = { ...this.ctx.variables, ...this.flattenMeta(ast.meta.data) };
     }
 
+    // Index anchors before compilation (supports forward refs)
+    this.indexAnchors(ast);
+
     const children: (Paragraph | Table)[] = [];
 
-    // Document title
-    if (ast.title) {
-      children.push(
-        new Paragraph({
-          text: ast.title.toUpperCase(),
-          heading: HeadingLevel.HEADING_1,
-          alignment: AlignmentType.CENTER,
-          spacing: { after: 400 },
-        })
-      );
-    }
+    const { body: bodyWithoutLayout, layout } = this.extractLayout(ast.body);
+    this.defaultSpacing = layout.spacing;
+    const { body, headers, footers } = this.extractHeadersFooters(bodyWithoutLayout);
+
+    // NOTE: @document does not auto-render a visible title.
 
     // Compile body
-    for (const node of ast.body) {
-      const compiled = this.compileNode(node);
+    const isAnchorRenderable = (n: Node): boolean =>
+      n.type === "header" ||
+      n.type === "paragraph" ||
+      n.type === "numbered_item" ||
+      n.type === "bullet_item" ||
+      n.type === "modifier" ||
+      n.type === "table" ||
+      n.type === "page_break";
+
+    let pendingAnchors: string[] = [];
+    for (const node of body) {
+      if (node.type === "anchor") {
+        pendingAnchors.push((node as any).name);
+        continue;
+      }
+
+      // Skip non-renderables without consuming pending anchors
+      if (!isAnchorRenderable(node)) {
+        const compiled = this.compileNode(node);
+        children.push(...compiled);
+        continue;
+      }
+
+      const bookmarkIds = pendingAnchors.length
+        ? (pendingAnchors
+            .map((a) => this.bookmarkByKey.get(this.normalizeRefKey(a)))
+            .filter(Boolean) as string[])
+        : undefined;
+
+      const compiled = this.compileNode(node, {}, undefined, undefined, bookmarkIds);
       children.push(...compiled);
+      pendingAnchors = [];
+    }
+
+    const allowUndefined = Boolean((this.ctx.variables.document as any)?.allow_undefined);
+
+    if (!allowUndefined && this.missingCrossRefs.size > 0) {
+      const missing = Array.from(this.missingCrossRefs).sort();
+      throw new Error(`Unresolved cross-references:\n- ${missing.join("\n- ")}`);
+    }
+
+    if (!allowUndefined && this.missingVariables.size > 0) {
+      const missing = Array.from(this.missingVariables.entries())
+        .map(([k, v]) => `${k} (line ${v.line}, col ${v.column})`)
+        .sort();
+      throw new Error(`Unresolved variables:\n- ${missing.join("\n- ")}`);
+    }
+
+    const hasFirst = Boolean(headers.first || footers.first);
+    const hasEven = Boolean(headers.even || footers.even);
+
+    const sectionHeaders: any = {};
+    const sectionFooters: any = {};
+    if (headers.default) sectionHeaders.default = headers.default;
+    if (headers.first) sectionHeaders.first = headers.first;
+    if (headers.even) sectionHeaders.even = headers.even;
+    if (footers.default) sectionFooters.default = footers.default;
+    if (footers.first) sectionFooters.first = footers.first;
+    if (footers.even) sectionFooters.even = footers.even;
+
+    const docTitle = (this.ctx.variables.document as any)?.title;
+    const docSubject = (this.ctx.variables.document as any)?.subject;
+    const docCreator = (this.ctx.variables.document as any)?.creator;
+    const docKeywords = (this.ctx.variables.document as any)?.keywords;
+
+    const sectionPage: any = {};
+    if (layout.margins) {
+      sectionPage.margin = layout.margins;
+    }
+    if (layout.landscape) {
+      sectionPage.size = {
+        orientation: PageOrientation.LANDSCAPE,
+        width: layout.pageWidthTwip,
+        height: layout.pageHeightTwip,
+      };
     }
 
     const doc = new Document({
       numbering: this.numberingConfig,
+      evenAndOddHeaderAndFooters: hasEven,
+      title: typeof docTitle === "string" ? docTitle : undefined,
+      subject: typeof docSubject === "string" ? docSubject : undefined,
+      creator: typeof docCreator === "string" ? docCreator : undefined,
+      keywords: typeof docKeywords === "string" ? docKeywords : undefined,
       sections: [
         {
+          properties: {
+            titlePage: hasFirst,
+            ...(Object.keys(sectionPage).length ? { page: sectionPage } : {}),
+          },
+          headers: Object.keys(sectionHeaders).length ? sectionHeaders : undefined,
+          footers: Object.keys(sectionFooters).length ? sectionFooters : undefined,
           children,
         },
       ],
@@ -253,66 +385,291 @@ export class DocxCompiler {
     return await Packer.toBuffer(doc);
   }
 
+  private applyDefaultSpacing(options: IParagraphOptions): void {
+    if (!this.defaultSpacing) return;
+    if (options.spacing) return;
+
+    const spacing: any = {};
+    if (this.defaultSpacing.before !== undefined) spacing.before = this.defaultSpacing.before;
+    if (this.defaultSpacing.after !== undefined) spacing.after = this.defaultSpacing.after;
+    if (this.defaultSpacing.line !== undefined) {
+      spacing.line = this.defaultSpacing.line;
+      spacing.lineRule = LineRuleType.AUTO;
+    }
+
+    if (Object.keys(spacing).length > 0) {
+      options.spacing = spacing;
+    }
+  }
+
   private compileNode(
     node: Node,
     style: TextStyle = {},
     alignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
-    indentLeftTwip?: number
+    indentLeftTwip?: number,
+    forcedBookmarks?: string[]
   ): (Paragraph | Table)[] {
     switch (node.type) {
       case "header":
-        return [this.compileHeader(node, alignment, indentLeftTwip)];
+        return [this.compileHeader(node, alignment, indentLeftTwip, forcedBookmarks)];
 
       case "numbered_item":
-        return this.compileNumberedItem(node, style, alignment);
+        return this.compileNumberedItem(node, style, alignment, forcedBookmarks);
 
       case "bullet_item":
-        return this.compileBulletItem(node, style, alignment);
+        return this.compileBulletItem(node, style, alignment, forcedBookmarks);
 
       case "modifier":
-        return this.compileModifier(node, style, alignment, indentLeftTwip);
+        return this.compileModifier(node, style, alignment, indentLeftTwip, forcedBookmarks);
 
       case "empty_paragraph":
+        if (forcedBookmarks && forcedBookmarks.length > 0) {
+          const first = this.makeBookmarkParagraph(forcedBookmarks, indentLeftTwip);
+          const rest = Array.from({ length: Math.max(0, node.count) }, () =>
+            new Paragraph({ indent: indentLeftTwip ? { left: indentLeftTwip } : undefined })
+          );
+          return [first, ...rest];
+        }
         return Array.from({ length: Math.max(0, node.count) }, () =>
           new Paragraph({ indent: indentLeftTwip ? { left: indentLeftTwip } : undefined })
         );
 
       case "paragraph":
-        return [this.compileParagraph(node, style, alignment, indentLeftTwip)];
+        return [this.compileParagraph(node, style, alignment, indentLeftTwip, forcedBookmarks)];
 
       case "table":
-        return [this.compileTable(node)];
+        return [this.compileTable(node, forcedBookmarks, indentLeftTwip)];
 
       case "page_break":
+        if (forcedBookmarks && forcedBookmarks.length > 0) {
+          return [
+            this.makeBookmarkParagraph(forcedBookmarks, indentLeftTwip),
+            new Paragraph({ children: [new PageBreak()], indent: indentLeftTwip ? { left: indentLeftTwip } : undefined }),
+          ];
+        }
         return [new Paragraph({ children: [new PageBreak()], indent: indentLeftTwip ? { left: indentLeftTwip } : undefined })];
 
       case "comment":
         return []; // Comments are not rendered
+
+      case "doc_layout":
+        return [];
+
+      case "anchor":
+        return [];
 
       default:
         return [];
     }
   }
 
+  private makeBookmarkParagraph(bookmarkIds: string[], indentLeftTwip?: number): Paragraph {
+    let children: any[] = [new TextRun({ text: "" })];
+    for (let i = bookmarkIds.length - 1; i >= 0; i--) {
+      children = [new Bookmark({ id: bookmarkIds[i], children })];
+    }
+    const options: IParagraphOptions = { children, indent: indentLeftTwip ? { left: indentLeftTwip } : undefined };
+    this.applyDefaultSpacing(options);
+    return new Paragraph(options);
+  }
+
+  private extractLayout(body: Node[]): {
+    body: Node[];
+    layout: {
+      margins?: { top: number; right: number; bottom: number; left: number; header?: number; footer?: number };
+      spacing?: { before?: number; after?: number; line?: number };
+      landscape: boolean;
+      pageWidthTwip: number;
+      pageHeightTwip: number;
+    };
+  } {
+    // Defaults: Letter portrait unless landscape enabled
+    const LETTER_PORTRAIT = { width: 12240, height: 15840 };
+    const LETTER_LANDSCAPE = { width: 15840, height: 12240 };
+    const A4_PORTRAIT = { width: Math.round(8.27 * 1440), height: Math.round(11.69 * 1440) };
+    const A4_LANDSCAPE = { width: A4_PORTRAIT.height, height: A4_PORTRAIT.width };
+
+    let pageSize: "letter" | "a4" = "letter";
+
+    const layout: any = {
+      landscape: false,
+      pageWidthTwip: LETTER_PORTRAIT.width,
+      pageHeightTwip: LETTER_PORTRAIT.height,
+    };
+
+    const keep: Node[] = [];
+    for (const n of body) {
+      if (n.type !== "doc_layout") {
+        keep.push(n);
+        continue;
+      }
+
+      const dl = n as any as DocLayoutNode;
+      switch (dl.kind) {
+        case "margins": {
+          layout.margins = this.parseMargins(dl.args);
+          break;
+        }
+        case "spacing": {
+          layout.spacing = this.parseSpacing(dl.args);
+          break;
+        }
+        case "landscape": {
+          const arg = (dl.args || "").trim().toLowerCase();
+          if (arg === "a4") pageSize = "a4";
+          if (arg === "letter" || arg === "") pageSize = pageSize;
+          layout.landscape = true;
+          break;
+        }
+        case "columns": {
+          throw new Error("@columns is parsed but not implemented yet");
+        }
+      }
+    }
+
+    const size = pageSize === "a4" ? (layout.landscape ? A4_LANDSCAPE : A4_PORTRAIT) : (layout.landscape ? LETTER_LANDSCAPE : LETTER_PORTRAIT);
+    layout.pageWidthTwip = size.width;
+    layout.pageHeightTwip = size.height;
+
+    return { body: keep, layout };
+  }
+
+  private parseLengthToTwip(raw: string): number {
+    const m = raw.trim().match(/^([0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt)$/i);
+    if (!m) {
+      throw new Error(`Invalid length: ${raw}. Use units like 1in, 2cm, 12pt.`);
+    }
+    const value = parseFloat(m[1]);
+    const unit = m[2].toLowerCase();
+    switch (unit) {
+      case "in":
+        return Math.round(value * 1440);
+      case "cm":
+        return Math.round(value * 1440 / 2.54);
+      case "mm":
+        return Math.round(value * 1440 / 25.4);
+      case "pt":
+        return Math.round(value * 20);
+      default:
+        throw new Error(`Unsupported unit: ${unit}`);
+    }
+  }
+
+  private parseMargins(args: string): { top: number; right: number; bottom: number; left: number; header?: number; footer?: number } {
+    const parts = (args || "").trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) {
+      throw new Error("@margins requires values, e.g. @margins 1in or @margins 1in 1.25in 1in 1.25in");
+    }
+
+    const kv: Record<string, number> = {};
+    const vals: number[] = [];
+    for (const p of parts) {
+      const eq = p.indexOf("=");
+      if (eq !== -1) {
+        const k = p.slice(0, eq).toLowerCase();
+        const v = p.slice(eq + 1);
+        kv[k] = this.parseLengthToTwip(v);
+      } else {
+        vals.push(this.parseLengthToTwip(p));
+      }
+    }
+
+    let top: number, right: number, bottom: number, left: number;
+    if (vals.length === 1) {
+      top = right = bottom = left = vals[0];
+    } else if (vals.length === 2) {
+      top = bottom = vals[0];
+      left = right = vals[1];
+    } else if (vals.length === 3) {
+      top = vals[0];
+      left = right = vals[1];
+      bottom = vals[2];
+    } else if (vals.length === 4) {
+      [top, right, bottom, left] = vals;
+    } else if (vals.length === 0) {
+      // allow only key=value forms
+      top = right = bottom = left = this.parseLengthToTwip("1in");
+    } else {
+      throw new Error("@margins supports 1-4 positional values (CSS-like), plus optional header=/footer=");
+    }
+
+    const out: any = { top, right, bottom, left };
+    if (kv.header !== undefined) out.header = kv.header;
+    if (kv.footer !== undefined) out.footer = kv.footer;
+    return out;
+  }
+
+  private parseSpacing(args: string): { before?: number; after?: number; line?: number } {
+    const raw = (args || "").trim();
+    if (!raw) throw new Error("@spacing requires args, e.g. @spacing 1.5 or @spacing before=6pt after=6pt line=1.5");
+
+    const parts = raw.split(/\s+/).filter(Boolean);
+    const out: any = {};
+    for (const p of parts) {
+      const eq = p.indexOf("=");
+      if (eq === -1) {
+        // line multiplier
+        const mult = parseFloat(p);
+        if (!Number.isFinite(mult) || mult <= 0) throw new Error(`Invalid line spacing: ${p}`);
+        out.line = Math.round(mult * 240);
+        continue;
+      }
+      const k = p.slice(0, eq).toLowerCase();
+      const v = p.slice(eq + 1);
+      if (k === "line") {
+        const mult = parseFloat(v);
+        if (!Number.isFinite(mult) || mult <= 0) throw new Error(`Invalid line spacing: ${v}`);
+        out.line = Math.round(mult * 240);
+      } else if (k === "before") {
+        out.before = this.parseLengthToTwip(v);
+      } else if (k === "after") {
+        out.after = this.parseLengthToTwip(v);
+      } else {
+        throw new Error(`Unknown @spacing key: ${k}`);
+      }
+    }
+    return out;
+  }
+
   private compileHeader(
     node: HeaderNode,
     alignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
-    indentLeftTwip?: number
+    indentLeftTwip?: number,
+    forcedBookmarks?: string[]
   ): Paragraph {
     const headingLevel = this.getHeadingLevel(node.level);
 
-    return new Paragraph({
-      children: this.compileInlineNodes(node.content),
+    const text = this.inlineText(node.content);
+    const key = this.normalizeRefKey(text);
+    const anchor = this.bookmarkByKey.get(key);
+    const children = this.compileInlineNodes(node.content);
+
+    let wrappedChildren: any[] = children;
+    if (forcedBookmarks && forcedBookmarks.length > 0) {
+      for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
+        wrappedChildren = [new Bookmark({ id: forcedBookmarks[i], children: wrappedChildren })];
+      }
+    }
+    if (anchor) {
+      wrappedChildren = [new Bookmark({ id: anchor, children: wrappedChildren })];
+    }
+
+    const options: IParagraphOptions = {
+      children: wrappedChildren,
       heading: headingLevel,
       alignment: alignment ?? AlignmentType.LEFT,
       indent: indentLeftTwip ? { left: indentLeftTwip } : undefined,
-    });
+    };
+
+    this.applyDefaultSpacing(options);
+    return new Paragraph(options);
   }
 
   private compileNumberedItem(
     node: NumberedItemNode,
     style: TextStyle,
-    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType]
+    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
+    forcedBookmarks?: string[]
   ): (Paragraph | Table)[] {
     const results: (Paragraph | Table)[] = [];
 
@@ -320,11 +677,21 @@ export class DocxCompiler {
     const reference = this.getNumberingReference(node.style);
     const level = node.level - 1; // 0-indexed
 
+    const listChildren = this.wrapBookmarkForListItem(node, style, forcedBookmarks);
     results.push(
       new Paragraph({
-        children: this.compileInlineNodes(node.content, style),
+        children: listChildren,
         numbering: { reference, level },
         alignment,
+        spacing: this.defaultSpacing
+          ? {
+              ...(this.defaultSpacing.before !== undefined ? { before: this.defaultSpacing.before } : {}),
+              ...(this.defaultSpacing.after !== undefined ? { after: this.defaultSpacing.after } : {}),
+              ...(this.defaultSpacing.line !== undefined
+                ? { line: this.defaultSpacing.line, lineRule: LineRuleType.AUTO }
+                : {}),
+            }
+          : undefined,
       })
     );
 
@@ -345,15 +712,26 @@ export class DocxCompiler {
   private compileBulletItem(
     node: BulletItemNode,
     style: TextStyle,
-    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType]
+    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
+    forcedBookmarks?: string[]
   ): (Paragraph | Table)[] {
     const results: (Paragraph | Table)[] = [];
 
+    const bulletChildren = this.wrapBookmarkForBulletItem(node, style, forcedBookmarks);
     results.push(
       new Paragraph({
-        children: this.compileInlineNodes(node.content, style),
+        children: bulletChildren,
         numbering: { reference: "bullets", level: node.level - 1 },
         alignment,
+        spacing: this.defaultSpacing
+          ? {
+              ...(this.defaultSpacing.before !== undefined ? { before: this.defaultSpacing.before } : {}),
+              ...(this.defaultSpacing.after !== undefined ? { after: this.defaultSpacing.after } : {}),
+              ...(this.defaultSpacing.line !== undefined
+                ? { line: this.defaultSpacing.line, lineRule: LineRuleType.AUTO }
+                : {}),
+            }
+          : undefined,
       })
     );
 
@@ -374,7 +752,8 @@ export class DocxCompiler {
     node: ModifierNode,
     parentStyle: TextStyle,
     parentAlignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
-    indentLeftTwip?: number
+    indentLeftTwip?: number,
+    forcedBookmarks?: string[]
   ): (Paragraph | Table)[] {
     const results: (Paragraph | Table)[] = [];
 
@@ -402,12 +781,15 @@ export class DocxCompiler {
         style.size = 20; // 10pt
         break;
       case "indent":
-        // Indent all paragraphs in this block (0.5in per @indent level)
-        indent = (indent ?? 0) + convertInchesToTwip(0.5);
+        // Indent all paragraphs in this block (0.5in per level)
+        indent = (indent ?? 0) + convertInchesToTwip(0.5 * (node.count ?? 1));
+        break;
+      case "outdent":
+        // Outdent all paragraphs in this block (0.5in per level)
+        indent = Math.max(0, (indent ?? 0) - convertInchesToTwip(0.5 * (node.count ?? 1)));
         break;
       case "box":
-        // TODO: Implement box styling
-        break;
+        return [this.compileBox(node, style, alignment, indent, forcedBookmarks)];
       case "h1":
         style.heading = 1;
         break;
@@ -428,24 +810,79 @@ export class DocxCompiler {
         break;
     }
 
+    let pending = forcedBookmarks;
     for (const child of node.content) {
-      results.push(...this.compileNode(child, style, alignment, indent));
+      results.push(...this.compileNode(child, style, alignment, indent, pending));
+      pending = undefined;
     }
 
     return results;
+  }
+
+  private compileBox(
+    node: ModifierNode,
+    style: TextStyle,
+    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
+    indentLeftTwip?: number,
+    forcedBookmarks?: string[]
+  ): Table {
+    const children: (Paragraph | Table)[] = [];
+    if (forcedBookmarks && forcedBookmarks.length > 0) {
+      children.push(this.makeBookmarkParagraph(forcedBookmarks));
+    }
+    for (const child of node.content) {
+      children.push(...this.compileNode(child, style, alignment, indentLeftTwip));
+    }
+
+    if (children.length === 0) {
+      children.push(new Paragraph({}));
+    }
+
+    const border = {
+      style: BOX_DEFAULTS.border.style,
+      size: BOX_DEFAULTS.border.size,
+      color: BOX_DEFAULTS.border.color,
+    };
+
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      layout: TableLayoutType.FIXED,
+      indent: indentLeftTwip ? { size: indentLeftTwip, type: WidthType.DXA } : undefined,
+      rows: [
+        new TableRow({
+          cantSplit: true,
+          children: [
+            new TableCell({
+              children,
+              shading: BOX_DEFAULTS.shading,
+              margins: BOX_DEFAULTS.padding,
+              borders: {
+                top: border,
+                bottom: border,
+                left: border,
+                right: border,
+              },
+            }),
+          ],
+        }),
+      ],
+    });
   }
 
   private compileParagraph(
     node: ParagraphNode,
     style: TextStyle,
     alignment?: (typeof AlignmentType)[keyof typeof AlignmentType],
-    indentLeftTwip?: number
+    indentLeftTwip?: number,
+    forcedBookmarks?: string[]
   ): Paragraph {
     const options: IParagraphOptions = {
-      children: this.compileInlineNodes(node.content, style),
+      children: this.wrapBookmarkForParagraph(node, style, forcedBookmarks),
       alignment: alignment ?? AlignmentType.LEFT,
       indent: indentLeftTwip ? { left: indentLeftTwip } : undefined,
     };
+
+    this.applyDefaultSpacing(options);
 
     // Apply heading style if set
     if (style.heading) {
@@ -461,13 +898,20 @@ export class DocxCompiler {
     return convertInchesToTwip(inches);
   }
 
-  private compileTable(node: TableNode): Table {
+  private compileTable(node: TableNode, forcedBookmarks?: string[], indentLeftTwip?: number): Table {
     const rows = node.rows.map((row, index) => {
       const cells = row.cells.map((cellContent) => {
+        let paragraphChildren: any[] = this.compileInlineNodes(cellContent);
+        if (forcedBookmarks && forcedBookmarks.length > 0 && index === 0) {
+          for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
+            paragraphChildren = [new Bookmark({ id: forcedBookmarks[i], children: paragraphChildren })];
+          }
+          forcedBookmarks = undefined;
+        }
         return new TableCell({
           children: [
             new Paragraph({
-              children: this.compileInlineNodes(cellContent),
+              children: paragraphChildren,
             }),
           ],
         });
@@ -482,11 +926,12 @@ export class DocxCompiler {
     return new Table({
       rows,
       width: { size: 100, type: WidthType.PERCENTAGE },
+      indent: indentLeftTwip ? { size: indentLeftTwip, type: WidthType.DXA } : undefined,
     });
   }
 
-  private compileInlineNodes(nodes: InlineNode[], baseStyle: TextStyle = {}): TextRun[] {
-    const runs: TextRun[] = [];
+  private compileInlineNodes(nodes: InlineNode[], baseStyle: TextStyle = {}): any[] {
+    const runs: any[] = [];
 
     for (const node of nodes) {
       switch (node.type) {
@@ -495,6 +940,14 @@ export class DocxCompiler {
           break;
 
         case "variable":
+          if (node.path.length === 1 && node.path[0] === "page") {
+            runs.push(new TextRun({ children: [PageNumber.CURRENT] }));
+            break;
+          }
+          if (node.path.length === 1 && node.path[0] === "pages") {
+            runs.push(new TextRun({ children: [PageNumber.TOTAL_PAGES] }));
+            break;
+          }
           const value = this.resolveVariable(node);
           runs.push(this.createTextRun(value, baseStyle));
           break;
@@ -523,13 +976,266 @@ export class DocxCompiler {
           break;
 
         case "cross_ref":
-          // TODO: Add hyperlink support
-          runs.push(this.createTextRun(node.target, { ...baseStyle, italics: true }));
+          const raw = node.target;
+          const anchor = this.resolveAnchor(raw);
+          if (!anchor) {
+            this.missingCrossRefs.add(raw.trim());
+            runs.push(this.createTextRun(raw, { ...baseStyle, italics: true }));
+            break;
+          }
+
+          runs.push(
+            new InternalHyperlink({
+              anchor,
+              children: [
+                new TextRun({
+                  text: raw,
+                  style: "Hyperlink",
+                }),
+              ],
+            })
+          );
           break;
       }
     }
 
     return runs;
+  }
+
+  private wrapBookmarkForParagraph(node: ParagraphNode, style: TextStyle, forcedBookmarks?: string[]): any[] {
+    const children = this.compileInlineNodes(node.content, style);
+    let wrapped: any[] = children;
+    if (forcedBookmarks && forcedBookmarks.length > 0) {
+      for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
+        wrapped = [new Bookmark({ id: forcedBookmarks[i], children: wrapped })];
+      }
+    }
+
+    // Only auto-bookmark heading-styled paragraphs
+    if (!style.heading) return wrapped;
+
+    const text = this.inlineText(node.content);
+    const anchor = this.bookmarkByKey.get(this.normalizeRefKey(text));
+    return anchor ? [new Bookmark({ id: anchor, children: wrapped })] : wrapped;
+  }
+
+  private wrapBookmarkForListItem(node: NumberedItemNode, style: TextStyle, forcedBookmarks?: string[]): any[] {
+    let children: any[] = this.compileInlineNodes(node.content, style);
+    if (forcedBookmarks && forcedBookmarks.length > 0) {
+      for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
+        children = [new Bookmark({ id: forcedBookmarks[i], children })];
+      }
+    }
+    const label = this.numberingLabel(node.style);
+    if (!label) return children;
+    const anchor = this.bookmarkByKey.get(this.normalizeRefKey(label));
+    return anchor ? [new Bookmark({ id: anchor, children })] : children;
+  }
+
+  private wrapBookmarkForBulletItem(node: BulletItemNode, style: TextStyle, forcedBookmarks?: string[]): any[] {
+    let children: any[] = this.compileInlineNodes(node.content, style);
+    if (forcedBookmarks && forcedBookmarks.length > 0) {
+      for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
+        children = [new Bookmark({ id: forcedBookmarks[i], children })];
+      }
+    }
+    // Bullets have no stable label by default
+    return children;
+  }
+
+  private resolveAnchor(raw: string): string | undefined {
+    const key = this.normalizeRefKey(raw);
+    if (this.bookmarkByKey.has(key)) return this.bookmarkByKey.get(key);
+
+    // Try stripping common prefixes
+    const stripped = raw
+      .trim()
+      .replace(/^section\s+/i, "")
+      .replace(/^article\s+/i, "")
+      .replace(/^exhibit\s+/i, "")
+      .trim();
+    const key2 = this.normalizeRefKey(stripped);
+    return this.bookmarkByKey.get(key2);
+  }
+
+  private indexAnchors(ast: DocumentNode): void {
+    const duplicate: string[] = [];
+
+    const define = (lookup: string, bookmarkName: string, source?: { line: number; column: number }): void => {
+      const key = this.normalizeRefKey(lookup);
+      if (!key) return;
+      const existing = this.bookmarkByKey.get(key);
+      if (existing && existing !== bookmarkName) {
+        duplicate.push(source ? `${lookup} (line ${source.line}, col ${source.column})` : lookup);
+        return;
+      }
+      this.bookmarkByKey.set(key, bookmarkName);
+    };
+
+    const newBookmarkName = (label: string): string => {
+      const base = this.bookmarkSafeName(label);
+      let name = base;
+      let i = 2;
+      while (this.bookmarkNames.has(name)) {
+        name = `${base}_${i++}`;
+        if (name.length > 40) name = name.slice(0, 40);
+      }
+      this.bookmarkNames.add(name);
+      return name;
+    };
+
+    const isAnchorRenderable = (n: Node): boolean =>
+      n.type === "header" ||
+      n.type === "paragraph" ||
+      n.type === "numbered_item" ||
+      n.type === "bullet_item" ||
+      n.type === "modifier" ||
+      n.type === "table" ||
+      n.type === "page_break";
+
+    const walkSeq = (nodes: Node[], style: TextStyle = {}): void => {
+      let pendingAnchors: AnchorNode[] = [];
+      for (const node of nodes) {
+        if (node.type === "anchor") {
+          pendingAnchors.push(node as any);
+          continue;
+        }
+
+        // Do not attach anchors to non-renderables (blank lines, comments, layout directives, etc.)
+        if (!isAnchorRenderable(node)) {
+          continue;
+        }
+
+        // Apply pending explicit anchors to this node (as aliases)
+        if (pendingAnchors.length > 0) {
+          for (const a of pendingAnchors) {
+            const name = a.name.trim();
+            const bookmark = newBookmarkName(name);
+            define(name, bookmark, { line: a.line, column: a.column });
+          }
+          pendingAnchors = [];
+        }
+
+        switch (node.type) {
+          case "header": {
+            const text = this.inlineText(node.content);
+            const bookmark = newBookmarkName(text);
+            define(text, bookmark);
+            break;
+          }
+          case "numbered_item": {
+            const label = this.numberingLabel(node.style);
+            if (label) {
+              const bookmark = newBookmarkName(label);
+              define(label, bookmark);
+              if (/^\d/.test(label)) define(`Section ${label}`, bookmark);
+              define(`Article ${label}`, bookmark);
+            }
+            walkSeq(node.children, style);
+            break;
+          }
+          case "bullet_item": {
+            walkSeq(node.children, style);
+            break;
+          }
+          case "modifier": {
+            const next: TextStyle = { ...style };
+            if (node.modifier === "h1") next.heading = 1;
+            if (node.modifier === "h2") next.heading = 2;
+            if (node.modifier === "h3") next.heading = 3;
+            if (node.modifier === "h4") next.heading = 4;
+            if (node.modifier === "h5") next.heading = 5;
+            if (node.modifier === "h6") next.heading = 6;
+            walkSeq(node.content, next);
+            break;
+          }
+          case "paragraph": {
+            if (style.heading) {
+              const text = this.inlineText(node.content);
+              const bookmark = newBookmarkName(text);
+              define(text, bookmark);
+            }
+            break;
+          }
+          default:
+            break;
+        }
+      }
+    };
+
+    walkSeq(ast.body, {});
+
+    if (duplicate.length > 0) {
+      const uniq = Array.from(new Set(duplicate)).sort();
+      throw new Error(`Duplicate anchors:\n- ${uniq.join("\n- ")}`);
+    }
+  }
+
+  private registerAnchor(labelForLookup: string, labelForName: string): void {
+    const key = this.normalizeRefKey(labelForLookup);
+    if (!key) return;
+    if (this.bookmarkByKey.has(key)) return;
+
+    const base = this.bookmarkSafeName(labelForName);
+    let name = base;
+    let i = 2;
+    while (this.bookmarkNames.has(name)) {
+      name = `${base}_${i++}`;
+      if (name.length > 40) name = name.slice(0, 40);
+    }
+    this.bookmarkNames.add(name);
+    this.bookmarkByKey.set(key, name);
+  }
+
+  private bookmarkSafeName(label: string): string {
+    // Word bookmark rules: start with letter, only [A-Za-z0-9_], no spaces.
+    const slug = label
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+/, "")
+      .replace(/_+$/, "");
+    const core = slug || "anchor";
+    const prefixed = /^[a-z]/.test(core) ? core : `a_${core}`;
+    const clipped = prefixed.length > 40 ? prefixed.slice(0, 40) : prefixed;
+    return clipped;
+  }
+
+  private normalizeRefKey(label: string): string {
+    return label
+      .trim()
+      .replace(/\s+/g, " ")
+      .replace(/[“”]/g, '"')
+      .toLowerCase();
+  }
+
+  private numberingLabel(style: NumberingStyle): string | undefined {
+    switch (style.type) {
+      case "decimal_sub":
+        return style.pattern;
+      case "decimal":
+        return style.start ? String(style.start) : undefined;
+      case "alpha_lower":
+      case "alpha_upper":
+      case "roman_lower":
+      case "roman_upper":
+        return style.start;
+      default:
+        return undefined;
+    }
+  }
+
+  private inlineText(nodes: InlineNode[]): string {
+    let s = "";
+    for (const n of nodes) {
+      if (n.type === "text") s += n.value;
+      else if (n.type === "variable") s += `{{${n.name}}}`;
+      else if (n.type === "defined_term") s += `"${n.term}"`;
+      else if (n.type === "cross_ref") s += `[[${n.target}]]`;
+      else if (n.type === "blank") s += "_".repeat(n.length);
+      else if (n.type === "emphasis") s += this.inlineText(n.content);
+    }
+    return s.trim();
   }
 
   private createTextRun(text: string, style: TextStyle): TextRun {
@@ -543,6 +1249,62 @@ export class DocxCompiler {
     return new TextRun(options);
   }
 
+  private extractHeadersFooters(body: Node[]): {
+    body: Node[];
+    headers: { default?: Header; first?: Header; even?: Header };
+    footers: { default?: Footer; first?: Footer; even?: Footer };
+  } {
+    const keep: Node[] = [];
+
+    const headerNodes: Record<string, DocHeaderFooterNode | undefined> = {
+      default: undefined,
+      first: undefined,
+      even: undefined,
+    };
+    const footerNodes: Record<string, DocHeaderFooterNode | undefined> = {
+      default: undefined,
+      first: undefined,
+      even: undefined,
+    };
+
+    for (const n of body) {
+      if (n.type === "doc_header") {
+        headerNodes[(n as any).scope] = n as any;
+        continue;
+      }
+      if (n.type === "doc_footer") {
+        footerNodes[(n as any).scope] = n as any;
+        continue;
+      }
+      keep.push(n);
+    }
+
+    const compileHF = (node?: DocHeaderFooterNode): (Paragraph | Table)[] => {
+      if (!node) return [];
+      const parts: (Paragraph | Table)[] = [];
+      for (const child of node.content) {
+        parts.push(...this.compileNode(child));
+      }
+      // Ensure at least one paragraph so Word shows the header/footer region
+      if (parts.length === 0) parts.push(new Paragraph({}));
+      return parts;
+    };
+
+    const headers: any = {
+      default: headerNodes.default ? new Header({ children: compileHF(headerNodes.default) }) : undefined,
+      first: headerNodes.first ? new Header({ children: compileHF(headerNodes.first) }) : undefined,
+      even: headerNodes.even ? new Header({ children: compileHF(headerNodes.even) }) : undefined,
+    };
+
+    const footers: any = {
+      default: footerNodes.default ? new Footer({ children: compileHF(footerNodes.default) }) : undefined,
+      first: footerNodes.first ? new Footer({ children: compileHF(footerNodes.first) }) : undefined,
+      even: footerNodes.even ? new Footer({ children: compileHF(footerNodes.even) }) : undefined,
+    };
+
+    return { body: keep, headers, footers };
+  }
+
   private resolveVariable(node: VariableNode): string {
     let value: any = this.ctx.variables;
 
@@ -550,6 +1312,10 @@ export class DocxCompiler {
       if (value && typeof value === "object" && key in value) {
         value = value[key];
       } else {
+        const label = node.path.join(".");
+        if (!this.missingVariables.has(label)) {
+          this.missingVariables.set(label, { line: node.line, column: node.column });
+        }
         return `{{${node.name}}}`; // Unresolved variable
       }
     }

@@ -39,6 +39,16 @@ export class Parser {
       type === TokenType.MODIFIER ||
       type === TokenType.TABLE ||
       type === TokenType.PAGEBREAK ||
+      type === TokenType.DOC_HEADER ||
+      type === TokenType.DOC_FOOTER ||
+      type === TokenType.DOC_FIRSTPAGE ||
+      type === TokenType.DOC_EVENPAGE ||
+      type === TokenType.DOC_MARGINS ||
+      type === TokenType.DOC_SPACING ||
+      type === TokenType.DOC_LANDSCAPE ||
+      type === TokenType.DOC_COLUMNS ||
+      type === TokenType.DOC_ANCHOR ||
+      type === TokenType.END_BLOCK ||
       type === TokenType.DOCUMENT ||
       type === TokenType.META ||
       type === TokenType.IMPORT ||
@@ -46,6 +56,24 @@ export class Parser {
       type === TokenType.COMMENT ||
       type === TokenType.TODO
     );
+  }
+
+  private parseRestOfLineRaw(): string {
+    let raw = "";
+    while (!this.isAtEnd() && !this.check(TokenType.NEWLINE) && !this.check(TokenType.EOF)) {
+      raw += this.advance().value;
+    }
+    return raw.trim();
+  }
+
+  private consumeEndBlockOrThrow(context: string): boolean {
+    if (!this.check(TokenType.END_BLOCK)) return false;
+
+    const t = this.advance();
+    // Eat the rest of the terminator line
+    if (this.check(TokenType.NEWLINE)) this.advance();
+    // Leave additional newlines for normal blank-line handling
+    return true;
   }
 
   private makeSpaceToken(line: number, column: number): Token {
@@ -130,7 +158,7 @@ export class Parser {
   }
 
   private parseDocument(): DocumentNode {
-    let title = "";
+    let document: Record<string, any> | undefined;
     let meta: MetaNode | undefined;
     const imports: ImportNode[] = [];
     const body: Node[] = [];
@@ -141,8 +169,31 @@ export class Parser {
     // Parse @document if present
     if (this.check(TokenType.DOCUMENT)) {
       this.advance();
-      this.skipWhitespaceTokens();
-      title = this.parseTextUntilNewline();
+
+      // Block settings:
+      // @document
+      //   title: ...
+      //   short_title: ...
+      const la = this.lookaheadNewlinesThenIndent();
+      if (la.indentAfter) {
+        this.consumeNewlines();
+        document = this.parseMetaBlock();
+
+        // Convenience: normalize dash-keys to underscore variants
+        for (const [k, v] of Object.entries(document)) {
+          if (k.includes("-")) {
+            const u = k.replace(/-/g, "_");
+            if (!(u in document)) (document as any)[u] = v;
+          }
+        }
+      }
+
+      // No legacy inline form
+      if (!document && !this.check(TokenType.NEWLINE) && !this.check(TokenType.EOF)) {
+        const got = this.parseTextUntilNewline();
+        throw new Error(`@document must be a block (indented key/value). Got inline content: ${got}`);
+      }
+
       this.skipNewlines();
     }
 
@@ -176,7 +227,7 @@ export class Parser {
       type: "document",
       line: 1,
       column: 1,
-      title,
+      document,
       meta,
       imports,
       body,
@@ -187,6 +238,35 @@ export class Parser {
     const token = this.peek();
 
     switch (token.type) {
+      case TokenType.END_BLOCK:
+        throw new Error(`Unmatched @; at line ${token.line}, column ${token.column}`);
+      case TokenType.DOC_FIRSTPAGE:
+        return this.parseDocHeaderFooterWithScope("first");
+
+      case TokenType.DOC_EVENPAGE:
+        return this.parseDocHeaderFooterWithScope("even");
+
+      case TokenType.DOC_HEADER:
+        return this.parseDocHeaderFooter("doc_header", "default");
+
+      case TokenType.DOC_FOOTER:
+        return this.parseDocHeaderFooter("doc_footer", "default");
+
+      case TokenType.DOC_MARGINS:
+        return this.parseDocLayout("margins");
+
+      case TokenType.DOC_SPACING:
+        return this.parseDocLayout("spacing");
+
+      case TokenType.DOC_LANDSCAPE:
+        return this.parseDocLayout("landscape");
+
+      case TokenType.DOC_COLUMNS:
+        return this.parseDocLayout("columns");
+
+      case TokenType.DOC_ANCHOR:
+        return this.parseAnchor();
+
       case TokenType.HEADER:
         return this.parseHeader();
 
@@ -227,6 +307,110 @@ export class Parser {
       default:
         return this.parseParagraph();
     }
+  }
+
+  private parseAnchor(): Node {
+    const token = this.advance();
+    let name = this.parseRestOfLineRaw();
+    if (!name) {
+      throw new Error(`@anchor requires a name at line ${token.line}, column ${token.column}`);
+    }
+    // Allow quoted names: @anchor "Section 5.2"
+    if ((name.startsWith('"') && name.endsWith('"')) || (name.startsWith("'") && name.endsWith("'"))) {
+      name = name.slice(1, -1);
+    }
+    return {
+      type: "anchor",
+      name,
+      line: token.line,
+      column: token.column,
+    } as any;
+  }
+
+  private parseDocLayout(kind: "margins" | "spacing" | "landscape" | "columns"): Node {
+    const token = this.advance();
+    const args = this.parseRestOfLineRaw();
+    return {
+      type: "doc_layout",
+      kind,
+      args,
+      line: token.line,
+      column: token.column,
+    } as any;
+  }
+
+  private parseDocHeaderFooterWithScope(scope: "first" | "even"): Node | null {
+    // Expect: @firstpage @header ... or @evenpage @footer ...
+    const prefix = this.advance();
+    this.skipWhitespaceTokens();
+
+    if (this.check(TokenType.DOC_HEADER)) {
+      return this.parseDocHeaderFooter("doc_header", scope);
+    }
+    if (this.check(TokenType.DOC_FOOTER)) {
+      return this.parseDocHeaderFooter("doc_footer", scope);
+    }
+
+    // No header/footer following; treat as no-op
+    return null;
+  }
+
+  private parseDocHeaderFooter(
+    type: "doc_header" | "doc_footer",
+    scope: "default" | "first" | "even"
+  ): Node {
+    const token = this.advance();
+    const content: Node[] = [];
+
+    // Same-line content
+    if (!this.check(TokenType.NEWLINE) && !this.check(TokenType.EOF)) {
+      const para = this.parseParagraph();
+      if (para) content.push(para);
+      // leave trailing newlines to outer loop
+      return {
+        type,
+        scope,
+        line: token.line,
+        column: token.column,
+        content,
+      } as any;
+    }
+
+    // Indented block content
+    const la = this.lookaheadNewlinesThenIndent();
+    if (la.indentAfter) {
+      // consume newline(s) up to indent
+      const start = this.peek();
+      const n = this.consumeNewlines();
+      this.pushBlankLines(content, start.line, start.column, n);
+
+      this.advance(); // INDENT
+      while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+        if (this.check(TokenType.END_BLOCK)) {
+          this.consumeEndBlockOrThrow("doc_header_footer");
+          break;
+        }
+        if (this.check(TokenType.NEWLINE)) {
+          const start2 = this.peek();
+          const n2 = this.consumeNewlines();
+          this.pushBlankLines(content, start2.line, start2.column, n2);
+          continue;
+        }
+        if (this.check(TokenType.DEDENT)) break;
+
+        const child = this.parseNode();
+        if (child) content.push(child);
+      }
+      if (this.check(TokenType.DEDENT)) this.advance();
+    }
+
+    return {
+      type,
+      scope,
+      line: token.line,
+      column: token.column,
+      content,
+    } as any;
   }
 
   private parseHeader(): HeaderNode {
@@ -274,6 +458,10 @@ export class Parser {
       // Now we're positioned at INDENT
       this.advance();
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+        if (this.check(TokenType.END_BLOCK)) {
+          this.consumeEndBlockOrThrow("numbered_item");
+          break;
+        }
         if (this.check(TokenType.NEWLINE)) {
           const start = this.peek();
           const n = this.consumeNewlines();
@@ -343,6 +531,10 @@ export class Parser {
       // Now we're positioned at INDENT
       this.advance();
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+        if (this.check(TokenType.END_BLOCK)) {
+          this.consumeEndBlockOrThrow("bullet_item");
+          break;
+        }
         if (this.check(TokenType.NEWLINE)) {
           const start = this.peek();
           const n = this.consumeNewlines();
@@ -399,6 +591,10 @@ export class Parser {
         // Now we're positioned at INDENT
         this.advance();
         while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+          if (this.check(TokenType.END_BLOCK)) {
+            this.consumeEndBlockOrThrow("modifier");
+            break;
+          }
           if (this.check(TokenType.NEWLINE)) {
             const start = this.peek();
             const n = this.consumeNewlines();
@@ -435,6 +631,7 @@ export class Parser {
       line: token.line,
       column: token.column,
       modifier,
+      count: token.count,
       content,
     };
   }
@@ -451,6 +648,11 @@ export class Parser {
 
       let isFirst = true;
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+        if (this.check(TokenType.END_BLOCK)) {
+          this.consumeEndBlockOrThrow("table");
+          break;
+        }
+
         this.skipNewlines();
         if (this.check(TokenType.DEDENT)) break;
 
@@ -528,6 +730,11 @@ export class Parser {
       this.advance();
 
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+        if (this.check(TokenType.END_BLOCK)) {
+          this.consumeEndBlockOrThrow("meta");
+          break;
+        }
+
         this.skipNewlines();
         if (this.check(TokenType.DEDENT)) break;
         if (this.isAtEnd()) break;
@@ -582,6 +789,11 @@ export class Parser {
       this.advance();
 
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+        if (this.check(TokenType.END_BLOCK)) {
+          this.consumeEndBlockOrThrow("meta_block");
+          break;
+        }
+
         this.skipNewlines();
         if (this.check(TokenType.DEDENT)) break;
         if (this.isAtEnd()) break;

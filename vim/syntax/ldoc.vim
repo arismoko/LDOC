@@ -18,7 +18,7 @@ syn match ldocDefine        "@define\s\+" nextgroup=ldocDefineName
 syn match ldocDefineName    "\w\+" contained
 
 " Modifiers
-syn match ldocModifier      "@center\|@right\|@indent\|@box\|@bold\|@italic\|@small\|@caps\|@h[1-6]"
+syn match ldocModifier      "@center\|@right\|@indent\(:\d\+\)\?\|@outdent\(:\d\+\)\?\|@box\|@bold\|@italic\|@small\|@caps\|@h[1-6]"
 
 " Numbered items
 syn match ldocNumbered      "^@@*[0-9a-zA-Z.]*\s"
@@ -28,7 +28,7 @@ syn match ldocBullet        "^@@*-\s"
 
 " Page control
 syn match ldocPagebreak     "@pagebreak"
-syn match ldocHeader        "@header\|@footer\|@firstpage"
+syn match ldocHeader        "@header\|@footer\|@firstpage\|@evenpage\|@margins\|@spacing\|@landscape\|@columns\|@anchor"
 
 " Headers (markdown style)
 syn match ldocHeading       "^#\{1,6\}\s.*$"
@@ -61,6 +61,7 @@ syn match ldocTableCell     "[^,\[\]]\+" contained
 syn match ldocLineComment   "//.*$"
 syn region ldocBlockComment start="/\*" end="\*/"
 syn match ldocTodo          "@todo.*$"
+syn match ldocEndBlock      "^\s*@;\s*$"
 
 " Meta entries
 syn match ldocMetaKey       "^\s\+\w\+:" contains=ldocMetaColon
@@ -106,6 +107,7 @@ hi def link ldocTableCell     String
 hi def link ldocLineComment   Comment
 hi def link ldocBlockComment  Comment
 hi def link ldocTodo          Todo
+hi def link ldocEndBlock      Keyword
 
 hi def link ldocMetaKey       Type
 hi def link ldocMetaColon     Delimiter

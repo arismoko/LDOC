@@ -2,6 +2,9 @@
 
 export type Node =
   | DocumentNode
+  | DocHeaderFooterNode
+  | DocLayoutNode
+  | AnchorNode
   | MetaNode
   | HeaderNode
   | NumberedItemNode
@@ -30,10 +33,33 @@ export interface BaseNode {
 
 export interface DocumentNode extends BaseNode {
   type: "document";
-  title: string;
+  // Document-level settings/metadata from @document block
+  document?: Record<string, any>;
   meta?: MetaNode;
   imports: ImportNode[];
   body: Node[];
+}
+
+export type DocHeaderFooterScope = "default" | "first" | "even";
+
+export interface DocHeaderFooterNode extends BaseNode {
+  type: "doc_header" | "doc_footer";
+  scope: DocHeaderFooterScope;
+  content: Node[];
+}
+
+export type DocLayoutKind = "margins" | "spacing" | "landscape" | "columns";
+
+export interface DocLayoutNode extends BaseNode {
+  type: "doc_layout";
+  kind: DocLayoutKind;
+  // Raw args as written on the directive line
+  args: string;
+}
+
+export interface AnchorNode extends BaseNode {
+  type: "anchor";
+  name: string;
 }
 
 export interface MetaNode extends BaseNode {
@@ -88,6 +114,7 @@ export interface BulletItemNode extends BaseNode {
 export interface ModifierNode extends BaseNode {
   type: "modifier";
   modifier: ModifierType;
+  count?: number;
   content: Node[];
 }
 
@@ -95,6 +122,7 @@ export type ModifierType =
   | "center"
   | "right"
   | "indent"
+  | "outdent"
   | "box"
   | "bold"
   | "italic"
@@ -195,6 +223,9 @@ export function createNode<T extends Node>(
 // Visitor pattern for AST traversal
 export interface NodeVisitor<T = void> {
   visitDocument?(node: DocumentNode): T;
+  visitDocHeaderFooter?(node: DocHeaderFooterNode): T;
+  visitDocLayout?(node: DocLayoutNode): T;
+  visitAnchor?(node: AnchorNode): T;
   visitMeta?(node: MetaNode): T;
   visitImport?(node: ImportNode): T;
   visitDefine?(node: DefineNode): T;
@@ -220,6 +251,13 @@ export function visit<T>(node: Node, visitor: NodeVisitor<T>): T | undefined {
   switch (node.type) {
     case "document":
       return visitor.visitDocument?.(node);
+    case "doc_header":
+    case "doc_footer":
+      return visitor.visitDocHeaderFooter?.(node as DocHeaderFooterNode);
+    case "doc_layout":
+      return visitor.visitDocLayout?.(node as DocLayoutNode);
+    case "anchor":
+      return visitor.visitAnchor?.(node as AnchorNode);
     case "meta":
       return visitor.visitMeta?.(node);
     case "import":

@@ -8,6 +8,17 @@
 "@define" @keyword
 "@table" @keyword
 "@pagebreak" @keyword
+"@;" @keyword
+"@margins" @keyword
+"@spacing" @keyword
+"@landscape" @keyword
+"@columns" @keyword
+"@anchor" @keyword
+
+"@header" @keyword
+"@footer" @keyword
+"@firstpage" @keyword
+"@evenpage" @keyword
 
 ; Modifiers
 (modifier) @function
