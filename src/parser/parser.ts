@@ -407,12 +407,13 @@ export class Parser {
     if (!sig) {
       throw new Error(`@use requires a name at line ${token.line}, column ${token.column}`);
     }
-    const { name, args } = this.parseUseSignature(sig, token.line, token.column);
+    const { name, args, label } = this.parseUseSignature(sig, token.line, token.column);
     return {
       type: "use",
       line: token.line,
       column: token.column,
       name,
+      label,
       args,
     } as any;
   }
@@ -453,14 +454,29 @@ export class Parser {
     raw: string,
     line: number,
     column: number
-  ): { name: string; args: Record<string, string> } {
-    const m = raw.trim().match(/^([A-Za-z_][A-Za-z0-9_\-]*)\s*(?:\((.*)\))?$/);
+  ): { name: string; args: Record<string, string>; label?: string } {
+    // Support: @use Name(...)
+    // Support: @use Name(...) as Label
+    // Support: @use Name as Label
+    const trimmed = raw.trim();
+
+    let main = trimmed;
+    let label: string | undefined;
+
+    // Split optional ` as Label` from the end (Label cannot contain spaces)
+    const asMatch = trimmed.match(/\s+as\s+([A-Za-z][A-Za-z0-9_]*)\s*$/);
+    if (asMatch) {
+      label = asMatch[1];
+      main = trimmed.slice(0, asMatch.index).trim();
+    }
+
+    const m = main.match(/^([A-Za-z_][A-Za-z0-9_\-]*)\s*(?:\((.*)\))?$/);
     if (!m) {
       throw new Error(`Invalid @use signature at line ${line}, column ${column}: ${raw}`);
     }
     const name = m[1];
     const inner = (m[2] ?? "").trim();
-    if (!inner) return { name, args: {} };
+    if (!inner) return { name, args: {}, label };
 
     const args: Record<string, string> = {};
 
@@ -528,7 +544,7 @@ export class Parser {
       }
     }
 
-    return { name, args };
+    return { name, args, label };
   }
 
   private parseAnchor(): Node {

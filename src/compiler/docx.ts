@@ -326,7 +326,9 @@ export class DocxCompiler {
     let pendingAnchors: string[] = [];
     for (const node of body) {
       if (node.type === "anchor") {
-        pendingAnchors.push((node as any).name);
+        const scope = (node as any).scope as string | undefined;
+        const name = (node as any).name as string;
+        pendingAnchors.push(scope && !name.includes(".") ? `${scope}.${name}` : name);
         continue;
       }
 
@@ -518,22 +520,40 @@ export class DocxCompiler {
       return node;
     };
 
-    const assertNoAnchors = (nodes: Node[], defineName: string): void => {
+    const hasAnchorNodes = (nodes: Node[]): boolean => {
       const stack: any[] = [...nodes];
       while (stack.length) {
         const n: any = stack.pop();
         if (!n || typeof n !== "object") continue;
-        if (n.type === "anchor") {
-          throw new Error(`@define ${defineName} contains @anchor; not supported until anchor scoping is implemented`);
-        }
+        if (n.type === "anchor") return true;
         if (Array.isArray(n.content)) stack.push(...n.content);
         if (Array.isArray(n.children)) stack.push(...n.children);
         if (Array.isArray(n.body)) stack.push(...n.body);
         if (Array.isArray(n.rows)) stack.push(...n.rows);
       }
+      return false;
     };
 
-    const expandSeq = (nodes: Node[], callStack: string[] = [], depth = 0): Node[] => {
+    const applyScope = (nodes: any[], scope: string): any[] => {
+      const visit = (n: any): any => {
+        if (!n || typeof n !== "object") return n;
+        n.scope = scope;
+        if (Array.isArray(n.content)) n.content = n.content.map(visit);
+        if (Array.isArray(n.children)) n.children = n.children.map(visit);
+        if (Array.isArray(n.body)) n.body = n.body.map(visit);
+        if (Array.isArray(n.rows)) n.rows = n.rows.map(visit);
+        if (n.type === "table_row" && Array.isArray(n.cells)) {
+          n.cells = n.cells.map((cell: any[]) => cell.map(visit));
+        }
+        return n;
+      };
+      return nodes.map(visit);
+    };
+
+    const usedLabels = new Set<string>();
+    const autoCounts = new Map<string, number>();
+
+    const expandSeq = (nodes: Node[], callStack: string[] = [], depth = 0, scopePrefix?: string): Node[] => {
       if (depth > 50) throw new Error("@use expansion too deep (possible recursion)");
       const out: Node[] = [];
       for (const node of nodes) {
@@ -544,6 +564,7 @@ export class DocxCompiler {
 
         const useName = (node as any).name as string;
         const useArgs = ((node as any).args ?? {}) as Record<string, string>;
+        const useLabel = ((node as any).label ?? undefined) as string | undefined;
         const def = defines.get(useName);
         if (!def) throw new Error(`Unknown @use: ${useName}`);
 
@@ -564,11 +585,27 @@ export class DocxCompiler {
           throw new Error(`@use ${useName}: missing required param(s): ${missingParams.join(", ")}`);
         }
 
-        assertNoAnchors(def.template, useName);
+        const templateHasAnchors = hasAnchorNodes(def.template);
+
+        // Sugar: if no label is provided, auto-generate one (stable within a single compilation).
+        const label =
+          useLabel ??
+          (() => {
+            const n = (autoCounts.get(useName) ?? 0) + 1;
+            autoCounts.set(useName, n);
+            return `${useName}_${n}`;
+          })();
+
+        const fullScope = scopePrefix ? `${scopePrefix}.${label}` : label;
+        if (fullScope && usedLabels.has(fullScope)) {
+          throw new Error(`Duplicate @use label: ${fullScope}`);
+        }
+        if (fullScope) usedLabels.add(fullScope);
 
         const cloned = def.template.map((n) => clone(n));
         const rewritten = def.params.length > 0 ? cloned.map((n: any) => rewriteParams(n, paramSet, useArgs)) : cloned;
-        const expanded = expandSeq(rewritten as any, [...callStack, useName], depth + 1);
+        const scoped = fullScope ? applyScope(rewritten as any, fullScope) : (rewritten as any);
+        const expanded = expandSeq(scoped as any, [...callStack, useName], depth + 1, fullScope);
         out.push(...expanded);
       }
       return out;
@@ -835,7 +872,7 @@ export class DocxCompiler {
     const text = this.inlineText(node.content);
     const key = this.normalizeRefKey(text);
     const anchor = this.bookmarkByKey.get(key);
-    const children = this.compileInlineNodes(node.content);
+    const children = this.compileInlineNodes(node.content, {}, (node as any).scope);
 
     let wrappedChildren: any[] = children;
     if (forcedBookmarks && forcedBookmarks.length > 0) {
@@ -1094,7 +1131,7 @@ export class DocxCompiler {
   private compileTable(node: TableNode, forcedBookmarks?: string[], indentLeftTwip?: number): Table {
     const rows = node.rows.map((row, index) => {
       const cells = row.cells.map((cellContent) => {
-        let paragraphChildren: any[] = this.compileInlineNodes(cellContent);
+        let paragraphChildren: any[] = this.compileInlineNodes(cellContent, {}, (node as any).scope);
         if (forcedBookmarks && forcedBookmarks.length > 0 && index === 0) {
           for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
             paragraphChildren = [new Bookmark({ id: forcedBookmarks[i], children: paragraphChildren })];
@@ -1123,7 +1160,7 @@ export class DocxCompiler {
     });
   }
 
-  private compileInlineNodes(nodes: InlineNode[], baseStyle: TextStyle = {}): any[] {
+  private compileInlineNodes(nodes: InlineNode[], baseStyle: TextStyle = {}, scope?: string): any[] {
     const runs: any[] = [];
 
     for (const node of nodes) {
@@ -1153,7 +1190,7 @@ export class DocxCompiler {
           if (node.style === "italic" || node.style === "bold_italic") {
             emphasisStyle.italics = true;
           }
-          runs.push(...this.compileInlineNodes(node.content, emphasisStyle));
+          runs.push(...this.compileInlineNodes(node.content, emphasisStyle, scope));
           break;
 
         case "defined_term":
@@ -1170,7 +1207,7 @@ export class DocxCompiler {
 
         case "cross_ref":
           const raw = node.target;
-          const anchor = this.resolveAnchor(raw);
+          const anchor = this.resolveAnchor(raw, scope);
           if (!anchor) {
             this.missingCrossRefs.add(raw.trim());
             runs.push(this.createTextRun(raw, { ...baseStyle, italics: true }));
@@ -1196,7 +1233,7 @@ export class DocxCompiler {
   }
 
   private wrapBookmarkForParagraph(node: ParagraphNode, style: TextStyle, forcedBookmarks?: string[]): any[] {
-    const children = this.compileInlineNodes(node.content, style);
+    const children = this.compileInlineNodes(node.content, style, (node as any).scope);
     let wrapped: any[] = children;
     if (forcedBookmarks && forcedBookmarks.length > 0) {
       for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
@@ -1213,7 +1250,7 @@ export class DocxCompiler {
   }
 
   private wrapBookmarkForListItem(node: NumberedItemNode, style: TextStyle, forcedBookmarks?: string[]): any[] {
-    let children: any[] = this.compileInlineNodes(node.content, style);
+    let children: any[] = this.compileInlineNodes(node.content, style, (node as any).scope);
     if (forcedBookmarks && forcedBookmarks.length > 0) {
       for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
         children = [new Bookmark({ id: forcedBookmarks[i], children })];
@@ -1226,7 +1263,7 @@ export class DocxCompiler {
   }
 
   private wrapBookmarkForBulletItem(node: BulletItemNode, style: TextStyle, forcedBookmarks?: string[]): any[] {
-    let children: any[] = this.compileInlineNodes(node.content, style);
+    let children: any[] = this.compileInlineNodes(node.content, style, (node as any).scope);
     if (forcedBookmarks && forcedBookmarks.length > 0) {
       for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
         children = [new Bookmark({ id: forcedBookmarks[i], children })];
@@ -1236,26 +1273,44 @@ export class DocxCompiler {
     return children;
   }
 
-  private resolveAnchor(raw: string): string | undefined {
-    const key = this.normalizeRefKey(raw);
-    if (this.bookmarkByKey.has(key)) return this.bookmarkByKey.get(key);
+  private resolveAnchor(raw: string, scope?: string): string | undefined {
+    const trimmed = raw.trim();
+
+    // If already qualified (Label.foo), don't auto-scope
+    const isQualified = trimmed.includes(".");
+
+    const tryKey = (label: string) => this.bookmarkByKey.get(this.normalizeRefKey(label));
+
+    if (scope && !isQualified) {
+      const scoped = `${scope}.${trimmed}`;
+      const hit = tryKey(scoped);
+      if (hit) return hit;
+    }
+
+    const direct = tryKey(trimmed);
+    if (direct) return direct;
 
     // Try stripping common prefixes
-    const stripped = raw
+    const stripped = trimmed
       .trim()
       .replace(/^section\s+/i, "")
       .replace(/^article\s+/i, "")
       .replace(/^exhibit\s+/i, "")
       .trim();
-    const key2 = this.normalizeRefKey(stripped);
-    return this.bookmarkByKey.get(key2);
+
+    if (scope && !isQualified) {
+      const hit = tryKey(`${scope}.${stripped}`);
+      if (hit) return hit;
+    }
+    return tryKey(stripped);
   }
 
   private indexAnchors(ast: DocumentNode): void {
     const duplicate: string[] = [];
 
-    const define = (lookup: string, bookmarkName: string, source?: { line: number; column: number }): void => {
-      const key = this.normalizeRefKey(lookup);
+    const define = (lookup: string, bookmarkName: string, source?: { line: number; column: number }, scope?: string): void => {
+      const scopedLookup = scope && !lookup.includes(".") ? `${scope}.${lookup}` : lookup;
+      const key = this.normalizeRefKey(scopedLookup);
       if (!key) return;
       const existing = this.bookmarkByKey.get(key);
       if (existing && existing !== bookmarkName) {
@@ -1289,10 +1344,10 @@ export class DocxCompiler {
     const walkSeq = (nodes: Node[], style: TextStyle = {}): void => {
       let pendingAnchors: AnchorNode[] = [];
 
-      const attachPending = (bookmark: string) => {
+      const attachPending = (bookmark: string, scope?: string) => {
         if (pendingAnchors.length === 0) return;
         for (const a of pendingAnchors) {
-          define(a.name.trim(), bookmark, { line: a.line, column: a.column });
+          define(a.name.trim(), bookmark, { line: a.line, column: a.column }, scope);
         }
         pendingAnchors = [];
       };
@@ -1323,23 +1378,26 @@ export class DocxCompiler {
           case "header": {
             const text = this.inlineText(node.content);
             const bookmark = newBookmarkName(text);
-            define(text, bookmark);
-            attachPending(bookmark);
+            const scope = (node as any).scope as string | undefined;
+            define(text, bookmark, undefined, scope);
+            attachPending(bookmark, scope);
             break;
           }
           case "numbered_item": {
             const label = this.numberingLabel(node.style);
             if (label) {
               const bookmark = newBookmarkName(label);
-              define(label, bookmark);
+              const scope = (node as any).scope as string | undefined;
+              define(label, bookmark, undefined, scope);
               if (/^\d/.test(label)) {
-                define(`Section ${label}`, bookmark);
-                define(`Article ${label}`, bookmark);
+                define(`Section ${label}`, bookmark, undefined, scope);
+                define(`Article ${label}`, bookmark, undefined, scope);
               }
-              attachPending(bookmark);
+              attachPending(bookmark, scope);
             } else if (pendingAnchors.length > 0) {
               const bookmark = bookmarkForPending();
-              if (bookmark) attachPending(bookmark);
+              const scope = (node as any).scope as string | undefined;
+              if (bookmark) attachPending(bookmark, scope);
             }
             walkSeq(node.children, style);
             break;
@@ -1347,7 +1405,8 @@ export class DocxCompiler {
           case "bullet_item": {
             if (pendingAnchors.length > 0) {
               const bookmark = bookmarkForPending();
-              if (bookmark) attachPending(bookmark);
+              const scope = (node as any).scope as string | undefined;
+              if (bookmark) attachPending(bookmark, scope);
             }
             walkSeq(node.children, style);
             break;
@@ -1363,7 +1422,8 @@ export class DocxCompiler {
 
             if (pendingAnchors.length > 0) {
               const bookmark = bookmarkForPending();
-              if (bookmark) attachPending(bookmark);
+              const scope = (node as any).scope as string | undefined;
+              if (bookmark) attachPending(bookmark, scope);
             }
 
             walkSeq(node.content, next);
@@ -1373,25 +1433,29 @@ export class DocxCompiler {
             if (style.heading) {
               const text = this.inlineText(node.content);
               const bookmark = newBookmarkName(text);
-              define(text, bookmark);
-              attachPending(bookmark);
+              const scope = (node as any).scope as string | undefined;
+              define(text, bookmark, undefined, scope);
+              attachPending(bookmark, scope);
             } else if (pendingAnchors.length > 0) {
               const bookmark = bookmarkForPending();
-              if (bookmark) attachPending(bookmark);
+              const scope = (node as any).scope as string | undefined;
+              if (bookmark) attachPending(bookmark, scope);
             }
             break;
           }
           case "table": {
             if (pendingAnchors.length > 0) {
               const bookmark = bookmarkForPending();
-              if (bookmark) attachPending(bookmark);
+              const scope = (node as any).scope as string | undefined;
+              if (bookmark) attachPending(bookmark, scope);
             }
             break;
           }
           case "page_break": {
             if (pendingAnchors.length > 0) {
               const bookmark = bookmarkForPending();
-              if (bookmark) attachPending(bookmark);
+              const scope = (node as any).scope as string | undefined;
+              if (bookmark) attachPending(bookmark, scope);
             }
             break;
           }

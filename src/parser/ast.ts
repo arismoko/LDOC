@@ -31,6 +31,8 @@ export interface BaseNode {
   type: string;
   line: number;
   column: number;
+  // Used by template instantiation to scope anchors/refs.
+  scope?: string;
 }
 
 export interface DocumentNode extends BaseNode {
@@ -86,6 +88,7 @@ export interface DefineNode extends BaseNode {
 export interface UseNode extends BaseNode {
   type: "use";
   name: string;
+  label?: string;
   args: Record<string, string>;
 }
 

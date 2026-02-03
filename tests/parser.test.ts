@@ -412,6 +412,28 @@ Hello {{name}}`);
     expect(xml).toContain("Hello");
   });
 
+  test("template anchors work without explicit label (auto-label sugar)", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@define T()\n  @anchor a\n  Hello\n  See [[a]].\n\n@use T()\n@use T()\n`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain("w:bookmarkStart");
+    expect(xml).toContain("w:hyperlink");
+  });
+
+  test("scoped anchors inside templates do not collide", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@define T()\n  @anchor a\n  Hello\n  See [[a]].\n\n@use T() as X\n@use T() as Y\nSee [[X.a]] and [[Y.a]].\n`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain("w:bookmarkStart");
+    expect(xml).toContain("w:hyperlink");
+  });
+
   test("@use requires all declared params (no fallback to @meta)", async () => {
     const parser = new Parser();
     const ast = parser.parse(`@meta\n  title: FromMeta\n\n@define Box(title)\n  {{title}}\n\n@use Box()\n`);
