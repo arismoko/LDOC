@@ -4,6 +4,7 @@ export type Node =
   | DocumentNode
   | DocHeaderFooterNode
   | DocLayoutNode
+  | DocStylesNode
   | ColumnsRegionNode
   | AnchorNode
   | MetaNode
@@ -67,6 +68,14 @@ export interface DocLayoutNode extends BaseNode {
   type: "doc_layout";
   kind: DocLayoutKind;
   // Raw args as written on the directive line
+  args: string;
+}
+
+export interface DocStylesNode extends BaseNode {
+  type: "doc_styles";
+  // Target: body, heading, heading1..heading6, header, footer
+  target: string;
+  // Raw args as written on the directive line (key=value pairs)
   args: string;
 }
 
@@ -277,6 +286,7 @@ export interface NodeVisitor<T = void> {
   visitDocument?(node: DocumentNode): T;
   visitDocHeaderFooter?(node: DocHeaderFooterNode): T;
   visitDocLayout?(node: DocLayoutNode): T;
+  visitDocStyles?(node: DocStylesNode): T;
   visitColumnsRegion?(node: ColumnsRegionNode): T;
   visitAnchor?(node: AnchorNode): T;
   visitMeta?(node: MetaNode): T;
@@ -313,6 +323,8 @@ export function visit<T>(node: Node, visitor: NodeVisitor<T>): T | undefined {
       return visitor.visitDocHeaderFooter?.(node as DocHeaderFooterNode);
     case "doc_layout":
       return visitor.visitDocLayout?.(node as DocLayoutNode);
+    case "doc_styles":
+      return visitor.visitDocStyles?.(node as DocStylesNode);
     case "columns_region":
       return visitor.visitColumnsRegion?.(node as ColumnsRegionNode);
     case "anchor":

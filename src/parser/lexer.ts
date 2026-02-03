@@ -55,6 +55,7 @@ export enum TokenType {
   DOC_LANDSCAPE = "DOC_LANDSCAPE",
   DOC_COLUMNS = "DOC_COLUMNS",
   DOC_ANCHOR = "DOC_ANCHOR",
+  DOC_STYLES = "DOC_STYLES",
   END_BLOCK = "END_BLOCK",
   COMMENT = "COMMENT",
   TODO = "TODO",
@@ -124,6 +125,7 @@ const KEYWORDS = new Set([
   "columns",
   "anchor",
   "numbering",
+  "styles",
   "if",
   "else",
   "end",
@@ -845,6 +847,8 @@ export class Lexer {
         return TokenType.DOC_COLUMNS;
       case "anchor":
         return TokenType.DOC_ANCHOR;
+      case "styles":
+        return TokenType.DOC_STYLES;
       case "if":
         return TokenType.IF;
       case "else":

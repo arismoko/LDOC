@@ -35,6 +35,7 @@ import type {
   DocumentNode,
   DocHeaderFooterNode,
   DocLayoutNode,
+  DocStylesNode,
   ColumnsRegionNode,
   AnchorNode,
   DefineNode,
@@ -70,7 +71,32 @@ interface TextStyle {
   italics?: boolean;
   allCaps?: boolean;
   size?: number;
+  font?: string;
+  color?: string; // 6-hex without '#'
   heading?: 1 | 2 | 3 | 4 | 5 | 6;
+}
+
+/** Parsed style settings for a target (body, heading, header, footer, etc.) */
+interface StyleSettings {
+  font?: string;
+  size?: number; // half-points (docx run.size)
+  bold?: boolean;
+  italic?: boolean;
+  color?: string; // 6-hex without '#'
+}
+
+/** Merged style configuration from @styles directives */
+interface StyleConfig {
+  body?: StyleSettings;
+  heading?: StyleSettings;
+  heading1?: StyleSettings;
+  heading2?: StyleSettings;
+  heading3?: StyleSettings;
+  heading4?: StyleSettings;
+  heading5?: StyleSettings;
+  heading6?: StyleSettings;
+  header?: StyleSettings;
+  footer?: StyleSettings;
 }
 
 const BOX_DEFAULTS = {
@@ -108,6 +134,9 @@ export class DocxCompiler {
   // Per-level style memory: tracks the numbering reference used for each depth (0-indexed).
   // Reset deeper levels when a shallower/equal level is encountered.
   private styleMemory: Map<number, string> = new Map();
+
+  // Document-wide style configuration from @styles directives
+  private styleConfig: StyleConfig = {};
 
   constructor(variables: Record<string, any> = {}) {
     this.ctx = {
@@ -322,7 +351,9 @@ export class DocxCompiler {
 
     const { body: bodyWithoutLayout, layout } = this.extractLayout(expandedAst.body);
     this.defaultSpacing = layout.spacing;
-    const { body, headers, footers } = this.extractHeadersFooters(bodyWithoutLayout);
+    const { body: bodyWithoutStyles, styleConfig } = this.extractStyles(bodyWithoutLayout);
+    this.styleConfig = styleConfig;
+    const { body, headers, footers } = this.extractHeadersFooters(bodyWithoutStyles);
 
     log(`compile:layout+headers body=${body.length}`);
 
@@ -400,6 +431,7 @@ export class DocxCompiler {
     };
 
     // Compile body nodes
+    const bodyStyle = this.getBodyStyle();
     const isAnchorRenderable = (n: Node): boolean =>
       n.type === "header" ||
       n.type === "paragraph" ||
@@ -451,7 +483,7 @@ export class DocxCompiler {
                 .filter(Boolean) as string[])
             : undefined;
 
-          const compiled = this.compileNode(child, {}, undefined, undefined, bookmarkIds);
+          const compiled = this.compileNode(child, bodyStyle, undefined, undefined, bookmarkIds);
           columnsChildren.push(...compiled);
           colPendingAnchors = [];
         }
@@ -481,7 +513,7 @@ export class DocxCompiler {
             .filter(Boolean) as string[])
         : undefined;
 
-      const compiled = this.compileNode(node, {}, undefined, undefined, bookmarkIds);
+      const compiled = this.compileNode(node, bodyStyle, undefined, undefined, bookmarkIds);
       currentChildren.push(...compiled);
       pendingAnchors = [];
     }
@@ -527,6 +559,9 @@ export class DocxCompiler {
     const docCreator = (this.ctx.variables.document as any)?.creator;
     const docKeywords = (this.ctx.variables.document as any)?.keywords;
 
+    // Build document styles from @styles directives
+    const docStyles = this.buildDocumentStyles();
+
     const doc = new Document({
       numbering: this.numberingConfig,
       evenAndOddHeaderAndFooters: hasEven,
@@ -534,6 +569,7 @@ export class DocxCompiler {
       subject: typeof docSubject === "string" ? docSubject : undefined,
       creator: typeof docCreator === "string" ? docCreator : undefined,
       keywords: typeof docKeywords === "string" ? docKeywords : undefined,
+      styles: docStyles,
       sections,
     });
 
@@ -1222,6 +1258,264 @@ export class DocxCompiler {
     return { body: keep, layout };
   }
 
+  private extractStyles(body: Node[]): { body: Node[]; styleConfig: StyleConfig } {
+    const config: StyleConfig = {};
+    const keep: Node[] = [];
+
+    for (const n of body) {
+      if (n.type !== "doc_styles") {
+        keep.push(n);
+        continue;
+      }
+
+      const ds = n as DocStylesNode;
+      const target = ds.target as keyof StyleConfig;
+      const settings = this.parseStyleArgs(ds.args, ds.line, ds.column);
+
+      // Merge: later directives override earlier ones per-key
+      config[target] = { ...(config[target] ?? {}), ...settings };
+    }
+
+    return { body: keep, styleConfig: config };
+  }
+
+  private parseStyleArgs(args: string, line: number, column: number): StyleSettings {
+    const settings: StyleSettings = {};
+    if (!args.trim()) return settings;
+
+    // Parse key=value pairs, handling quoted font names
+    let i = 0;
+    const s = args;
+    const skipWs = () => {
+      while (i < s.length && /\s/.test(s[i]!)) i++;
+    };
+
+    while (i < s.length) {
+      skipWs();
+      if (i >= s.length) break;
+
+      // Read key
+      const keyStart = i;
+      while (i < s.length && /[a-zA-Z0-9_]/.test(s[i]!)) i++;
+      const key = s.slice(keyStart, i).toLowerCase();
+      if (!key) {
+        throw new Error(`@styles: expected key at line ${line}, column ${column}`);
+      }
+
+      skipWs();
+      if (s[i] !== "=") {
+        throw new Error(`@styles: expected '=' after '${key}' at line ${line}, column ${column}`);
+      }
+      i++; // skip =
+      skipWs();
+
+      // Read value (possibly quoted)
+      let value: string;
+      if (s[i] === '"' || s[i] === "'") {
+        const quote = s[i]!;
+        i++;
+        const valStart = i;
+        while (i < s.length && s[i] !== quote) {
+          if (s[i] === "\\") i++; // skip escaped char
+          i++;
+        }
+        value = s.slice(valStart, i);
+        if (s[i] === quote) i++;
+      } else {
+        const valStart = i;
+        while (i < s.length && !/\s/.test(s[i]!)) i++;
+        value = s.slice(valStart, i);
+      }
+
+      // Apply to settings
+      switch (key) {
+        case "font":
+          settings.font = value;
+          break;
+        case "size": {
+          // Must be in pt, convert to half-points for docx
+          const m = value.match(/^([0-9]+(?:\.[0-9]+)?)pt$/i);
+          if (!m) {
+            throw new Error(`@styles: size must be in pt (e.g. 12pt) at line ${line}, column ${column}. Got: ${value}`);
+          }
+          const pt = parseFloat(m[1]!);
+          settings.size = Math.round(pt * 2); // half-points
+          break;
+        }
+        case "bold":
+          settings.bold = value.toLowerCase() === "true";
+          break;
+        case "italic":
+          settings.italic = value.toLowerCase() === "true";
+          break;
+        case "color": {
+          // Expect #RRGGBB, normalize to 6-hex without '#'
+          const colorMatch = value.match(/^#?([0-9A-Fa-f]{6})$/);
+          if (!colorMatch) {
+            throw new Error(`@styles: color must be #RRGGBB (e.g. #333333) at line ${line}, column ${column}. Got: ${value}`);
+          }
+          settings.color = colorMatch[1]!.toUpperCase();
+          break;
+        }
+        default:
+          throw new Error(`@styles: unknown key '${key}' at line ${line}, column ${column}. Valid keys: font, size, bold, italic, color`);
+      }
+    }
+
+    return settings;
+  }
+
+  private buildDocumentStyles(): any {
+    // If no style config, return undefined to preserve default behavior
+    if (Object.keys(this.styleConfig).length === 0) {
+      return undefined;
+    }
+
+    const styles: any = {};
+
+    // Build default run properties for body text
+    if (this.styleConfig.body) {
+      const bodySettings = this.styleConfig.body;
+      const runProps: any = {};
+      if (bodySettings.font) runProps.font = bodySettings.font;
+      if (bodySettings.size !== undefined) runProps.size = bodySettings.size;
+      if (bodySettings.bold !== undefined) runProps.bold = bodySettings.bold;
+      if (bodySettings.italic !== undefined) runProps.italics = bodySettings.italic;
+      if (bodySettings.color) runProps.color = bodySettings.color;
+
+      if (Object.keys(runProps).length > 0) {
+        styles.default = {
+          document: {
+            run: runProps,
+          },
+        };
+      }
+    }
+
+    // Build paragraph styles for headings, header, footer
+    const paragraphStyles: any[] = [];
+
+    // Helper to build a paragraph style entry
+    const buildParagraphStyle = (id: string, name: string, settings: StyleSettings) => {
+      const style: any = { id, name };
+      const runProps: any = {};
+      const paragraphProps: any = {};
+
+      if (settings.font) runProps.font = settings.font;
+      if (settings.size !== undefined) runProps.size = settings.size;
+      if (settings.bold !== undefined) runProps.bold = settings.bold;
+      if (settings.italic !== undefined) runProps.italics = settings.italic;
+      if (settings.color) runProps.color = settings.color;
+
+      if (Object.keys(runProps).length > 0) {
+        style.run = runProps;
+      }
+      if (Object.keys(paragraphProps).length > 0) {
+        style.paragraph = paragraphProps;
+      }
+
+      return style;
+    };
+
+    // Heading styles - specific heading levels (heading1-heading6)
+    const headingLevelMap: Record<string, { id: string; name: string }> = {
+      heading1: { id: "Heading1", name: "Heading 1" },
+      heading2: { id: "Heading2", name: "Heading 2" },
+      heading3: { id: "Heading3", name: "Heading 3" },
+      heading4: { id: "Heading4", name: "Heading 4" },
+      heading5: { id: "Heading5", name: "Heading 5" },
+      heading6: { id: "Heading6", name: "Heading 6" },
+    };
+
+    // Apply generic "heading" style to all heading levels as a base
+    if (this.styleConfig.heading) {
+      for (const [key, info] of Object.entries(headingLevelMap)) {
+        // Merge generic heading with specific if exists
+        const specific = this.styleConfig[key as keyof StyleConfig];
+        const merged = { ...this.styleConfig.heading, ...(specific ?? {}) };
+        paragraphStyles.push(buildParagraphStyle(info.id, info.name, merged));
+      }
+    } else {
+      // Only apply specific heading styles
+      for (const [key, info] of Object.entries(headingLevelMap)) {
+        const specific = this.styleConfig[key as keyof StyleConfig];
+        if (specific) {
+          paragraphStyles.push(buildParagraphStyle(info.id, info.name, specific));
+        }
+      }
+    }
+
+    // Header style
+    if (this.styleConfig.header) {
+      paragraphStyles.push(buildParagraphStyle("Header", "Header", this.styleConfig.header));
+    }
+
+    // Footer style
+    if (this.styleConfig.footer) {
+      paragraphStyles.push(buildParagraphStyle("Footer", "Footer", this.styleConfig.footer));
+    }
+
+    if (paragraphStyles.length > 0) {
+      styles.paragraphStyles = paragraphStyles;
+    }
+
+    return Object.keys(styles).length > 0 ? styles : undefined;
+  }
+
+  /** Get base TextStyle for body text from @styles body directive */
+  private getBodyStyle(): TextStyle {
+    const s = this.styleConfig.body;
+    if (!s) return {};
+    const style: TextStyle = {};
+    if (s.font) style.font = s.font;
+    if (s.size !== undefined) style.size = s.size;
+    if (s.bold) style.bold = s.bold;
+    if (s.italic) style.italics = s.italic;
+    if (s.color) style.color = s.color;
+    return style;
+  }
+
+  /** Get base TextStyle for header content from @styles header directive */
+  private getHeaderStyle(): TextStyle {
+    const s = this.styleConfig.header;
+    if (!s) return {};
+    const style: TextStyle = {};
+    if (s.font) style.font = s.font;
+    if (s.size !== undefined) style.size = s.size;
+    if (s.bold) style.bold = s.bold;
+    if (s.italic) style.italics = s.italic;
+    if (s.color) style.color = s.color;
+    return style;
+  }
+
+  /** Get base TextStyle for footer content from @styles footer directive */
+  private getFooterStyle(): TextStyle {
+    const s = this.styleConfig.footer;
+    if (!s) return {};
+    const style: TextStyle = {};
+    if (s.font) style.font = s.font;
+    if (s.size !== undefined) style.size = s.size;
+    if (s.bold) style.bold = s.bold;
+    if (s.italic) style.italics = s.italic;
+    if (s.color) style.color = s.color;
+    return style;
+  }
+
+  /** Get base TextStyle for a heading level from @styles heading/headingN directives */
+  private getHeadingStyle(level: 1 | 2 | 3 | 4 | 5 | 6): TextStyle {
+    const generic = this.styleConfig.heading;
+    const specific = this.styleConfig[`heading${level}` as keyof StyleConfig];
+    const merged = { ...(generic ?? {}), ...(specific ?? {}) };
+    if (Object.keys(merged).length === 0) return {};
+    const style: TextStyle = {};
+    if (merged.font) style.font = merged.font;
+    if (merged.size !== undefined) style.size = merged.size;
+    if (merged.bold) style.bold = merged.bold;
+    if (merged.italic) style.italics = merged.italic;
+    if (merged.color) style.color = merged.color;
+    return style;
+  }
+
   private parseLengthToTwip(raw: string): number {
     const m = raw.trim().match(/^([0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt)$/i);
     if (!m) {
@@ -1330,7 +1624,10 @@ export class DocxCompiler {
     const text = this.inlineText(node.content);
     const key = this.normalizeRefKey(text);
     const anchor = this.bookmarkByKey.get(key);
-    const children = this.compileInlineNodes(node.content, {}, (node as any).scope);
+    
+    // Apply heading style for this level
+    const headingStyle = this.getHeadingStyle(node.level as 1 | 2 | 3 | 4 | 5 | 6);
+    const children = this.compileInlineNodes(node.content, headingStyle, (node as any).scope);
 
     let wrappedChildren: any[] = children;
     if (forcedBookmarks && forcedBookmarks.length > 0) {
@@ -2044,6 +2341,8 @@ export class DocxCompiler {
     if (style.italics) options.italics = true;
     if (style.allCaps) options.allCaps = true;
     if (style.size) options.size = style.size;
+    if (style.font) options.font = style.font;
+    if (style.color) options.color = style.color;
 
     return new TextRun(options);
   }
@@ -2078,27 +2377,30 @@ export class DocxCompiler {
       keep.push(n);
     }
 
-    const compileHF = (node?: DocHeaderFooterNode): (Paragraph | Table)[] => {
+    const compileHF = (node: DocHeaderFooterNode | undefined, baseStyle: TextStyle): (Paragraph | Table)[] => {
       if (!node) return [];
       const parts: (Paragraph | Table)[] = [];
       for (const child of node.content) {
-        parts.push(...this.compileNode(child));
+        parts.push(...this.compileNode(child, baseStyle));
       }
       // Ensure at least one paragraph so Word shows the header/footer region
       if (parts.length === 0) parts.push(new Paragraph({}));
       return parts;
     };
 
+    const headerStyle = this.getHeaderStyle();
+    const footerStyle = this.getFooterStyle();
+
     const headers: any = {
-      default: headerNodes.default ? new Header({ children: compileHF(headerNodes.default) }) : undefined,
-      first: headerNodes.first ? new Header({ children: compileHF(headerNodes.first) }) : undefined,
-      even: headerNodes.even ? new Header({ children: compileHF(headerNodes.even) }) : undefined,
+      default: headerNodes.default ? new Header({ children: compileHF(headerNodes.default, headerStyle) }) : undefined,
+      first: headerNodes.first ? new Header({ children: compileHF(headerNodes.first, headerStyle) }) : undefined,
+      even: headerNodes.even ? new Header({ children: compileHF(headerNodes.even, headerStyle) }) : undefined,
     };
 
     const footers: any = {
-      default: footerNodes.default ? new Footer({ children: compileHF(footerNodes.default) }) : undefined,
-      first: footerNodes.first ? new Footer({ children: compileHF(footerNodes.first) }) : undefined,
-      even: footerNodes.even ? new Footer({ children: compileHF(footerNodes.even) }) : undefined,
+      default: footerNodes.default ? new Footer({ children: compileHF(footerNodes.default, footerStyle) }) : undefined,
+      first: footerNodes.first ? new Footer({ children: compileHF(footerNodes.first, footerStyle) }) : undefined,
+      even: footerNodes.even ? new Footer({ children: compileHF(footerNodes.even, footerStyle) }) : undefined,
     };
 
     return { body: keep, headers, footers };

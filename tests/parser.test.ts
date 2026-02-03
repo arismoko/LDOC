@@ -1054,3 +1054,84 @@ describe("Table styling", () => {
     expect(headerRow).toContain('<w:b');
   });
 });
+
+describe("@styles directive", () => {
+  test("body style applies font and size to normal paragraphs", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@styles body font="Georgia" size=11pt
+
+This is a normal paragraph.`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // Check for Georgia font in run properties (ascii and hAnsi attributes)
+    expect(xml).toMatch(/w:rFonts[^>]*w:ascii="Georgia"/);
+    expect(xml).toMatch(/w:rFonts[^>]*w:hAnsi="Georgia"/);
+    // Check for size 11pt = 22 half-points
+    expect(xml).toMatch(/w:sz[^>]*w:val="22"/);
+  });
+
+  test("heading1 style applies font and size to # headers", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@styles heading1 font="Helvetica" size=24pt
+
+# Title`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+
+    // Check document.xml for the heading styles
+    const docXml = await zip.file("word/document.xml")!.async("text");
+    // Also check styles.xml for Heading1 style definition
+    const stylesXml = await zip.file("word/styles.xml")!.async("text");
+
+    // Either document.xml or styles.xml should contain Helvetica and size 48 (24pt = 48 half-points)
+    const hasHelvetica = docXml.includes("Helvetica") || stylesXml.includes("Helvetica");
+    const hasSize48 = docXml.match(/w:sz[^>]*w:val="48"/) || stylesXml.match(/w:sz[^>]*w:val="48"/);
+
+    expect(hasHelvetica).toBe(true);
+    expect(hasSize48).toBeTruthy();
+  });
+
+  test("header style applies font and size to @header content", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@styles header font="Arial" size=9pt
+
+@header
+  Document Header
+
+# Title
+
+Body text.`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+
+    // Find header1.xml
+    const headerFile = zip.file("word/header1.xml");
+    expect(headerFile).toBeTruthy();
+    const headerXml = await headerFile!.async("text");
+
+    // Check for Arial font
+    expect(headerXml).toContain("Arial");
+    // Check for size 9pt = 18 half-points
+    expect(headerXml).toMatch(/w:sz[^>]*w:val="18"/);
+  });
+
+  test("rejects invalid size unit (px)", () => {
+    const parser = new Parser();
+    expect(() => parser.parse(`@styles body size=12px\n\nBody.`)).toThrow(/invalid|unsupported|unit/i);
+  });
+
+  test("rejects invalid color format (named colors)", () => {
+    const parser = new Parser();
+    expect(() => parser.parse(`@styles body color=red\n\nBody.`)).toThrow(/invalid|hex|color/i);
+  });
+
+  test("rejects unknown style target", () => {
+    const parser = new Parser();
+    expect(() => parser.parse(`@styles unknown font="Arial"\n\nBody.`)).toThrow(/unknown|invalid|target/i);
+  });
+});

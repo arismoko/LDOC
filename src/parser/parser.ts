@@ -53,6 +53,7 @@ export class Parser {
       type === TokenType.DOC_LANDSCAPE ||
       type === TokenType.DOC_COLUMNS ||
       type === TokenType.DOC_ANCHOR ||
+      type === TokenType.DOC_STYLES ||
       type === TokenType.IF ||
       type === TokenType.ELSE ||
       type === TokenType.END ||
@@ -341,6 +342,9 @@ export class Parser {
 
       case TokenType.DOC_ANCHOR:
         return this.parseAnchor();
+
+      case TokenType.DOC_STYLES:
+        return this.parseDocStyles();
 
       case TokenType.DEFINE:
         return this.parseDefine();
@@ -902,6 +906,119 @@ export class Parser {
       line: token.line,
       column: token.column,
     } as any;
+  }
+
+  private parseDocStyles(): Node {
+    const token = this.advance();
+    const raw = this.parseRestOfLineRaw();
+    // Parse: <target> <key=value ...>
+    // target: body, heading, heading1..heading6, header, footer
+    const parts = raw.trim().split(/\s+/);
+    if (parts.length === 0 || !parts[0]) {
+      throw new Error(`@styles requires a target at line ${token.line}, column ${token.column}`);
+    }
+    const target = parts[0].toLowerCase();
+    const validTargets = new Set([
+      "body", "heading", "heading1", "heading2", "heading3",
+      "heading4", "heading5", "heading6", "header", "footer",
+    ]);
+    if (!validTargets.has(target)) {
+      throw new Error(
+        `@styles unknown target '${target}' at line ${token.line}, column ${token.column}. ` +
+        `Valid targets: body, heading, heading1..heading6, header, footer`
+      );
+    }
+    const args = parts.slice(1).join(" ");
+
+    // Validate key=value pairs at parse time
+    this.validateStyleArgs(args, token.line, token.column);
+
+    return {
+      type: "doc_styles",
+      target,
+      args,
+      line: token.line,
+      column: token.column,
+    } as any;
+  }
+
+  private validateStyleArgs(args: string, line: number, column: number): void {
+    if (!args.trim()) return;
+
+    const validKeys = new Set(["font", "size", "bold", "italic", "color"]);
+    let i = 0;
+    const s = args;
+    const skipWs = () => {
+      while (i < s.length && /\s/.test(s[i]!)) i++;
+    };
+
+    while (i < s.length) {
+      skipWs();
+      if (i >= s.length) break;
+
+      // Read key
+      const keyStart = i;
+      while (i < s.length && /[a-zA-Z0-9_]/.test(s[i]!)) i++;
+      const key = s.slice(keyStart, i).toLowerCase();
+      if (!key) {
+        throw new Error(`@styles: expected key at line ${line}, column ${column}`);
+      }
+
+      if (!validKeys.has(key)) {
+        throw new Error(`@styles: unknown key '${key}' at line ${line}, column ${column}. Valid keys: font, size, bold, italic, color`);
+      }
+
+      skipWs();
+      if (s[i] !== "=") {
+        throw new Error(`@styles: expected '=' after '${key}' at line ${line}, column ${column}`);
+      }
+      i++; // skip =
+      skipWs();
+
+      // Read value (possibly quoted)
+      let value: string;
+      if (s[i] === '"' || s[i] === "'") {
+        const quote = s[i]!;
+        i++;
+        const valStart = i;
+        while (i < s.length && s[i] !== quote) {
+          if (s[i] === "\\") i++; // skip escaped char
+          i++;
+        }
+        value = s.slice(valStart, i);
+        if (s[i] === quote) i++;
+      } else {
+        const valStart = i;
+        while (i < s.length && !/\s/.test(s[i]!)) i++;
+        value = s.slice(valStart, i);
+      }
+
+      // Validate based on key
+      switch (key) {
+        case "size": {
+          const m = value.match(/^([0-9]+(?:\.[0-9]+)?)pt$/i);
+          if (!m) {
+            throw new Error(`@styles: invalid size '${value}' - must be in pt units (e.g. 12pt) at line ${line}, column ${column}`);
+          }
+          break;
+        }
+        case "color": {
+          const colorMatch = value.match(/^#?([0-9A-Fa-f]{6})$/);
+          if (!colorMatch) {
+            throw new Error(`@styles: invalid color '${value}' - must be hex #RRGGBB format (e.g. #333333) at line ${line}, column ${column}`);
+          }
+          break;
+        }
+        case "bold":
+        case "italic": {
+          if (value.toLowerCase() !== "true" && value.toLowerCase() !== "false") {
+            throw new Error(`@styles: ${key} must be 'true' or 'false' at line ${line}, column ${column}`);
+          }
+          break;
+        }
+        // font: any string is valid
+      }
+    }
   }
 
   private parseColumnsRegion(): ColumnsRegionNode {

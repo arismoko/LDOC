@@ -818,6 +818,55 @@ Seller makes ***no warranty*** regarding condition.
 @landscape
 ```
 
+### @styles
+
+Customize fonts, sizes, and colors for document elements:
+
+```
+@styles body font="Georgia" size=11pt
+@styles heading1 font="Helvetica" size=24pt color=#333333
+@styles heading2 font="Helvetica" size=18pt
+@styles header font="Arial" size=9pt
+@styles footer font="Arial" size=9pt color=#666666
+```
+
+**Supported Targets:**
+
+| Target | Applies to |
+|--------|------------|
+| `body` | Normal paragraph text |
+| `heading1` | `# Heading 1` markdown headers |
+| `heading2` | `## Heading 2` markdown headers |
+| `heading3` | `### Heading 3` markdown headers |
+| `header` | Document header content |
+| `footer` | Document footer content |
+
+**Supported Keys:**
+
+| Key | Format | Example |
+|-----|--------|---------|
+| `font` | Quoted font name | `font="Times New Roman"` |
+| `size` | Points (pt only) | `size=12pt` |
+| `color` | Hex color | `color=#333333` |
+
+**Notes:**
+- `@styles` directives should appear at the document top, before content
+- Multiple `@styles` lines for different targets are allowed
+- Later directives for the same target override earlier ones
+- Size must use `pt` units (pixels, em, etc. are not supported)
+- Colors must be hex format (`#RRGGBB`), not named colors
+
+**Example:**
+
+```
+@styles body font="Georgia" size=11pt
+@styles heading1 font="Helvetica" size=24pt
+
+# Contract Agreement
+
+This document uses Georgia for body text and Helvetica for headings.
+```
+
 ### Multi-Column Regions
 
 Use `@columns` to create a multi-column section. The region ends with `@;`:

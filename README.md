@@ -8,6 +8,7 @@ A lightweight markup language for legal documents that compiles to DOCX.
 - **Nested numbered lists** — `@1`, `@@a`, `@@@i`, `@@@@A`
 - **Multiple numbering styles** — Decimal, alpha, roman, hierarchical (`1.1.`)
 - **Modifiers** — `@center`, `@bold`, `@indent`, etc.
+- **Style customization** — `@styles body font="Georgia" size=11pt`
 - **Variables** — `{{seller}}`, `{{property.address}}`
 - **Cross-references** — `[[Section 5.2]]`, `[[Exhibit A]]`
 - **Tables** — Simple bracket syntax
@@ -210,6 +211,27 @@ This Agreement is between {{parties.seller}} (the "Seller").
 ```ldoc
 As described in [[Section 5.2]], subject to [[Exhibit A]].
 ```
+
+### Style customization
+
+```ldoc
+@styles body font="Georgia" size=11pt
+@styles heading1 font="Helvetica" size=24pt
+@styles header font="Arial" size=9pt
+```
+
+**Supported targets:**
+- `body` — Normal paragraph text
+- `heading1`, `heading2`, `heading3` — Markdown headers (`#`, `##`, `###`)
+- `header` — Document header content
+- `footer` — Document footer content
+
+**Supported keys:**
+- `font="FontName"` — Font family (e.g., "Times New Roman", "Arial")
+- `size=Npt` — Font size in points (e.g., `12pt`, `11pt`)
+- `color=#RRGGBB` — Text color as hex (e.g., `#333333`)
+
+**Note:** `@styles` directives should appear at the top of the document before content. Later `@styles` directives for the same target override earlier ones.
 
 ## Neovim Setup
 
