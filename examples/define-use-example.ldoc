@@ -1,0 +1,232 @@
+// ============================================================================
+// EXAMPLE: @define and @use for Reusable Legal Blocks
+// ============================================================================
+// This document demonstrates how @define stores named blocks (without rendering)
+// and @use inserts them at specific locations. No parameters, conditionals, or
+// loops are used - just simple block substitution.
+// ============================================================================
+
+@meta
+  date: March 15, 2026
+  parties:
+    landlord: RIVERSIDE PROPERTIES, LLC
+    tenant: JAMES & MARIA CHEN
+
+// ----------------------------------------------------------------------------
+// DEFINITIONS: These blocks are stored but NOT rendered here
+// ----------------------------------------------------------------------------
+
+@define notice_clause
+  **NOTICE.** All notices under this Agreement shall be in writing and shall 
+  be deemed given when: (a) delivered personally; (b) sent by certified mail, 
+  return receipt requested; or (c) sent by overnight courier, to the addresses 
+  set forth below or to such other address as a party may designate in writing.
+
+  @indent
+    If to Landlord:
+    {{parties.landlord}}
+    Attn: Property Manager
+    123 Main Street, Suite 400
+    Minneapolis, MN 55401
+
+    If to Tenant:
+    {{parties.tenant}}
+    [Property Address]
+  @;
+
+@define signature_block_landlord
+  **LANDLORD:**
+
+  {{parties.landlord}}
+
+
+  By: ________________________________
+      Name: ___________________________
+      Its: Authorized Representative
+
+  Date: ______________________________
+
+@define signature_block_tenant
+  **TENANT:**
+
+
+  ________________________________
+  {{parties.tenant}}
+
+  Date: ______________________________
+
+@define governing_law
+  **GOVERNING LAW.** This Agreement shall be governed by and construed in 
+  accordance with the laws of the State of Minnesota, without regard to 
+  conflict of laws principles. Any dispute arising under this Agreement 
+  shall be resolved in the courts of Hennepin County, Minnesota.
+
+@define standard_recitals
+  **WHEREAS**, Landlord is the owner of the Property described in [[Exhibit A]]; and
+
+  **WHEREAS**, Tenant desires to lease the Property from Landlord for the 
+  purposes described herein; and
+
+  **WHEREAS**, Landlord desires to lease the Property to Tenant on the terms 
+  and conditions set forth in this Agreement;
+
+  **NOW, THEREFORE**, in consideration of the mutual covenants contained herein 
+  and for other good and valuable consideration, the receipt and sufficiency of 
+  which are hereby acknowledged, the parties agree as follows:
+
+// ============================================================================
+// MAIN DOCUMENT: The Agreement
+// ============================================================================
+
+@center
+  # COMMERCIAL LEASE AGREEMENT
+
+THIS COMMERCIAL LEASE AGREEMENT ("Agreement") is made and entered into as of 
+{{date}}, by and between {{parties.landlord}} ("Landlord") and 
+{{parties.tenant}} ("Tenant").
+
+## Recitals
+
+@use standard_recitals
+
+## Agreement
+
+@anchor Article 1
+@1 Premises.
+Landlord hereby leases to Tenant, and Tenant hereby leases from Landlord, the 
+premises described in [[Exhibit A]] (the "Premises"), subject to the terms and 
+conditions of this Agreement.
+
+@anchor Article 2
+@2 Term.
+The initial term of this Lease shall be for a period of five (5) years, 
+commencing on May 1, 2026 and ending on April 30, 2031, unless sooner 
+terminated in accordance with the provisions hereof.
+
+@anchor Article 3
+@3 Rent.
+
+@@a **Base Rent.** Tenant shall pay to Landlord base rent in the amount of 
+FIVE THOUSAND DOLLARS ($5,000.00) per month, due on the first day of each month.
+
+@@b **Late Fee.** If any rent payment is not received within five (5) days of 
+the due date, Tenant shall pay a late fee equal to five percent (5%) of the 
+overdue amount.
+
+@anchor Article 4
+@4 Notices.
+
+@use notice_clause
+
+@anchor Article 5
+@5 Miscellaneous.
+
+@@a **Entire Agreement.** This Agreement, together with the Exhibits attached 
+hereto, constitutes the entire agreement between the parties with respect to 
+the subject matter hereof.
+
+@@b @use governing_law
+
+@@c **Amendments.** This Agreement may not be amended or modified except by a 
+written instrument signed by both parties.
+
+**IN WITNESS WHEREOF**, the parties have executed this Agreement as of the date 
+first written above.
+
+@use signature_block_landlord
+
+@use signature_block_tenant
+
+
+@pagebreak
+
+// ============================================================================
+// EXHIBIT A: Property Description
+// ============================================================================
+
+@center
+  # EXHIBIT A
+  
+  Legal Description of the Premises
+
+@anchor Exhibit A
+The Premises consists of approximately 2,500 square feet of commercial space 
+located at:
+
+@box
+  **Property Address:**
+  456 Commerce Boulevard, Suite 200
+  Minneapolis, MN 55402
+  
+  **Legal Description:**
+  Lot 12, Block 3, Commerce Park Addition
+  Hennepin County, Minnesota
+@;
+
+The Premises includes access to common areas, parking (4 designated spaces), 
+and building amenities as described in the Building Rules attached hereto.
+
+
+@pagebreak
+
+// ============================================================================
+// EXHIBIT B: Additional Lease Terms
+// ============================================================================
+
+@center
+  # EXHIBIT B
+  
+  Additional Terms and Conditions
+
+@anchor Exhibit B
+
+@1 Insurance Requirements.
+Tenant shall maintain commercial general liability insurance with minimum 
+coverage of ONE MILLION DOLLARS ($1,000,000) per occurrence.
+
+@2 Permitted Use.
+The Premises shall be used solely for general office purposes and such other 
+lawful purposes as may be approved in writing by Landlord.
+
+@3 Notice Requirements.
+
+// Reusing the same notice clause for consistency across exhibits
+@use notice_clause
+
+
+@pagebreak
+
+// ============================================================================
+// EXHIBIT C: Signature Addendum (Multi-party scenario)
+// ============================================================================
+
+@center
+  # EXHIBIT C
+  
+  Guaranty of Lease
+
+@anchor Exhibit C
+
+The undersigned Guarantor(s), in consideration of the execution of the foregoing 
+Lease by Landlord, hereby unconditionally guarantee to Landlord the full and 
+prompt payment and performance of all obligations of Tenant under the Lease.
+
+## Notices to Guarantor
+
+All notices to Guarantor shall be sent in accordance with the notice provisions 
+of the Agreement:
+
+@use notice_clause
+
+## Governing Law
+
+@use governing_law
+
+## Guarantor Signature
+
+@use signature_block_tenant
+
+
+## Landlord Acknowledgment
+
+@use signature_block_landlord

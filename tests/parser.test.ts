@@ -88,6 +88,13 @@ describe("Lexer", () => {
     const tokens = lexer.tokenize();
     expect(tokens.some((t) => t.type === TokenType.END_BLOCK)).toBe(true);
   });
+
+  test("tokenizes define and use", () => {
+    const lexer = new Lexer("@define Foo\n  Hello\n@use Foo\n");
+    const tokens = lexer.tokenize();
+    expect(tokens.some((t) => t.type === TokenType.DEFINE)).toBe(true);
+    expect(tokens.some((t) => t.type === TokenType.USE)).toBe(true);
+  });
 });
 
 describe("Parser", () => {
@@ -171,6 +178,31 @@ Hello world`);
 
     expect(ast.meta).toBeDefined();
     expect(ast.meta?.data.date).toBe("January 1, 2026");
+    expect(ast.meta?.data.parties).toEqual({ seller: "Acme Corp" });
+  });
+
+  test("parses deeply nested meta blocks", () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@meta
+  level1:
+    level2:
+      level3: deep value
+  other: top`);
+
+    expect(ast.meta).toBeDefined();
+    expect(ast.meta?.data.level1?.level2?.level3).toBe("deep value");
+    expect(ast.meta?.data.other).toBe("top");
+  });
+
+  test("handles empty meta values without nested block", () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@meta
+  emptykey:
+  nextkey: value`);
+
+    expect(ast.meta).toBeDefined();
+    expect(ast.meta?.data.emptykey).toBe("");
+    expect(ast.meta?.data.nextkey).toBe("value");
   });
 
   test("preserves blank lines as spacing", () => {
@@ -232,6 +264,25 @@ Hello world`);
   test("@; at top-level is an error", () => {
     const parser = new Parser();
     expect(() => parser.parse("@;\n")).toThrow(/Unmatched @;/);
+  });
+
+  test("parses @define and @use", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@define Foo\n  Hello\n\n# Title\n\n@use Foo\n");
+    expect(ast.body[0].type).toBe("define");
+    expect((ast.body[0] as any).name).toBe("Foo");
+    expect((ast.body[0] as any).template.length).toBeGreaterThan(0);
+    expect(ast.body.some((n: any) => n.type === "use")).toBe(true);
+  });
+
+  test("parses @define params and @use args", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@define Notice(title, subject)\n  Hello\n\n@use Notice(title=\"T\", subject=S)\n");
+    const def: any = ast.body[0];
+    const use: any = ast.body.find((n: any) => n.type === "use");
+    expect(def.params).toEqual(["title", "subject"]);
+    expect(use.args.title).toBe("T");
+    expect(use.args.subject).toBe("S");
   });
 });
 
@@ -335,6 +386,58 @@ Hello {{name}}`);
     expect(xml).toContain("w:bookmarkStart");
     expect(xml).toContain("w:hyperlink");
     expect(xml).toContain("w:anchor=");
+  });
+
+  test("@define does not render; @use expands", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@define Block\n  @box\n    Hi\n\n# Title\n\n@use Block\n`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    // Should contain box table from the used block
+    expect(xml).toContain("w:tbl");
+    // Should not contain literal '@define'
+    expect(xml).not.toContain("@define");
+  });
+
+  test("@use substitutes params into {{param}}", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@define Box(title)\n  @box\n    **{{title}}**\n\n@use Box(title=\"Hello\")\n`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain("Hello");
+  });
+
+  test("@use requires all declared params (no fallback to @meta)", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@meta\n  title: FromMeta\n\n@define Box(title)\n  {{title}}\n\n@use Box()\n`);
+    const compiler = new DocxCompiler();
+    await expect(compiler.compile(ast)).rejects.toThrow(/missing required param/);
+  });
+
+  test("@use rejects unknown params", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@define Box(title)\n  Hi\n\n@use Box(nope=1)\n`);
+    const compiler = new DocxCompiler();
+    await expect(compiler.compile(ast)).rejects.toThrow(/unknown param/);
+  });
+
+  test("detects recursive @use", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@define A\n  @use A\n\n@use A\n`);
+    const compiler = new DocxCompiler();
+    await expect(compiler.compile(ast)).rejects.toThrow(/Recursive @use/);
+  });
+
+  test("throws on unknown @use", async () => {
+    const parser = new Parser();
+    const ast = parser.parse("@use Missing\n");
+    const compiler = new DocxCompiler();
+    await expect(compiler.compile(ast)).rejects.toThrow(/Unknown @use/);
   });
 
   test("@anchor skips comments and blank lines", async () => {

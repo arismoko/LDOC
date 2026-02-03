@@ -6,6 +6,7 @@ export enum TokenType {
   META = "META",
   IMPORT = "IMPORT",
   DEFINE = "DEFINE",
+  USE = "USE",
 
   // Numbered items: @, @@, @@@, @@@@
   NUMBERED_ITEM = "NUMBERED_ITEM",
@@ -99,6 +100,7 @@ const KEYWORDS = new Set([
   "meta",
   "import",
   "define",
+  "use",
   "table",
   "pagebreak",
   "todo",
@@ -128,6 +130,7 @@ export class Lexer {
   private indentStack: number[] = [0];
   private tokens: Token[] = [];
   private pendingDedents: number = 0;
+  private pendingDedentTargetIndent: number | null = null;
 
   private debug: boolean = false;
   private maxIterations: number = 100000;
@@ -220,6 +223,19 @@ export class Lexer {
         column: startCol,
         indent: this.indentStack[this.indentStack.length - 1],
       });
+
+      // Flush any deferred dedents for this terminator line
+      if (this.pendingDedents > 0 && this.pendingDedentTargetIndent !== null) {
+        const target = this.pendingDedentTargetIndent;
+        for (let i = 0; i < this.pendingDedents; i++) {
+          if (this.indentStack.length > 1) {
+            this.indentStack.pop();
+          }
+          this.tokens.push(this.makeToken(TokenType.DEDENT, "", target));
+        }
+        this.pendingDedents = 0;
+        this.pendingDedentTargetIndent = null;
+      }
       return;
     }
 
@@ -307,13 +323,7 @@ export class Lexer {
       this.advance();
     }
 
-    // Special case: the explicit block terminator `@;` is evaluated at the current
-    // indentation context. This allows writing `@;` at the parent indentation level
-    // (i.e., with no leading tabs/spaces) to close the current block, without having
-    // the lexer emit DEDENT tokens before the terminator.
-    if (this.peek() === "@" && this.peek(1) === ";") {
-      return;
-    }
+    const isEndBlockLine = this.peek() === "@" && this.peek(1) === ";";
 
     // Skip empty lines
     if (this.peek() === "\n" || this.pos >= this.input.length) {
@@ -326,6 +336,21 @@ export class Lexer {
       this.indentStack.push(indent);
       this.tokens.push(this.makeToken(TokenType.INDENT, "", indent));
     } else if (indent < currentIndent) {
+      // If this line is an explicit end-block terminator, emit the END_BLOCK token
+      // before any DEDENT tokens. We do that by deferring DEDENT emission until after
+      // scanToken() consumes the @;.
+      if (isEndBlockLine) {
+        this.pendingDedentTargetIndent = indent;
+        // Count how many dedents will be needed.
+        let count = 0;
+        for (let i = this.indentStack.length - 1; i > 0; i--) {
+          if (this.indentStack[i] > indent) count++;
+          else break;
+        }
+        this.pendingDedents = count;
+        return;
+      }
+
       while (this.indentStack.length > 1 && this.indentStack[this.indentStack.length - 1] > indent) {
         this.indentStack.pop();
         this.tokens.push(this.makeToken(TokenType.DEDENT, "", indent));
@@ -785,6 +810,8 @@ export class Lexer {
         return TokenType.IMPORT;
       case "define":
         return TokenType.DEFINE;
+      case "use":
+        return TokenType.USE;
       case "table":
         return TokenType.TABLE;
       case "pagebreak":

@@ -255,10 +255,22 @@ export class DocxCompiler {
   }
 
   async compile(ast: DocumentNode): Promise<Buffer> {
+    const debug = process.env.LDOC_DEBUG === "1";
+    const t0 = Date.now();
+    const log = (label: string) => {
+      if (!debug) return;
+      const ms = Date.now() - t0;
+      console.error(`[ldoc] +${ms}ms ${label}`);
+    };
+
+    log("compile:start");
+
     this.bookmarkByKey = new Map();
     this.bookmarkNames = new Set();
     this.missingCrossRefs = new Set();
     this.missingVariables = new Map();
+
+    log("compile:state-reset");
 
     // Extract document-level settings/metadata
     if (!this.ctx.variables.document || typeof this.ctx.variables.document !== "object") {
@@ -268,19 +280,36 @@ export class DocxCompiler {
       this.ctx.variables.document = { ...(this.ctx.variables.document as any), ...ast.document };
     }
 
+    log("compile:document-vars");
+
     // Extract variables from meta
     if (ast.meta) {
       this.ctx.variables = { ...this.ctx.variables, ...this.flattenMeta(ast.meta.data) };
     }
 
+    if (debug) {
+      console.error(`[ldoc] meta.parties=`, (this.ctx.variables as any).parties);
+    }
+
+    log("compile:meta-vars");
+
+    // Expand @define/@use before indexing anchors and compiling
+    const expandedAst = this.expandDefinesAndUses(ast);
+
+    log(`compile:expanded body=${expandedAst.body.length}`);
+
     // Index anchors before compilation (supports forward refs)
-    this.indexAnchors(ast);
+    this.indexAnchors(expandedAst);
+
+    log(`compile:indexAnchors keys=${this.bookmarkByKey.size}`);
 
     const children: (Paragraph | Table)[] = [];
 
-    const { body: bodyWithoutLayout, layout } = this.extractLayout(ast.body);
+    const { body: bodyWithoutLayout, layout } = this.extractLayout(expandedAst.body);
     this.defaultSpacing = layout.spacing;
     const { body, headers, footers } = this.extractHeadersFooters(bodyWithoutLayout);
+
+    log(`compile:layout+headers body=${body.length}`);
 
     // NOTE: @document does not auto-render a visible title.
 
@@ -319,6 +348,8 @@ export class DocxCompiler {
       pendingAnchors = [];
     }
 
+    log(`compile:body-compiled blocks=${children.length}`);
+
     const allowUndefined = Boolean((this.ctx.variables.document as any)?.allow_undefined);
 
     if (!allowUndefined && this.missingCrossRefs.size > 0) {
@@ -332,6 +363,8 @@ export class DocxCompiler {
         .sort();
       throw new Error(`Unresolved variables:\n- ${missing.join("\n- ")}`);
     }
+
+    log("compile:validation-ok");
 
     const hasFirst = Boolean(headers.first || footers.first);
     const hasEven = Boolean(headers.even || footers.even);
@@ -382,7 +415,167 @@ export class DocxCompiler {
       ],
     });
 
-    return await Packer.toBuffer(doc);
+    log("compile:doc-constructed");
+
+    const buf = await Packer.toBuffer(doc);
+    log(`compile:packed bytes=${buf.length}`);
+    return buf;
+  }
+
+  private expandDefinesAndUses(ast: DocumentNode): DocumentNode {
+    type Def = { params: string[]; template: Node[] };
+
+    const defines = new Map<string, Def>();
+    const bodyWithoutDefines: Node[] = [];
+
+    const clone = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
+
+    for (const node of ast.body) {
+      if (node.type === "define") {
+        const name = (node as any).name as string;
+        if (defines.has(name)) throw new Error(`Duplicate @define: ${name}`);
+        defines.set(name, {
+          params: ((node as any).params ?? []) as string[],
+          template: ((node as any).template ?? []) as Node[],
+        });
+        continue;
+      }
+      bodyWithoutDefines.push(node);
+    }
+
+    const applyFilters = (value: string, filters: string[]): string => {
+      let result = String(value);
+      for (const filter of filters) {
+        switch (filter) {
+          case "upper":
+            result = result.toUpperCase();
+            break;
+          case "lower":
+            result = result.toLowerCase();
+            break;
+          case "capitalize":
+            result = result.charAt(0).toUpperCase() + result.slice(1);
+            break;
+        }
+      }
+      return result;
+    };
+
+    const substituteParamsInInline = (nodes: any[], params: Set<string>, args: Record<string, string>): any[] => {
+      return nodes.map((n) => {
+        if (n.type === "variable" && Array.isArray(n.path) && n.path.length === 1) {
+          const key = n.path[0];
+          if (params.has(key)) {
+            if (!(key in args)) {
+              // leave as-is; unresolved variable validation will catch it
+              return n;
+            }
+            return {
+              type: "text",
+              line: n.line,
+              column: n.column,
+              value: applyFilters(String(args[key]), n.filters ?? []),
+            };
+          }
+        }
+        if (n.type === "emphasis" && Array.isArray(n.content)) {
+          return { ...n, content: substituteParamsInInline(n.content, params, args) };
+        }
+        return n;
+      });
+    };
+
+    const rewriteParams = (node: any, params: Set<string>, args: Record<string, string>): any => {
+      if (!node || typeof node !== "object") return node;
+      if (node.type === "paragraph") {
+        return { ...node, content: substituteParamsInInline(node.content ?? [], params, args) };
+      }
+      if (node.type === "header") {
+        return { ...node, content: substituteParamsInInline(node.content ?? [], params, args) };
+      }
+      if (node.type === "numbered_item" || node.type === "bullet_item") {
+        return {
+          ...node,
+          content: substituteParamsInInline(node.content ?? [], params, args),
+          children: (node.children ?? []).map((c: any) => rewriteParams(c, params, args)),
+        };
+      }
+      if (node.type === "modifier") {
+        return { ...node, content: (node.content ?? []).map((c: any) => rewriteParams(c, params, args)) };
+      }
+      if (node.type === "table") {
+        return {
+          ...node,
+          rows: (node.rows ?? []).map((r: any) => ({
+            ...r,
+            cells: (r.cells ?? []).map((cell: any[]) => substituteParamsInInline(cell ?? [], params, args)),
+          })),
+        };
+      }
+      if (node.type === "doc_header" || node.type === "doc_footer") {
+        return { ...node, content: (node.content ?? []).map((c: any) => rewriteParams(c, params, args)) };
+      }
+      return node;
+    };
+
+    const assertNoAnchors = (nodes: Node[], defineName: string): void => {
+      const stack: any[] = [...nodes];
+      while (stack.length) {
+        const n: any = stack.pop();
+        if (!n || typeof n !== "object") continue;
+        if (n.type === "anchor") {
+          throw new Error(`@define ${defineName} contains @anchor; not supported until anchor scoping is implemented`);
+        }
+        if (Array.isArray(n.content)) stack.push(...n.content);
+        if (Array.isArray(n.children)) stack.push(...n.children);
+        if (Array.isArray(n.body)) stack.push(...n.body);
+        if (Array.isArray(n.rows)) stack.push(...n.rows);
+      }
+    };
+
+    const expandSeq = (nodes: Node[], callStack: string[] = [], depth = 0): Node[] => {
+      if (depth > 50) throw new Error("@use expansion too deep (possible recursion)");
+      const out: Node[] = [];
+      for (const node of nodes) {
+        if ((node as any).type !== "use") {
+          out.push(node);
+          continue;
+        }
+
+        const useName = (node as any).name as string;
+        const useArgs = ((node as any).args ?? {}) as Record<string, string>;
+        const def = defines.get(useName);
+        if (!def) throw new Error(`Unknown @use: ${useName}`);
+
+        if (callStack.includes(useName)) {
+          throw new Error(`Recursive @use detected: ${[...callStack, useName].join(" -> ")}`);
+        }
+
+        // Validate args
+        const paramSet = new Set(def.params);
+        for (const k of Object.keys(useArgs)) {
+          if (!paramSet.has(k)) {
+            throw new Error(`@use ${useName}: unknown param '${k}'`);
+          }
+        }
+
+        const missingParams = def.params.filter((p) => !(p in useArgs));
+        if (missingParams.length > 0) {
+          throw new Error(`@use ${useName}: missing required param(s): ${missingParams.join(", ")}`);
+        }
+
+        assertNoAnchors(def.template, useName);
+
+        const cloned = def.template.map((n) => clone(n));
+        const rewritten = def.params.length > 0 ? cloned.map((n: any) => rewriteParams(n, paramSet, useArgs)) : cloned;
+        const expanded = expandSeq(rewritten as any, [...callStack, useName], depth + 1);
+        out.push(...expanded);
+      }
+      return out;
+    };
+
+    const expandedBody = expandSeq(bodyWithoutDefines);
+    return { ...ast, body: expandedBody };
   }
 
   private applyDefaultSpacing(options: IParagraphOptions): void {
@@ -1095,6 +1288,26 @@ export class DocxCompiler {
 
     const walkSeq = (nodes: Node[], style: TextStyle = {}): void => {
       let pendingAnchors: AnchorNode[] = [];
+
+      const attachPending = (bookmark: string) => {
+        if (pendingAnchors.length === 0) return;
+        for (const a of pendingAnchors) {
+          define(a.name.trim(), bookmark, { line: a.line, column: a.column });
+        }
+        pendingAnchors = [];
+      };
+
+      const bookmarkForPending = (): string | null => {
+        if (pendingAnchors.length === 0) return null;
+        // If an anchor name is already defined (e.g. a heading already created it), reuse it.
+        for (const a of pendingAnchors) {
+          const key = this.normalizeRefKey(a.name.trim());
+          const existing = this.bookmarkByKey.get(key);
+          if (existing) return existing;
+        }
+        return newBookmarkName(pendingAnchors[0].name.trim());
+      };
+
       for (const node of nodes) {
         if (node.type === "anchor") {
           pendingAnchors.push(node as any);
@@ -1106,21 +1319,12 @@ export class DocxCompiler {
           continue;
         }
 
-        // Apply pending explicit anchors to this node (as aliases)
-        if (pendingAnchors.length > 0) {
-          for (const a of pendingAnchors) {
-            const name = a.name.trim();
-            const bookmark = newBookmarkName(name);
-            define(name, bookmark, { line: a.line, column: a.column });
-          }
-          pendingAnchors = [];
-        }
-
         switch (node.type) {
           case "header": {
             const text = this.inlineText(node.content);
             const bookmark = newBookmarkName(text);
             define(text, bookmark);
+            attachPending(bookmark);
             break;
           }
           case "numbered_item": {
@@ -1128,13 +1332,23 @@ export class DocxCompiler {
             if (label) {
               const bookmark = newBookmarkName(label);
               define(label, bookmark);
-              if (/^\d/.test(label)) define(`Section ${label}`, bookmark);
-              define(`Article ${label}`, bookmark);
+              if (/^\d/.test(label)) {
+                define(`Section ${label}`, bookmark);
+                define(`Article ${label}`, bookmark);
+              }
+              attachPending(bookmark);
+            } else if (pendingAnchors.length > 0) {
+              const bookmark = bookmarkForPending();
+              if (bookmark) attachPending(bookmark);
             }
             walkSeq(node.children, style);
             break;
           }
           case "bullet_item": {
+            if (pendingAnchors.length > 0) {
+              const bookmark = bookmarkForPending();
+              if (bookmark) attachPending(bookmark);
+            }
             walkSeq(node.children, style);
             break;
           }
@@ -1146,6 +1360,12 @@ export class DocxCompiler {
             if (node.modifier === "h4") next.heading = 4;
             if (node.modifier === "h5") next.heading = 5;
             if (node.modifier === "h6") next.heading = 6;
+
+            if (pendingAnchors.length > 0) {
+              const bookmark = bookmarkForPending();
+              if (bookmark) attachPending(bookmark);
+            }
+
             walkSeq(node.content, next);
             break;
           }
@@ -1154,10 +1374,32 @@ export class DocxCompiler {
               const text = this.inlineText(node.content);
               const bookmark = newBookmarkName(text);
               define(text, bookmark);
+              attachPending(bookmark);
+            } else if (pendingAnchors.length > 0) {
+              const bookmark = bookmarkForPending();
+              if (bookmark) attachPending(bookmark);
+            }
+            break;
+          }
+          case "table": {
+            if (pendingAnchors.length > 0) {
+              const bookmark = bookmarkForPending();
+              if (bookmark) attachPending(bookmark);
+            }
+            break;
+          }
+          case "page_break": {
+            if (pendingAnchors.length > 0) {
+              const bookmark = bookmarkForPending();
+              if (bookmark) attachPending(bookmark);
             }
             break;
           }
           default:
+            if (pendingAnchors.length > 0) {
+              const bookmark = bookmarkForPending();
+              if (bookmark) attachPending(bookmark);
+            }
             break;
         }
       }
@@ -1213,13 +1455,6 @@ export class DocxCompiler {
     switch (style.type) {
       case "decimal_sub":
         return style.pattern;
-      case "decimal":
-        return style.start ? String(style.start) : undefined;
-      case "alpha_lower":
-      case "alpha_upper":
-      case "roman_lower":
-      case "roman_upper":
-        return style.start;
       default:
         return undefined;
     }

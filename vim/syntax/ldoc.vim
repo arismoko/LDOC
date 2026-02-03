@@ -16,6 +16,8 @@ syn match ldocImportPath    "[^\n]*" contained
 
 syn match ldocDefine        "@define\s\+" nextgroup=ldocDefineName
 syn match ldocDefineName    "\w\+" contained
+syn match ldocUse           "@use\s\+" nextgroup=ldocUseName
+syn match ldocUseName       "\w\+" contained
 
 " Modifiers
 syn match ldocModifier      "@center\|@right\|@indent\(:\d\+\)\?\|@outdent\(:\d\+\)\?\|@box\|@bold\|@italic\|@small\|@caps\|@h[1-6]"
@@ -75,6 +77,8 @@ hi def link ldocImport        Include
 hi def link ldocImportPath    String
 hi def link ldocDefine        Keyword
 hi def link ldocDefineName    Function
+hi def link ldocUse           Keyword
+hi def link ldocUseName       Function
 
 hi def link ldocModifier      Function
 

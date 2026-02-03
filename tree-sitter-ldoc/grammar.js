@@ -15,6 +15,7 @@ module.exports = grammar({
         $.meta_block,
         $.import_directive,
         $.define_block,
+        $.use_directive,
         $.header,
         $.numbered_item,
         $.bullet_item,
@@ -70,6 +71,9 @@ module.exports = grammar({
         $._newline,
         repeat($._statement)
       ),
+
+    // @use name
+    use_directive: ($) => seq("@use", /[^\n]+/),
 
     parameter_list: ($) =>
       seq($.identifier, repeat(seq(",", $.identifier))),

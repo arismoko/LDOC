@@ -53,6 +53,7 @@ export class Parser {
       type === TokenType.META ||
       type === TokenType.IMPORT ||
       type === TokenType.DEFINE ||
+      type === TokenType.USE ||
       type === TokenType.COMMENT ||
       type === TokenType.TODO
     );
@@ -197,17 +198,30 @@ export class Parser {
       this.skipNewlines();
     }
 
-    // Parse imports and meta
+    // Parse preamble directives (allow comments/blank lines before them)
     while (!this.isAtEnd()) {
-      this.skipNewlines();
+      if (this.check(TokenType.NEWLINE)) {
+        this.advance();
+        continue;
+      }
+
+      if (this.check(TokenType.COMMENT) || this.check(TokenType.TODO)) {
+        // Ignore preamble comments; they are not rendered anyway
+        this.advance();
+        continue;
+      }
 
       if (this.check(TokenType.IMPORT)) {
         imports.push(this.parseImport());
-      } else if (this.check(TokenType.META)) {
-        meta = this.parseMeta();
-      } else {
-        break;
+        continue;
       }
+
+      if (this.check(TokenType.META)) {
+        meta = this.parseMeta();
+        continue;
+      }
+
+      break;
     }
 
     // Parse body (preserve blank lines as spacing)
@@ -235,7 +249,10 @@ export class Parser {
   }
 
   private parseNode(): Node | null {
+    const startPos = this.pos;
     const token = this.peek();
+
+    let result: Node | null;
 
     switch (token.type) {
       case TokenType.END_BLOCK:
@@ -266,6 +283,12 @@ export class Parser {
 
       case TokenType.DOC_ANCHOR:
         return this.parseAnchor();
+
+      case TokenType.DEFINE:
+        return this.parseDefine();
+
+      case TokenType.USE:
+        return this.parseUse();
 
       case TokenType.HEADER:
         return this.parseHeader();
@@ -302,11 +325,210 @@ export class Parser {
         return null;
 
       case TokenType.EOF:
-        return null;
+        result = null;
+        break;
 
       default:
-        return this.parseParagraph();
+        result = this.parseParagraph();
+        break;
     }
+
+    if (this.pos === startPos) {
+      throw new Error(
+        `Parser stuck at token ${token.type} (line ${token.line}, column ${token.column}) value=${JSON.stringify(
+          token.value
+        )}`
+      );
+    }
+
+    return result;
+  }
+
+  private parseDefine(): Node {
+    const token = this.advance();
+    const sig = this.parseRestOfLineRaw();
+    if (!sig) {
+      throw new Error(`@define requires a name at line ${token.line}, column ${token.column}`);
+    }
+
+    const { name, params } = this.parseDefineSignature(sig, token.line, token.column);
+
+    const template: Node[] = [];
+
+    const la = this.lookaheadNewlinesThenIndent();
+    if (!la.indentAfter) {
+      throw new Error(`@define ${name} must be followed by an indented block`);
+    }
+
+    // consume newline(s) up to indent
+    this.consumeNewlines();
+
+    // parseMetaBlock() expects INDENT at current pos, so we should be positioned at INDENT
+    if (!this.check(TokenType.INDENT)) {
+      throw new Error(`@define ${name} expected an indented block`);
+    }
+    this.advance(); // INDENT
+
+    while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+      if (this.check(TokenType.END_BLOCK)) {
+        this.consumeEndBlockOrThrow("define");
+        break;
+      }
+
+      if (this.check(TokenType.NEWLINE)) {
+        const start = this.peek();
+        const n = this.consumeNewlines();
+        this.pushBlankLines(template, start.line, start.column, n);
+        continue;
+      }
+
+      if (this.check(TokenType.DEDENT)) break;
+
+      const child = this.parseNode();
+      if (child) template.push(child);
+    }
+
+    if (this.check(TokenType.DEDENT)) this.advance();
+
+    return {
+      type: "define",
+      line: token.line,
+      column: token.column,
+      name,
+      params,
+      optionalParams: {},
+      template,
+    } as any;
+  }
+
+  private parseUse(): Node {
+    const token = this.advance();
+    const sig = this.parseRestOfLineRaw();
+    if (!sig) {
+      throw new Error(`@use requires a name at line ${token.line}, column ${token.column}`);
+    }
+    const { name, args } = this.parseUseSignature(sig, token.line, token.column);
+    return {
+      type: "use",
+      line: token.line,
+      column: token.column,
+      name,
+      args,
+    } as any;
+  }
+
+  private parseDefineSignature(
+    raw: string,
+    line: number,
+    column: number
+  ): { name: string; params: string[] } {
+    const m = raw.trim().match(/^([A-Za-z_][A-Za-z0-9_\-]*)\s*(?:\((.*)\))?$/);
+    if (!m) {
+      throw new Error(`Invalid @define signature at line ${line}, column ${column}: ${raw}`);
+    }
+    const name = m[1];
+    const inner = (m[2] ?? "").trim();
+    if (!inner) return { name, params: [] };
+
+    const params = inner
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    for (const p of params) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(p)) {
+        throw new Error(`Invalid param name '${p}' in @define ${name} at line ${line}`);
+      }
+    }
+
+    const uniq = new Set(params);
+    if (uniq.size !== params.length) {
+      throw new Error(`Duplicate param in @define ${name} at line ${line}`);
+    }
+
+    return { name, params };
+  }
+
+  private parseUseSignature(
+    raw: string,
+    line: number,
+    column: number
+  ): { name: string; args: Record<string, string> } {
+    const m = raw.trim().match(/^([A-Za-z_][A-Za-z0-9_\-]*)\s*(?:\((.*)\))?$/);
+    if (!m) {
+      throw new Error(`Invalid @use signature at line ${line}, column ${column}: ${raw}`);
+    }
+    const name = m[1];
+    const inner = (m[2] ?? "").trim();
+    if (!inner) return { name, args: {} };
+
+    const args: Record<string, string> = {};
+
+    // Parse key=value pairs, comma-separated (commas optional between pairs)
+    // Values: "..." or '...' (supports escaping \" and \\), or unquoted token (no spaces/commas)
+    let i = 0;
+    const s = inner;
+    const skipWs = () => {
+      while (i < s.length && /\s/.test(s[i])) i++;
+    };
+    const readIdent = (): string => {
+      const start = i;
+      while (i < s.length && /[A-Za-z0-9_]/.test(s[i])) i++;
+      return s.slice(start, i);
+    };
+    const readQuoted = (quote: '"' | "'"): string => {
+      i++; // opening
+      let out = "";
+      while (i < s.length) {
+        const ch = s[i];
+        if (ch === "\\") {
+          const next = s[i + 1];
+          if (next === undefined) break;
+          out += next;
+          i += 2;
+          continue;
+        }
+        if (ch === quote) {
+          i++;
+          return out;
+        }
+        out += ch;
+        i++;
+      }
+      throw new Error(`Unterminated string in @use ${name} at line ${line}`);
+    };
+    const readBare = (): string => {
+      const start = i;
+      while (i < s.length && !/[\s,]/.test(s[i])) i++;
+      return s.slice(start, i);
+    };
+
+    while (i < s.length) {
+      skipWs();
+      if (i >= s.length) break;
+
+      const key = readIdent();
+      if (!key) throw new Error(`Expected arg name in @use ${name} at line ${line}`);
+      skipWs();
+      if (s[i] !== "=") throw new Error(`Expected '=' after ${key} in @use ${name} at line ${line}`);
+      i++;
+      skipWs();
+
+      let value = "";
+      if (s[i] === '"' || s[i] === "'") {
+        value = readQuoted(s[i] as any);
+      } else {
+        value = readBare();
+      }
+
+      args[key] = value;
+      skipWs();
+      if (s[i] === ",") {
+        i++;
+      }
+    }
+
+    return { name, args };
   }
 
   private parseAnchor(): Node {
@@ -759,8 +981,15 @@ export class Parser {
 
           // Handle nested objects (simplified)
           if (!value) {
-            // Nested block
-            data[key] = this.parseMetaBlock();
+            // Nested block - look ahead for newlines then indent
+            const la = this.lookaheadNewlinesThenIndent();
+            if (la.indentAfter) {
+              this.consumeNewlines();
+              data[key] = this.parseMetaBlock();
+            } else {
+              // No nested block, treat as empty string
+              data[key] = "";
+            }
           } else {
             data[key] = value;
           }
@@ -813,7 +1042,18 @@ export class Parser {
         if (colonIndex > 0) {
           const key = lineText.slice(0, colonIndex).trim();
           const value = lineText.slice(colonIndex + 1).trim();
-          data[key] = value || this.parseMetaBlock();
+          if (!value) {
+            // Look ahead for nested block
+            const la = this.lookaheadNewlinesThenIndent();
+            if (la.indentAfter) {
+              this.consumeNewlines();
+              data[key] = this.parseMetaBlock();
+            } else {
+              data[key] = "";
+            }
+          } else {
+            data[key] = value;
+          }
         }
 
         this.skipNewlines();

@@ -6,6 +6,8 @@ export type Node =
   | DocLayoutNode
   | AnchorNode
   | MetaNode
+  | DefineNode
+  | UseNode
   | HeaderNode
   | NumberedItemNode
   | BulletItemNode
@@ -23,7 +25,7 @@ export type Node =
   | PageBreakNode
   | CommentNode
   | ImportNode
-  | DefineNode;
+  ;
 
 export interface BaseNode {
   type: string;
@@ -75,9 +77,16 @@ export interface ImportNode extends BaseNode {
 export interface DefineNode extends BaseNode {
   type: "define";
   name: string;
+  // Params/template system is future work; MVP uses template only
   params: string[];
   optionalParams: Record<string, any>;
   template: Node[];
+}
+
+export interface UseNode extends BaseNode {
+  type: "use";
+  name: string;
+  args: Record<string, string>;
 }
 
 export interface HeaderNode extends BaseNode {
@@ -229,6 +238,7 @@ export interface NodeVisitor<T = void> {
   visitMeta?(node: MetaNode): T;
   visitImport?(node: ImportNode): T;
   visitDefine?(node: DefineNode): T;
+  visitUse?(node: UseNode): T;
   visitHeader?(node: HeaderNode): T;
   visitNumberedItem?(node: NumberedItemNode): T;
   visitBulletItem?(node: BulletItemNode): T;
@@ -264,6 +274,8 @@ export function visit<T>(node: Node, visitor: NodeVisitor<T>): T | undefined {
       return visitor.visitImport?.(node);
     case "define":
       return visitor.visitDefine?.(node);
+    case "use":
+      return visitor.visitUse?.(node);
     case "header":
       return visitor.visitHeader?.(node);
     case "numbered_item":
