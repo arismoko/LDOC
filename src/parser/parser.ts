@@ -48,12 +48,8 @@ export class Parser {
       type === TokenType.DOC_FOOTER ||
       type === TokenType.DOC_FIRSTPAGE ||
       type === TokenType.DOC_EVENPAGE ||
-      type === TokenType.DOC_MARGINS ||
-      type === TokenType.DOC_SPACING ||
-      type === TokenType.DOC_LANDSCAPE ||
       type === TokenType.DOC_COLUMNS ||
       type === TokenType.DOC_ANCHOR ||
-      type === TokenType.DOC_STYLES ||
       type === TokenType.IF ||
       type === TokenType.ELSE ||
       type === TokenType.END ||
@@ -66,8 +62,7 @@ export class Parser {
       type === TokenType.DEFINE ||
       type === TokenType.USE ||
       type === TokenType.COMMENT ||
-      type === TokenType.TODO ||
-      type === TokenType.NUMBERING
+      type === TokenType.TODO
     );
   }
 
@@ -243,23 +238,8 @@ export class Parser {
         continue;
       }
 
-      if (this.check(TokenType.NUMBERING)) {
-        const numToken = this.advance();
-        const schemeArg = this.parseRestOfLineRaw().toLowerCase();
-        if (schemeArg !== "default" && schemeArg !== "decimal") {
-          throw new Error(
-            `@numbering requires 'default' or 'decimal' at line ${numToken.line}, column ${numToken.column}. Got: ${schemeArg || "(empty)"}`
-          );
-        }
-        numberingScheme = schemeArg as NumberingScheme;
-        continue;
-      }
-
       break;
     }
-
-    // Track whether we've seen a numbered item (for @numbering validation)
-    let sawNumberedItem = false;
 
     // Parse body (preserve blank lines as spacing)
     while (!this.isAtEnd()) {
@@ -270,28 +250,21 @@ export class Parser {
         continue;
       }
 
-      // Reject @numbering after a numbered item
-      if (this.check(TokenType.NUMBERING)) {
-        const numToken = this.peek();
-        if (sawNumberedItem) {
-          throw new Error(
-            `@numbering must appear before any numbered items (line ${numToken.line}, column ${numToken.column})`
-          );
-        }
-        // Also reject if appearing in the body (after preamble ended)
-        throw new Error(
-          `@numbering must appear in the document preamble, before body content (line ${numToken.line}, column ${numToken.column})`
-        );
-      }
-
       const node = this.parseNode();
       if (node) {
         body.push(node);
-        // Track if we've seen a numbered item
-        if (node.type === "numbered_item") {
-          sawNumberedItem = true;
-        }
       }
+    }
+
+    // Extract numberingScheme from @document block if present
+    if (document?.numbering) {
+      const schemeArg = String(document.numbering).toLowerCase();
+      if (schemeArg !== "default" && schemeArg !== "decimal") {
+        throw new Error(
+          `@document numbering must be 'default' or 'decimal'. Got: ${schemeArg}`
+        );
+      }
+      numberingScheme = schemeArg as NumberingScheme;
     }
 
     return {
@@ -328,23 +301,11 @@ export class Parser {
       case TokenType.DOC_FOOTER:
         return this.parseDocHeaderFooter("doc_footer", "default");
 
-      case TokenType.DOC_MARGINS:
-        return this.parseDocLayout("margins");
-
-      case TokenType.DOC_SPACING:
-        return this.parseDocLayout("spacing");
-
-      case TokenType.DOC_LANDSCAPE:
-        return this.parseDocLayout("landscape");
-
       case TokenType.DOC_COLUMNS:
         return this.parseColumnsRegion();
 
       case TokenType.DOC_ANCHOR:
         return this.parseAnchor();
-
-      case TokenType.DOC_STYLES:
-        return this.parseDocStyles();
 
       case TokenType.DEFINE:
         return this.parseDefine();
@@ -896,131 +857,6 @@ export class Parser {
     } as any;
   }
 
-  private parseDocLayout(kind: "margins" | "spacing" | "landscape"): Node {
-    const token = this.advance();
-    const args = this.parseRestOfLineRaw();
-    return {
-      type: "doc_layout",
-      kind,
-      args,
-      line: token.line,
-      column: token.column,
-    } as any;
-  }
-
-  private parseDocStyles(): Node {
-    const token = this.advance();
-    const raw = this.parseRestOfLineRaw();
-    // Parse: <target> <key=value ...>
-    // target: body, heading, heading1..heading6, header, footer
-    const parts = raw.trim().split(/\s+/);
-    if (parts.length === 0 || !parts[0]) {
-      throw new Error(`@styles requires a target at line ${token.line}, column ${token.column}`);
-    }
-    const target = parts[0].toLowerCase();
-    const validTargets = new Set([
-      "body", "heading", "heading1", "heading2", "heading3",
-      "heading4", "heading5", "heading6", "header", "footer",
-    ]);
-    if (!validTargets.has(target)) {
-      throw new Error(
-        `@styles unknown target '${target}' at line ${token.line}, column ${token.column}. ` +
-        `Valid targets: body, heading, heading1..heading6, header, footer`
-      );
-    }
-    const args = parts.slice(1).join(" ");
-
-    // Validate key=value pairs at parse time
-    this.validateStyleArgs(args, token.line, token.column);
-
-    return {
-      type: "doc_styles",
-      target,
-      args,
-      line: token.line,
-      column: token.column,
-    } as any;
-  }
-
-  private validateStyleArgs(args: string, line: number, column: number): void {
-    if (!args.trim()) return;
-
-    const validKeys = new Set(["font", "size", "bold", "italic", "color"]);
-    let i = 0;
-    const s = args;
-    const skipWs = () => {
-      while (i < s.length && /\s/.test(s[i]!)) i++;
-    };
-
-    while (i < s.length) {
-      skipWs();
-      if (i >= s.length) break;
-
-      // Read key
-      const keyStart = i;
-      while (i < s.length && /[a-zA-Z0-9_]/.test(s[i]!)) i++;
-      const key = s.slice(keyStart, i).toLowerCase();
-      if (!key) {
-        throw new Error(`@styles: expected key at line ${line}, column ${column}`);
-      }
-
-      if (!validKeys.has(key)) {
-        throw new Error(`@styles: unknown key '${key}' at line ${line}, column ${column}. Valid keys: font, size, bold, italic, color`);
-      }
-
-      skipWs();
-      if (s[i] !== "=") {
-        throw new Error(`@styles: expected '=' after '${key}' at line ${line}, column ${column}`);
-      }
-      i++; // skip =
-      skipWs();
-
-      // Read value (possibly quoted)
-      let value: string;
-      if (s[i] === '"' || s[i] === "'") {
-        const quote = s[i]!;
-        i++;
-        const valStart = i;
-        while (i < s.length && s[i] !== quote) {
-          if (s[i] === "\\") i++; // skip escaped char
-          i++;
-        }
-        value = s.slice(valStart, i);
-        if (s[i] === quote) i++;
-      } else {
-        const valStart = i;
-        while (i < s.length && !/\s/.test(s[i]!)) i++;
-        value = s.slice(valStart, i);
-      }
-
-      // Validate based on key
-      switch (key) {
-        case "size": {
-          const m = value.match(/^([0-9]+(?:\.[0-9]+)?)pt$/i);
-          if (!m) {
-            throw new Error(`@styles: invalid size '${value}' - must be in pt units (e.g. 12pt) at line ${line}, column ${column}`);
-          }
-          break;
-        }
-        case "color": {
-          const colorMatch = value.match(/^#?([0-9A-Fa-f]{6})$/);
-          if (!colorMatch) {
-            throw new Error(`@styles: invalid color '${value}' - must be hex #RRGGBB format (e.g. #333333) at line ${line}, column ${column}`);
-          }
-          break;
-        }
-        case "bold":
-        case "italic": {
-          if (value.toLowerCase() !== "true" && value.toLowerCase() !== "false") {
-            throw new Error(`@styles: ${key} must be 'true' or 'false' at line ${line}, column ${column}`);
-          }
-          break;
-        }
-        // font: any string is valid
-      }
-    }
-  }
-
   private parseColumnsRegion(): ColumnsRegionNode {
     const token = this.advance();
     const args = this.parseRestOfLineRaw();
@@ -1456,6 +1292,7 @@ export class Parser {
       column: token.column,
       modifier,
       count: token.count,
+      length: token.length,
       content,
     };
   }

@@ -1,10 +1,13 @@
 // DOCX Compiler for Legal Document DSL
 
+import JSZip from "jszip";
+
 import {
   Document,
   Packer,
   Paragraph,
   TextRun,
+  Tab,
   Bookmark,
   InternalHyperlink,
   Header,
@@ -26,6 +29,8 @@ import {
   VerticalAlign,
   convertInchesToTwip,
   SectionType,
+  TabStopPosition,
+  TabStopType,
 } from "docx";
 
 import type { INumberingOptions, IParagraphOptions, IRunOptions, ISectionOptions } from "docx";
@@ -349,11 +354,12 @@ export class DocxCompiler {
 
     log(`compile:indexAnchors keys=${this.bookmarkByKey.size}`);
 
-    const { body: bodyWithoutLayout, layout } = this.extractLayout(expandedAst.body);
+    // Extract layout and styles from @document block (new approach)
+    const layout = this.extractLayoutFromDocument(expandedAst.document);
     this.defaultSpacing = layout.spacing;
-    const { body: bodyWithoutStyles, styleConfig } = this.extractStyles(bodyWithoutLayout);
+    const styleConfig = this.extractStylesFromDocument(expandedAst.document);
     this.styleConfig = styleConfig;
-    const { body, headers, footers } = this.extractHeadersFooters(bodyWithoutStyles);
+    const { body, headers, footers } = this.extractHeadersFooters(expandedAst.body);
 
     log(`compile:layout+headers body=${body.length}`);
 
@@ -364,13 +370,12 @@ export class DocxCompiler {
     if (layout.margins) {
       basePageProps.margin = layout.margins;
     }
-    if (layout.landscape) {
-      basePageProps.size = {
-        orientation: PageOrientation.LANDSCAPE,
-        width: layout.pageWidthTwip,
-        height: layout.pageHeightTwip,
-      };
-    }
+    // Always set page size to avoid docx library defaulting to A4
+    basePageProps.size = {
+      width: layout.pageWidthTwip,
+      height: layout.pageHeightTwip,
+      ...(layout.landscape ? { orientation: PageOrientation.LANDSCAPE } : {}),
+    };
 
     const hasFirst = Boolean(headers.first || footers.first);
     const hasEven = Boolean(headers.even || footers.even);
@@ -723,7 +728,7 @@ export class DocxCompiler {
       const out: string[] = [];
       let i = 0;
       while (i < s.length) {
-        const ch = s[i];
+        const ch = s.charAt(i);
         if (/\s/.test(ch)) {
           i++;
           continue;
@@ -733,11 +738,10 @@ export class DocxCompiler {
           i++;
           let buf = "";
           while (i < s.length) {
-            const c = s[i];
+            const c = s.charAt(i);
             if (c === "\\") {
-              const next = s[i + 1];
-              if (next === undefined) break;
-              buf += next;
+              if (i + 1 >= s.length) break;
+              buf += s.charAt(i + 1);
               i += 2;
               continue;
             }
@@ -762,7 +766,11 @@ export class DocxCompiler {
           continue;
         }
         const start = i;
-        while (i < s.length && !/\s/.test(s[i]) && !["!", "=", "(" , ")"].includes(s[i])) {
+        while (
+          i < s.length &&
+          !/\s/.test(s.charAt(i)) &&
+          !["!", "=", "(", ")"].includes(s.charAt(i))
+        ) {
           if (s.startsWith("==", i) || s.startsWith("!=", i)) break;
           i++;
         }
@@ -806,10 +814,12 @@ export class DocxCompiler {
         const path = tok.split(".").filter(Boolean);
         if (path.length === 0) return undefined;
 
+        const head = path[0]!;
+
         // locals first
-        if (path[0] in locals) {
-          if (path.length === 1) return locals[path[0]];
-          return getPathValue(locals[path[0]], path.slice(1));
+        if (head in locals) {
+          if (path.length === 1) return locals[head];
+          return getPathValue(locals[head], path.slice(1));
         }
         return getPathValue(globals, path);
       };
@@ -1190,13 +1200,166 @@ export class DocxCompiler {
   private makeBookmarkParagraph(bookmarkIds: string[], indentLeftTwip?: number): Paragraph {
     let children: any[] = [new TextRun({ text: "" })];
     for (let i = bookmarkIds.length - 1; i >= 0; i--) {
-      children = [new Bookmark({ id: bookmarkIds[i], children })];
+      children = [new Bookmark({ id: bookmarkIds[i]!, children })];
     }
     const options: IParagraphOptions = { children, indent: indentLeftTwip ? { left: indentLeftTwip } : undefined };
     this.applyDefaultSpacing(options);
     return new Paragraph(options);
   }
 
+  private extractLayoutFromDocument(doc: Record<string, any> | undefined): {
+    margins?: { top: number; right: number; bottom: number; left: number; header?: number; footer?: number };
+    spacing?: { before?: number; after?: number; line?: number };
+    landscape: boolean;
+    pageWidthTwip: number;
+    pageHeightTwip: number;
+  } {
+    // Defaults: US Letter portrait
+    const LETTER_PORTRAIT = { width: 12240, height: 15840 };
+    const LETTER_LANDSCAPE = { width: 15840, height: 12240 };
+    const A4_PORTRAIT = { width: Math.round(8.27 * 1440), height: Math.round(11.69 * 1440) };
+    const A4_LANDSCAPE = { width: A4_PORTRAIT.height, height: A4_PORTRAIT.width };
+
+    let pageSize: "letter" | "a4" = "letter";
+    const layout: any = {
+      landscape: false,
+      pageWidthTwip: LETTER_PORTRAIT.width,
+      pageHeightTwip: LETTER_PORTRAIT.height,
+    };
+
+    if (!doc) return layout;
+
+    // Parse page_size: "letter" | "a4" (default: letter)
+    if (doc.page_size || doc["page-size"]) {
+      const ps = String(doc.page_size || doc["page-size"]).toLowerCase();
+      if (ps === "a4") pageSize = "a4";
+      else if (ps === "letter") pageSize = "letter";
+    }
+
+    // Parse orientation/landscape: true | "portrait" | "landscape"
+    if (doc.orientation || doc.landscape) {
+      const orient = String(doc.orientation || doc.landscape || "").toLowerCase();
+      if (orient === "landscape" || orient === "true") {
+        layout.landscape = true;
+      }
+    }
+
+    // Parse margins - supports dotted keys or nested object
+    // margins.top, margins.right, margins.bottom, margins.left OR margins: { top: ..., right: ... }
+    const marginsRaw = doc.margins;
+    if (marginsRaw) {
+      if (typeof marginsRaw === "string") {
+        // Parse "1in 2in 3in 4in" format
+        layout.margins = this.parseMargins(marginsRaw);
+      } else if (typeof marginsRaw === "object") {
+        // Parse { top: "1in", right: "2in", ... }
+        const m: any = { top: 1440, right: 1440, bottom: 1440, left: 1440 }; // default 1in
+        if (marginsRaw.top) m.top = this.parseLengthToTwipCompiler(marginsRaw.top);
+        if (marginsRaw.right) m.right = this.parseLengthToTwipCompiler(marginsRaw.right);
+        if (marginsRaw.bottom) m.bottom = this.parseLengthToTwipCompiler(marginsRaw.bottom);
+        if (marginsRaw.left) m.left = this.parseLengthToTwipCompiler(marginsRaw.left);
+        if (marginsRaw.header) m.header = this.parseLengthToTwipCompiler(marginsRaw.header);
+        if (marginsRaw.footer) m.footer = this.parseLengthToTwipCompiler(marginsRaw.footer);
+        layout.margins = m;
+      }
+    }
+
+    // Parse spacing - supports dotted keys or nested object
+    const spacingRaw = doc.spacing;
+    if (spacingRaw) {
+      if (typeof spacingRaw === "string") {
+        // Parse "1.5 before=6pt after=12pt" format
+        layout.spacing = this.parseSpacing(spacingRaw);
+      } else if (typeof spacingRaw === "object" || typeof spacingRaw === "number") {
+        const sp: any = {};
+        if (typeof spacingRaw === "number") {
+          // e.g., spacing: 1.5
+          sp.line = Math.round(spacingRaw * 240);
+        } else {
+          if (spacingRaw.line) sp.line = Math.round(Number(spacingRaw.line) * 240);
+          if (spacingRaw.before) sp.before = this.parseLengthToTwipCompiler(spacingRaw.before);
+          if (spacingRaw.after) sp.after = this.parseLengthToTwipCompiler(spacingRaw.after);
+        }
+        if (Object.keys(sp).length > 0) layout.spacing = sp;
+      }
+    }
+
+    // Set page dimensions based on size and orientation
+    const size = pageSize === "a4" 
+      ? (layout.landscape ? A4_LANDSCAPE : A4_PORTRAIT) 
+      : (layout.landscape ? LETTER_LANDSCAPE : LETTER_PORTRAIT);
+    layout.pageWidthTwip = size.width;
+    layout.pageHeightTwip = size.height;
+
+    return layout;
+  }
+
+  private extractStylesFromDocument(doc: Record<string, any> | undefined): StyleConfig {
+    const config: StyleConfig = {};
+    if (!doc || !doc.styles) return config;
+
+    const stylesRaw = doc.styles;
+    if (typeof stylesRaw !== "object") return config;
+
+    // Parse styles.body, styles.heading1, etc.
+    const validTargets = [
+      "body", "heading", "heading1", "heading2", "heading3",
+      "heading4", "heading5", "heading6", "header", "footer"
+    ];
+
+    for (const target of validTargets) {
+      const targetStyles = stylesRaw[target];
+      if (!targetStyles || typeof targetStyles !== "object") continue;
+
+      const settings: StyleSettings = {};
+      if (targetStyles.font) settings.font = String(targetStyles.font);
+      if (targetStyles.size) {
+        // Parse size like "12pt" or 12
+        const sizeVal = String(targetStyles.size);
+        const m = sizeVal.match(/^([0-9]+(?:\.[0-9]+)?)(pt)?$/i);
+        if (m) {
+          const pt = parseFloat(m[1]!);
+          settings.size = Math.round(pt * 2); // half-points
+        }
+      }
+      if (targetStyles.bold !== undefined) {
+        settings.bold = targetStyles.bold === true || targetStyles.bold === "true";
+      }
+      if (targetStyles.italic !== undefined) {
+        settings.italic = targetStyles.italic === true || targetStyles.italic === "true";
+      }
+      if (targetStyles.color) {
+        const colorMatch = String(targetStyles.color).match(/^#?([0-9A-Fa-f]{6})$/);
+        if (colorMatch) {
+          settings.color = colorMatch[1]!.toUpperCase();
+        }
+      }
+
+      if (Object.keys(settings).length > 0) {
+        config[target as keyof StyleConfig] = settings;
+      }
+    }
+
+    return config;
+  }
+
+  private parseLengthToTwipCompiler(value: string | number): number {
+    if (typeof value === "number") return Math.round(value * 1440); // assume inches
+    const raw = String(value).trim();
+    const m = raw.match(/^([0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt)?$/i);
+    if (!m) return 1440; // default 1in
+    const num = parseFloat(m[1]!);
+    const unit = (m[2] || "in").toLowerCase();
+    switch (unit) {
+      case "in": return Math.round(num * 1440);
+      case "cm": return Math.round((num * 1440) / 2.54);
+      case "mm": return Math.round((num * 1440) / 25.4);
+      case "pt": return Math.round(num * 20);
+      default: return Math.round(num * 1440);
+    }
+  }
+
+  // Legacy method - now just passes body through since doc_layout nodes are no longer created
   private extractLayout(body: Node[]): {
     body: Node[];
     layout: {
@@ -1207,13 +1370,8 @@ export class DocxCompiler {
       pageHeightTwip: number;
     };
   } {
-    // Defaults: Letter portrait unless landscape enabled
+    // Defaults: Letter portrait (these will be overridden by extractLayoutFromDocument)
     const LETTER_PORTRAIT = { width: 12240, height: 15840 };
-    const LETTER_LANDSCAPE = { width: 15840, height: 12240 };
-    const A4_PORTRAIT = { width: Math.round(8.27 * 1440), height: Math.round(11.69 * 1440) };
-    const A4_LANDSCAPE = { width: A4_PORTRAIT.height, height: A4_PORTRAIT.width };
-
-    let pageSize: "letter" | "a4" = "letter";
 
     const layout: any = {
       landscape: false,
@@ -1221,62 +1379,14 @@ export class DocxCompiler {
       pageHeightTwip: LETTER_PORTRAIT.height,
     };
 
-    const keep: Node[] = [];
-    for (const n of body) {
-      if (n.type !== "doc_layout") {
-        keep.push(n);
-        continue;
-      }
-
-      const dl = n as any as DocLayoutNode;
-      switch (dl.kind) {
-        case "margins": {
-          layout.margins = this.parseMargins(dl.args);
-          break;
-        }
-        case "spacing": {
-          layout.spacing = this.parseSpacing(dl.args);
-          break;
-        }
-        case "landscape": {
-          const arg = (dl.args || "").trim().toLowerCase();
-          if (arg === "a4") pageSize = "a4";
-          if (arg === "letter" || arg === "") pageSize = pageSize;
-          layout.landscape = true;
-          break;
-        }
-        case "columns": {
-          throw new Error("@columns is parsed but not implemented yet");
-        }
-      }
-    }
-
-    const size = pageSize === "a4" ? (layout.landscape ? A4_LANDSCAPE : A4_PORTRAIT) : (layout.landscape ? LETTER_LANDSCAPE : LETTER_PORTRAIT);
-    layout.pageWidthTwip = size.width;
-    layout.pageHeightTwip = size.height;
-
-    return { body: keep, layout };
+    // No longer extract from body nodes - all layout now comes from @document block
+    return { body, layout };
   }
 
+  // Legacy method - now just passes body through since doc_styles nodes are no longer created
   private extractStyles(body: Node[]): { body: Node[]; styleConfig: StyleConfig } {
-    const config: StyleConfig = {};
-    const keep: Node[] = [];
-
-    for (const n of body) {
-      if (n.type !== "doc_styles") {
-        keep.push(n);
-        continue;
-      }
-
-      const ds = n as DocStylesNode;
-      const target = ds.target as keyof StyleConfig;
-      const settings = this.parseStyleArgs(ds.args, ds.line, ds.column);
-
-      // Merge: later directives override earlier ones per-key
-      config[target] = { ...(config[target] ?? {}), ...settings };
-    }
-
-    return { body: keep, styleConfig: config };
+    // No longer extract from body nodes - all styles now come from @document block
+    return { body, styleConfig: {} };
   }
 
   private parseStyleArgs(args: string, line: number, column: number): StyleSettings {
@@ -1521,8 +1631,8 @@ export class DocxCompiler {
     if (!m) {
       throw new Error(`Invalid length: ${raw}. Use units like 1in, 2cm, 12pt.`);
     }
-    const value = parseFloat(m[1]);
-    const unit = m[2].toLowerCase();
+    const value = parseFloat(m[1]!);
+    const unit = m[2]!.toLowerCase();
     switch (unit) {
       case "in":
         return Math.round(value * 1440);
@@ -1558,16 +1668,16 @@ export class DocxCompiler {
 
     let top: number, right: number, bottom: number, left: number;
     if (vals.length === 1) {
-      top = right = bottom = left = vals[0];
+      top = right = bottom = left = vals[0]!;
     } else if (vals.length === 2) {
-      top = bottom = vals[0];
-      left = right = vals[1];
+      top = bottom = vals[0]!;
+      left = right = vals[1]!;
     } else if (vals.length === 3) {
-      top = vals[0];
-      left = right = vals[1];
-      bottom = vals[2];
+      top = vals[0]!;
+      left = right = vals[1]!;
+      bottom = vals[2]!;
     } else if (vals.length === 4) {
-      [top, right, bottom, left] = vals;
+      [top, right, bottom, left] = vals as [number, number, number, number];
     } else if (vals.length === 0) {
       // allow only key=value forms
       top = right = bottom = left = this.parseLengthToTwip("1in");
@@ -1632,7 +1742,7 @@ export class DocxCompiler {
     let wrappedChildren: any[] = children;
     if (forcedBookmarks && forcedBookmarks.length > 0) {
       for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
-        wrappedChildren = [new Bookmark({ id: forcedBookmarks[i], children: wrappedChildren })];
+        wrappedChildren = [new Bookmark({ id: forcedBookmarks[i]!, children: wrappedChildren })];
       }
     }
     if (anchor) {
@@ -1774,12 +1884,20 @@ export class DocxCompiler {
         style.size = 20; // 10pt
         break;
       case "indent":
-        // Indent all paragraphs in this block (0.5in per level)
-        indent = (indent ?? 0) + convertInchesToTwip(0.5 * (node.count ?? 1));
+        if (node.length) {
+          indent = (indent ?? 0) + this.parseLengthToTwip(node.length!);
+        } else {
+          // Indent all paragraphs in this block (0.5in per level)
+          indent = (indent ?? 0) + convertInchesToTwip(0.5 * (node.count ?? 1));
+        }
         break;
       case "outdent":
-        // Outdent all paragraphs in this block (0.5in per level)
-        indent = Math.max(0, (indent ?? 0) - convertInchesToTwip(0.5 * (node.count ?? 1)));
+        if (node.length) {
+          indent = Math.max(0, (indent ?? 0) - this.parseLengthToTwip(node.length!));
+        } else {
+          // Outdent all paragraphs in this block (0.5in per level)
+          indent = Math.max(0, (indent ?? 0) - convertInchesToTwip(0.5 * (node.count ?? 1)));
+        }
         break;
       case "box":
         return [this.compileBox(node, style, alignment, indent, forcedBookmarks)];
@@ -1869,18 +1987,15 @@ export class DocxCompiler {
     indentLeftTwip?: number,
     forcedBookmarks?: string[]
   ): Paragraph {
+    const heading = style.heading ? this.getHeadingLevel(style.heading) : undefined;
     const options: IParagraphOptions = {
       children: this.wrapBookmarkForParagraph(node, style, forcedBookmarks),
       alignment: alignment ?? AlignmentType.LEFT,
       indent: indentLeftTwip ? { left: indentLeftTwip } : undefined,
+      ...(heading ? { heading } : {}),
     };
 
     this.applyDefaultSpacing(options);
-
-    // Apply heading style if set
-    if (style.heading) {
-      options.heading = this.getHeadingLevel(style.heading);
-    }
 
     return new Paragraph(options);
   }
@@ -1912,7 +2027,7 @@ export class DocxCompiler {
         let paragraphChildren: any[] = this.compileInlineNodes(cellContent, isHeader ? { bold: true } : {}, (node as any).scope);
         if (forcedBookmarks && forcedBookmarks.length > 0 && index === 0) {
           for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
-            paragraphChildren = [new Bookmark({ id: forcedBookmarks[i], children: paragraphChildren })];
+            paragraphChildren = [new Bookmark({ id: forcedBookmarks[i]!, children: paragraphChildren })];
           }
           forcedBookmarks = undefined;
         }
@@ -1963,7 +2078,7 @@ export class DocxCompiler {
     for (const node of nodes) {
       switch (node.type) {
         case "text":
-          runs.push(this.createTextRun(node.value, baseStyle));
+          runs.push(...this.createTextRuns(node.value, baseStyle));
           break;
 
         case "variable":
@@ -1976,7 +2091,7 @@ export class DocxCompiler {
             break;
           }
           const value = this.resolveVariable(node);
-          runs.push(this.createTextRun(value, baseStyle));
+          runs.push(...this.createTextRuns(value, baseStyle));
           break;
 
         case "emphasis":
@@ -1995,11 +2110,11 @@ export class DocxCompiler {
           if (node.isDefinition) {
             termStyle.bold = true;
           }
-          runs.push(this.createTextRun(`"${node.term}"`, termStyle));
+          runs.push(...this.createTextRuns(`"${node.term}"`, termStyle));
           break;
 
         case "blank":
-          runs.push(this.createTextRun("_".repeat(node.length), baseStyle));
+          runs.push(...this.createTextRuns("_".repeat(node.length), baseStyle));
           break;
 
         case "cross_ref":
@@ -2007,7 +2122,7 @@ export class DocxCompiler {
           const anchor = this.resolveAnchor(raw, scope);
           if (!anchor) {
             this.missingCrossRefs.add(raw.trim());
-            runs.push(this.createTextRun(raw, { ...baseStyle, italics: true }));
+            runs.push(...this.createTextRuns(raw, { ...baseStyle, italics: true }));
             break;
           }
 
@@ -2034,7 +2149,7 @@ export class DocxCompiler {
     let wrapped: any[] = children;
     if (forcedBookmarks && forcedBookmarks.length > 0) {
       for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
-        wrapped = [new Bookmark({ id: forcedBookmarks[i], children: wrapped })];
+        wrapped = [new Bookmark({ id: forcedBookmarks[i]!, children: wrapped })];
       }
     }
 
@@ -2050,7 +2165,7 @@ export class DocxCompiler {
     let children: any[] = this.compileInlineNodes(node.content, style, (node as any).scope);
     if (forcedBookmarks && forcedBookmarks.length > 0) {
       for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
-        children = [new Bookmark({ id: forcedBookmarks[i], children })];
+        children = [new Bookmark({ id: forcedBookmarks[i]!, children })];
       }
     }
     const label = this.numberingLabel(node.style);
@@ -2063,7 +2178,7 @@ export class DocxCompiler {
     let children: any[] = this.compileInlineNodes(node.content, style, (node as any).scope);
     if (forcedBookmarks && forcedBookmarks.length > 0) {
       for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
-        children = [new Bookmark({ id: forcedBookmarks[i], children })];
+        children = [new Bookmark({ id: forcedBookmarks[i]!, children })];
       }
     }
     // Bullets have no stable label by default
@@ -2157,7 +2272,7 @@ export class DocxCompiler {
           const existing = this.bookmarkByKey.get(key);
           if (existing) return existing;
         }
-        return newBookmarkName(pendingAnchors[0].name.trim());
+        return newBookmarkName(pendingAnchors[0]!.name.trim());
       };
 
       for (const node of nodes) {
@@ -2334,15 +2449,37 @@ export class DocxCompiler {
     return s.trim();
   }
 
-  private createTextRun(text: string, style: TextStyle): TextRun {
-    const options: IRunOptions = { text };
+  /** Create text runs from text that may contain tabs. Returns array of TextRun elements with Tab elements for '\t'. */
+  private createTextRuns(text: string, style: TextStyle): TextRun[] {
+    if (!text.includes("\t")) {
+      return [this.createSingleTextRun(text, style)];
+    }
 
-    if (style.bold) options.bold = true;
-    if (style.italics) options.italics = true;
-    if (style.allCaps) options.allCaps = true;
-    if (style.size) options.size = style.size;
-    if (style.font) options.font = style.font;
-    if (style.color) options.color = style.color;
+    const runs: TextRun[] = [];
+    const parts = text.split("\t");
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]!;
+      if (part) {
+        runs.push(this.createSingleTextRun(part, style));
+      }
+      // Add a tab run between parts (not after the last one)
+      if (i < parts.length - 1) {
+        runs.push(new TextRun({ children: [new Tab()] }));
+      }
+    }
+    return runs;
+  }
+
+  private createSingleTextRun(text: string, style: TextStyle): TextRun {
+    const options: IRunOptions = {
+      text,
+      ...(style.bold ? { bold: true } : {}),
+      ...(style.italics ? { italics: true } : {}),
+      ...(style.allCaps ? { allCaps: true } : {}),
+      ...(style.size ? { size: style.size } : {}),
+      ...(style.font ? { font: style.font } : {}),
+      ...(style.color ? { color: style.color } : {}),
+    };
 
     return new TextRun(options);
   }

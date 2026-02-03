@@ -15,20 +15,21 @@ A lightweight markup language for legal documents that compiles to DOCX.
 
 ### @document
 
-The document title.
+Document-wide metadata and settings. This block does not auto-render.
 
 ```
-@document Real Estate Purchase Agreement
+@document
+  title: Real Estate Purchase Agreement
+  page_size: letter
+  orientation: portrait
+  numbering: default
 ```
 
-**Renders as:**
-```
-                    REAL ESTATE PURCHASE AGREEMENT
+If you want a visible title in the DOCX, use a markdown header:
 
 ```
-- Heading 1 style
-- Centered, bold, all caps
-- Extra spacing below
+# REAL ESTATE PURCHASE AGREEMENT
+```
 
 ---
 
@@ -119,6 +120,9 @@ Modifiers wrap content to apply formatting. Two syntaxes:
 @indent
   "The Property shall mean all land, improvements,
   and fixtures located thereon."
+
+@indent=36pt
+  This paragraph is indented by an explicit length.
 ```
 
 ### Chaining / Nesting
@@ -155,6 +159,11 @@ Modifiers wrap inward - innermost applies first to content.
 | `@small` | Smaller font |
 | `@caps` | All caps |
 
+`@indent` / `@outdent` can optionally take a numeric argument:
+
+- **Count form:** `@indent:2` or `@indent 2` (2 steps, where each step is 0.5in)
+- **Length form:** `@indent=36pt` / `@indent=1.25in` / `@indent=2cm` / `@indent=10mm`
+
 ---
 
 ## Numbered Lists
@@ -179,6 +188,14 @@ The number/letter after `@` is **optional** and determines the **style**:
 | `@@2.1`| decimal | 2.1. |
 | `@@@i` | roman | (i) |
 | `@@`   | auto | continues previous style |
+
+**Important:** A list marker must be followed by whitespace (space or tab) or a newline. This prevents email-style mentions like `@someone` from being parsed as list items.
+
+```
+@1 This is a list item (space after @1)
+@someone This is NOT a list item (no space after valid style)
+Contact @john for help (treated as plain text)
+```
 
 ---
 
@@ -805,29 +822,40 @@ Seller makes ***no warranty*** regarding condition.
 ### Optional Settings
 
 ```
-@margins
-  top: 1in
-  bottom: 1in
-  left: 1in
-  right: 1in
-
-@spacing
-  line: 1.5
-  paragraph: 12pt
-
-@landscape
+@document
+  page_size: letter
+  orientation: portrait
+  margins:
+    top: 1in
+    right: 1in
+    bottom: 1in
+    left: 1in
+  spacing:
+    line: 1.5
+  numbering: default
 ```
 
-### @styles
+### Typography
 
-Customize fonts, sizes, and colors for document elements:
+Customize fonts, sizes, and colors via `@document.styles`:
 
 ```
-@styles body font="Georgia" size=11pt
-@styles heading1 font="Helvetica" size=24pt color=#333333
-@styles heading2 font="Helvetica" size=18pt
-@styles header font="Arial" size=9pt
-@styles footer font="Arial" size=9pt color=#666666
+@document
+  styles:
+    body:
+      font: Georgia
+      size: 11pt
+    heading1:
+      font: Helvetica
+      size: 24pt
+      color: "#333333"
+    header:
+      font: Arial
+      size: 9pt
+    footer:
+      font: Arial
+      size: 9pt
+      color: "#666666"
 ```
 
 **Supported Targets:**
@@ -850,17 +878,21 @@ Customize fonts, sizes, and colors for document elements:
 | `color` | Hex color | `color=#333333` |
 
 **Notes:**
-- `@styles` directives should appear at the document top, before content
-- Multiple `@styles` lines for different targets are allowed
-- Later directives for the same target override earlier ones
-- Size must use `pt` units (pixels, em, etc. are not supported)
-- Colors must be hex format (`#RRGGBB`), not named colors
+- Document-wide options must be configured in `@document`.
+- Size must use `pt` units (pixels, em, etc. are not supported).
+- Colors must be hex format (`#RRGGBB`), not named colors.
 
 **Example:**
 
 ```
-@styles body font="Georgia" size=11pt
-@styles heading1 font="Helvetica" size=24pt
+@document
+  styles:
+    body:
+      font: Georgia
+      size: 11pt
+    heading1:
+      font: Helvetica
+      size: 24pt
 
 # Contract Agreement
 
@@ -893,7 +925,11 @@ Most documents won't need these - they'll inherit from the template.
 ## Full Example
 
 ```
-@document Real Estate Purchase Agreement
+@document
+  title: Real Estate Purchase Agreement
+  page_size: letter
+  orientation: portrait
+  numbering: default
 
 @import legal-blocks
 

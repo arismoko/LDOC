@@ -44,6 +44,13 @@ type HeaderFooterRefs = {
   firstFooter?: string;
 };
 
+type ParagraphStyleInfo = {
+  basedOn?: string;
+  indentLeftTwips?: number;
+};
+
+type ParagraphStyleMap = Map<string, ParagraphStyleInfo>;
+
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
   preserveOrder: true,
@@ -108,13 +115,22 @@ function attrVal(nodeObj: XmlNode | undefined, attr: string): string | undefined
   return typeof v === "string" ? v : v?.toString?.();
 }
 
-function normalizeWs(s: string): string {
+function normalizeWs(s: string, preserveTabs = false): string {
   // keep internal newlines (from <w:br>), but collapse other whitespace
-  return s
-    .replace(/\r\n/g, "\n")
-    .replace(/[\t\v\f]+/g, " ")
-    .replace(/ +/g, " ")
-    .trimEnd();
+  let result = s.replace(/\r\n/g, "\n");
+  if (preserveTabs) {
+    // Preserve tabs as literal '\t' for roundtrip fidelity
+    result = result.replace(/[\v\f]+/g, " ");
+  } else {
+    result = result.replace(/[\t\v\f]+/g, " ");
+  }
+  return result.replace(/ +/g, " ").trimEnd();
+}
+
+function isTocStyle(styleId: string | undefined): boolean {
+  if (!styleId) return false;
+  // Match TOC1..TOC9 (case-insensitive)
+  return /^toc[1-9]$/i.test(styleId);
 }
 
 function twipsToInches(twips: number): number {
@@ -314,9 +330,9 @@ function paragraphSegments(pNode: XmlNode): TextSegment[] {
   return merged;
 }
 
-function paragraphText(pNode: XmlNode): string {
+function paragraphText(pNode: XmlNode, preserveTabs = false): string {
   const segments = paragraphSegments(pNode);
-  return normalizeWs(segments.map((s) => wrapEmphasis(s.text, s.style)).join(""));
+  return normalizeWs(segments.map((s) => wrapEmphasis(s.text, s.style)).join(""), preserveTabs);
 }
 
 function paragraphStyleId(pNode: XmlNode): string | undefined {
@@ -594,11 +610,105 @@ function parseSpacingFromStylesXml(stylesXml: string | undefined): { lineMultipl
   return undefined;
 }
 
+function parseParagraphStyles(stylesXml: string | undefined): ParagraphStyleMap {
+  const map: ParagraphStyleMap = new Map();
+  if (!stylesXml) return map;
+
+  const tree = xmlParser.parse(stylesXml) as XmlNode[];
+  const styles = findFirst(tree, "w:styles");
+  if (!styles) return map;
+
+  const stylesChildren = styles["w:styles"] as XmlNode[];
+  for (const child of stylesChildren ?? []) {
+    const key = getOnlyKey(child);
+    if (key !== "w:style") continue;
+
+    const styleId = attrVal(child, "@_w:styleId");
+    if (!styleId) continue;
+
+    const styleChildren = child["w:style"] as XmlNode[];
+    const basedOnNode = findFirst(styleChildren, "w:basedOn");
+    const basedOn = attrVal(basedOnNode, "@_w:val");
+
+    let indentLeftTwips: number | undefined;
+    const pPr = findFirst(styleChildren, "w:pPr");
+    if (pPr) {
+      const pPrChildren = pPr["w:pPr"] as XmlNode[];
+      const ind = findFirst(pPrChildren, "w:ind");
+      const left = attrVal(ind, "@_w:left");
+      if (left !== undefined) {
+        const n = parseInt(left, 10);
+        if (Number.isFinite(n)) indentLeftTwips = n;
+      }
+    }
+
+    map.set(styleId, { basedOn: basedOn || undefined, indentLeftTwips });
+  }
+
+  return map;
+}
+
+function resolveStyleIndentLeftTwips(styleId: string | undefined, styles: ParagraphStyleMap): number | undefined {
+  if (!styleId) return undefined;
+  const seen = new Set<string>();
+  let cur: string | undefined = styleId;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const info = styles.get(cur);
+    if (!info) break;
+    if (info.indentLeftTwips !== undefined) return info.indentLeftTwips;
+    cur = info.basedOn;
+  }
+  return undefined;
+}
+
+function paragraphIndentLeftTwips(pNode: XmlNode, styles: ParagraphStyleMap): number {
+  const pChildren = pNode["w:p"] as XmlNode[];
+  const pPr = findFirst(pChildren, "w:pPr");
+  if (pPr) {
+    const pPrChildren = pPr["w:pPr"] as XmlNode[];
+    const ind = findFirst(pPrChildren, "w:ind");
+    const left = attrVal(ind, "@_w:left");
+    if (left !== undefined) {
+      const n = parseInt(left, 10);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  const styleId = paragraphStyleId(pNode);
+  return resolveStyleIndentLeftTwips(styleId, styles) ?? 0;
+}
+
+function formatTwipsAsPt(twips: number): string {
+  const pt = twips / 20;
+  return `${pt
+    .toFixed(2)
+    .replace(/\.00$/, "")
+    .replace(/(\.\d)0$/, "$1")}pt`;
+}
+
+export type DecompilerOptions = {
+  /**
+   * Control emission of @indent/@outdent directives.
+   * - 'on': Always emit indent directives when indentation is detected
+   * - 'off': Never emit indent directives (simpler output)
+   * - 'auto': Same as 'on' (default behavior)
+   */
+  emitIndent?: 'on' | 'off' | 'auto' | boolean;
+};
+
+function shouldEmitIndent(options: DecompilerOptions | undefined): boolean {
+  const val = options?.emitIndent;
+  if (val === 'on' || val === true) return true;
+  return false; // 'off', 'auto', false, undefined all suppress indent (default OFF)
+}
+
 async function parseHeaderFooterContent(
   zip: JSZip,
   rId: string,
   rels: Map<string, string>,
-  numInfo: NumberingInfo
+  numInfo: NumberingInfo,
+  styles: ParagraphStyleMap,
+  options?: DecompilerOptions
 ): Promise<string[]> {
   const target = rels.get(rId);
   if (!target) return [];
@@ -622,8 +732,17 @@ async function parseHeaderFooterContent(
   for (const child of rootChildren ?? []) {
     const key = getOnlyKey(child);
     if (key === "w:p") {
-      const line = paragraphToLdoc(child, numInfo);
-      lines.push(line);
+      const info = paragraphToLdoc(child, numInfo, styles, options);
+      let line = info.line;
+      if (info.alignment === "center" && !info.isEmpty) line = `@center ${line}`;
+      else if (info.alignment === "right" && !info.isEmpty) line = `@right ${line}`;
+
+      const indentTwips = info.isList ? 0 : (info.indentLeftTwips ?? 0);
+      if (indentTwips > 0 && !info.isEmpty && shouldEmitIndent(options)) {
+        line = `@indent=${formatTwipsAsPt(indentTwips)} ${line}`;
+      }
+
+      if (line) lines.push(line);
     } else if (key === "w:tbl") {
       lines.push(tableToLdoc(child));
     }
@@ -651,43 +770,89 @@ function findParagraphSectPr(pNode: XmlNode): XmlNode | undefined {
   return findFirst(pPrChildren, "w:sectPr");
 }
 
-function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo): string {
+type ParagraphInfo = {
+  line: string;
+  alignment?: string; // "center" | "right" | undefined
+  indentLeftTwips?: number;
+  isHeading: boolean;
+  isList: boolean;
+  isEmpty: boolean;
+};
+
+function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: ParagraphStyleMap, options?: DecompilerOptions): ParagraphInfo {
   // Check for page break only paragraph
   if (isPageBreakParagraph(pNode)) {
-    return "@pagebreak";
+    return { line: "@pagebreak", isHeading: false, isList: false, isEmpty: false };
   }
 
-  const text = paragraphText(pNode);
   const styleId = paragraphStyleId(pNode);
   const alignment = paragraphAlignment(pNode);
+  const indentLeftTwips = paragraphIndentLeftTwips(pNode, styles);
+  
+  // Check for TOC styles - don't emit list markers for TOC paragraphs
+  const isToc = isTocStyle(styleId);
+  
+  // For TOC paragraphs, preserve tabs for readable title+page format
+  const text = paragraphText(pNode, isToc);
+  const isEmpty = !text.trim();
 
-  // Build alignment prefix
-  let alignPrefix = "";
-  if (alignment === "center") {
-    alignPrefix = "@center ";
-  } else if (alignment === "right") {
-    alignPrefix = "@right ";
-  }
-
+  // Check for heading style first
   if (styleId) {
     const m = styleId.match(/^Heading([1-6])$/i);
     if (m) {
       const level = parseInt(m[1]!, 10);
       const hashes = "#".repeat(Math.max(1, Math.min(6, level)));
-      return `${hashes} ${text}`.trimEnd();
+      return {
+        line: `${hashes} ${text}`.trimEnd(),
+        indentLeftTwips,
+        isHeading: true,
+        isList: false,
+        isEmpty,
+      };
     }
+  }
+
+  // For TOC paragraphs, emit as plain text without list markers
+  if (isToc) {
+    // For TOC, just emit the text without alignment modifiers on the line
+    // (alignment will be handled by grouping logic)
+    return {
+      line: text.trimEnd(),
+      alignment: alignment === "center" ? "center" : alignment === "right" ? "right" : undefined,
+      indentLeftTwips,
+      isHeading: false,
+      isList: false,
+      isEmpty,
+    };
   }
 
   const num = paragraphNumbering(pNode);
   if (num) {
     const { prefix } = listPrefix(numInfo, num.numId, num.ilvl);
-    return `${alignPrefix}${prefix}${text}`.trimEnd();
+    // Lists with alignment get inline alignment prefix
+    const alignPrefix = alignment === "center" ? "@center " : alignment === "right" ? "@right " : "";
+    return {
+      line: `${alignPrefix}${prefix}${text}`.trimEnd(),
+      // Avoid emitting @indent for list items; numbering carries indentation.
+      indentLeftTwips: 0,
+      isHeading: false,
+      isList: true,
+      isEmpty,
+    };
   }
 
-  return `${alignPrefix}${text}`.trimEnd();
+  // Regular paragraph - capture alignment for potential grouping
+  return {
+    line: text.trimEnd(),
+    alignment: alignment === "center" ? "center" : alignment === "right" ? "right" : undefined,
+    indentLeftTwips,
+    isHeading: false,
+    isList: false,
+    isEmpty,
+  };
 }
 
-export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer): Promise<string> {
+export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, options?: DecompilerOptions): Promise<string> {
   const zip = await JSZip.loadAsync(input);
   const documentXml = await zip.file("word/document.xml")?.async("text");
   if (!documentXml) throw new Error("Invalid .docx: missing word/document.xml");
@@ -697,6 +862,7 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer): Prom
 
   const stylesXml = await zip.file("word/styles.xml")?.async("text");
   const spacingInfo = parseSpacingFromStylesXml(stylesXml);
+  const paragraphStyles = parseParagraphStyles(stylesXml);
 
   const relsXml = await zip.file("word/_rels/document.xml.rels")?.async("text");
   const rels = relsXml ? parseDocumentRels(relsXml) : new Map<string, string>();
@@ -720,9 +886,43 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer): Prom
   // Build output
   const output: string[] = [];
 
+  // Emit layout directives as @document block
+  const hasNonDefaultMargins = layout.margins && !(
+    Math.abs(twipsToInches(layout.margins.top) - 1) < 0.05 &&
+    Math.abs(twipsToInches(layout.margins.right) - 1) < 0.05 &&
+    Math.abs(twipsToInches(layout.margins.bottom) - 1) < 0.05 &&
+    Math.abs(twipsToInches(layout.margins.left) - 1) < 0.05
+  );
+  
+  const hasLayoutSettings = hasNonDefaultMargins || layout.landscape || (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0);
+
+  if (hasLayoutSettings) {
+    output.push("@document");
+    
+    if (hasNonDefaultMargins && layout.margins) {
+      const { top, right, bottom, left } = layout.margins;
+      output.push("  margins:");
+      output.push(`    top: ${formatInches(twipsToInches(top))}in`);
+      output.push(`    right: ${formatInches(twipsToInches(right))}in`);
+      output.push(`    bottom: ${formatInches(twipsToInches(bottom))}in`);
+      output.push(`    left: ${formatInches(twipsToInches(left))}in`);
+    }
+    
+    if (layout.landscape) {
+      output.push("  orientation: landscape");
+    }
+    
+    if (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0) {
+      output.push(`  spacing:`);
+      output.push(`    line: ${spacingInfo.lineMultiplier}`);
+    }
+    
+    output.push("");
+  }
+
   // Emit header if present
   if (hfRefs.defaultHeader) {
-    const headerLines = await parseHeaderFooterContent(zip, hfRefs.defaultHeader, rels, numInfo);
+    const headerLines = await parseHeaderFooterContent(zip, hfRefs.defaultHeader, rels, numInfo, paragraphStyles, options);
     const nonEmptyLines = headerLines.filter((l) => l.trim());
     if (nonEmptyLines.length > 0) {
       output.push("@header\n" + nonEmptyLines.map((l) => `  ${l}`).join("\n"));
@@ -731,42 +931,11 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer): Prom
 
   // Emit footer if present
   if (hfRefs.defaultFooter) {
-    const footerLines = await parseHeaderFooterContent(zip, hfRefs.defaultFooter, rels, numInfo);
+    const footerLines = await parseHeaderFooterContent(zip, hfRefs.defaultFooter, rels, numInfo, paragraphStyles, options);
     const nonEmptyLines = footerLines.filter((l) => l.trim());
     if (nonEmptyLines.length > 0) {
       output.push("@footer\n" + nonEmptyLines.map((l) => `  ${l}`).join("\n"));
     }
-  }
-
-  // Emit layout directives
-  if (layout.margins) {
-    const { top, right, bottom, left } = layout.margins;
-    const topIn = formatInches(twipsToInches(top));
-    const rightIn = formatInches(twipsToInches(right));
-    const bottomIn = formatInches(twipsToInches(bottom));
-    const leftIn = formatInches(twipsToInches(left));
-
-    // Only emit if not all 1 inch (default)
-    const isDefault =
-      Math.abs(twipsToInches(top) - 1) < 0.05 &&
-      Math.abs(twipsToInches(right) - 1) < 0.05 &&
-      Math.abs(twipsToInches(bottom) - 1) < 0.05 &&
-      Math.abs(twipsToInches(left) - 1) < 0.05;
-
-    if (!isDefault) {
-      output.push(`@margins ${topIn}in ${rightIn}in ${bottomIn}in ${leftIn}in`);
-      output.push("");
-    }
-  }
-
-  if (layout.landscape) {
-    output.push("@landscape");
-    output.push("");
-  }
-
-  if (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0) {
-    output.push(`@spacing ${spacingInfo.lineMultiplier}`);
-    output.push("");
   }
 
   // Partition body children into sections based on sectPr in paragraph pPr
@@ -813,6 +982,149 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer): Prom
   // Convert sections to LDOC
   const blocks: string[] = [];
 
+  // Helper to process a list of paragraph children and apply alignment grouping
+  function processChildren(children: XmlNode[], indent: string = ""): string[] {
+    const result: string[] = [];
+    const emitIndentDirectives = shouldEmitIndent(options);
+    
+    // First, collect all paragraph info
+    const items: Array<{ type: "paragraph"; info: ParagraphInfo } | { type: "table"; content: string }> = [];
+    for (const child of children) {
+      const key = getOnlyKey(child);
+      if (key === "w:p") {
+        items.push({ type: "paragraph", info: paragraphToLdoc(child, numInfo, paragraphStyles, options) });
+      } else if (key === "w:tbl") {
+        items.push({ type: "table", content: tableToLdoc(child) });
+      }
+    }
+
+    const emitAligned = (paragraphInfos: ParagraphInfo[], baseIndent: string): string[] => {
+      const out: string[] = [];
+      let i = 0;
+      while (i < paragraphInfos.length) {
+        const info = paragraphInfos[i]!;
+        const alignment = info.alignment;
+
+        if (alignment && !info.isHeading && !info.isList && !info.isEmpty) {
+          const group: number[] = [i];
+          let j = i + 1;
+          while (j < paragraphInfos.length) {
+            const next = paragraphInfos[j]!;
+            if (next.isHeading || next.isList) break;
+            if (next.isEmpty) {
+              group.push(j);
+              j++;
+              continue;
+            }
+            if (next.alignment !== alignment) break;
+            group.push(j);
+            j++;
+          }
+
+          const nonEmptyCount = group.filter((idx) => !paragraphInfos[idx]!.isEmpty).length;
+          if (nonEmptyCount >= 2) {
+            out.push(`${baseIndent}@${alignment}`);
+            for (let gi = 0; gi < group.length; gi++) {
+              const idx = group[gi]!;
+              const p = paragraphInfos[idx]!;
+              // Preserve block indentation on empty lines, otherwise blocks break.
+              if (p.isEmpty) {
+                out.push(`${baseIndent}  `);
+                continue;
+              }
+
+              out.push(`${baseIndent}  ${p.line}`);
+
+              // In LDOC, a single newline is a soft wrap for plain paragraphs.
+              // Insert an indented blank separator so each DOCX paragraph stays its own paragraph.
+              const hasMore = group.slice(gi + 1).some((k) => !paragraphInfos[k]!.isEmpty);
+              if (hasMore) out.push(`${baseIndent}  `);
+            }
+            i = j;
+            continue;
+          }
+        }
+
+        let line = info.line;
+        if (info.alignment === "center" && !info.isEmpty) line = `@center ${line}`;
+        else if (info.alignment === "right" && !info.isEmpty) line = `@right ${line}`;
+        out.push(baseIndent + line);
+        i++;
+      }
+      return out;
+    };
+
+    // Indent grouping first, then alignment grouping inside each indent group
+    let i = 0;
+    while (i < items.length) {
+      const item = items[i]!;
+      if (item.type === "table") {
+        result.push(indent + item.content.split("\n").join("\n" + indent));
+        i++;
+        continue;
+      }
+
+      // Lists should not be wrapped in @indent; they carry indentation via numbering.
+      if (item.info.isList) {
+        result.push(indent + item.info.line);
+        i++;
+        continue;
+      }
+
+      const indentTwips = item.info.indentLeftTwips ?? 0;
+      // When emitIndent is off, treat all paragraphs as having zero indent (skip indent grouping)
+      if (indentTwips <= 0 || !emitIndentDirectives) {
+        // Collect a run of non-list paragraphs with indent=0 (or all when emitIndent=off) and process with alignment grouping
+        const run: ParagraphInfo[] = [];
+        let j = i;
+        while (j < items.length) {
+          const next = items[j]!;
+          if (next.type !== "paragraph") break;
+          if (next.info.isList) break;
+          // When emitIndent is off, don't break on indent changes
+          if (emitIndentDirectives && (next.info.indentLeftTwips ?? 0) > 0) break;
+          run.push(next.info);
+          j++;
+        }
+        result.push(...emitAligned(run, indent));
+        i = j;
+        continue;
+      }
+
+      // Collect a run of non-list paragraphs with the same indent
+      const run: ParagraphInfo[] = [item.info];
+      let j = i + 1;
+      while (j < items.length) {
+        const next = items[j]!;
+        if (next.type !== "paragraph") break;
+        if (next.info.isList) break;
+        if ((next.info.indentLeftTwips ?? 0) !== indentTwips) break;
+        run.push(next.info);
+        j++;
+      }
+
+      const nonEmptyCount = run.filter((p) => !p.isEmpty).length;
+      const len = formatTwipsAsPt(indentTwips);
+      if (nonEmptyCount >= 2) {
+        result.push(`${indent}@indent=${len}`);
+        result.push(...emitAligned(run, `${indent}  `));
+      } else {
+        const only = run[0]!;
+        const alignNeedsNesting = only.alignment === "center" || only.alignment === "right";
+        if (!only.isEmpty && !alignNeedsNesting) {
+          result.push(`${indent}@indent=${len} ${only.line}`);
+        } else {
+          result.push(`${indent}@indent=${len}`);
+          result.push(...emitAligned(run, `${indent}  `));
+        }
+      }
+
+      i = j;
+    }
+
+    return result;
+  }
+
   for (let i = 0; i < sections.length; i++) {
     const section = sections[i]!;
     const isColumnsSection = section.props?.cols && section.props.cols > 1;
@@ -832,35 +1144,15 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer): Prom
       }
 
       // Collect content lines for columns block
-      const contentLines: string[] = [];
-      for (const child of section.children) {
-        const key = getOnlyKey(child);
-        if (key === "w:p") {
-          const line = paragraphToLdoc(child, numInfo);
-          if (line.trim()) {
-            contentLines.push(`  ${line}`);
-          }
-        } else if (key === "w:tbl") {
-          const tableLines = tableToLdoc(child).split("\n");
-          for (const tl of tableLines) {
-            contentLines.push(`  ${tl}`);
-          }
-        }
-      }
+      const contentLines = processChildren(section.children, "  ");
+      const nonEmptyLines = contentLines.filter((l) => l.trim());
 
       // Emit as a single block
-      blocks.push(columnsLine + "\n" + contentLines.join("\n") + "\n@;");
+      blocks.push(columnsLine + "\n" + nonEmptyLines.join("\n") + "\n@;");
     } else {
-      // Normal section - emit blocks directly
-      for (const child of section.children) {
-        const key = getOnlyKey(child);
-        if (key === "w:p") {
-          const line = paragraphToLdoc(child, numInfo);
-          blocks.push(line);
-        } else if (key === "w:tbl") {
-          blocks.push(tableToLdoc(child));
-        }
-      }
+      // Normal section - emit blocks with alignment grouping
+      const lines = processChildren(section.children, "");
+      blocks.push(...lines);
     }
   }
 
@@ -868,9 +1160,15 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer): Prom
   const finalOutput = [...output, ...blocks];
 
   // Join, preserve at most one blank line between blocks, clean up trailing whitespace
-  return finalOutput
-    .join("\n\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]+\n/g, "\n")
-    .trim();
+  const joined = finalOutput.join("\n");
+  const trimmedTrailing = joined
+    .split("\n")
+    .map((line) => {
+      // Preserve indentation-only blank lines inside modifier blocks.
+      if (!line.trim()) return line;
+      return line.replace(/[ \t]+$/g, "");
+    })
+    .join("\n");
+
+  return trimmedTrailing.replace(/\n{3,}/g, "\n\n").trim();
 }

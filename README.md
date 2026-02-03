@@ -8,7 +8,7 @@ A lightweight markup language for legal documents that compiles to DOCX.
 - **Nested numbered lists** — `@1`, `@@a`, `@@@i`, `@@@@A`
 - **Multiple numbering styles** — Decimal, alpha, roman, hierarchical (`1.1.`)
 - **Modifiers** — `@center`, `@bold`, `@indent`, etc.
-- **Style customization** — `@styles body font="Georgia" size=11pt`
+- **Style customization** — `@document` block (`styles: ...`)
 - **Variables** — `{{seller}}`, `{{property.address}}`
 - **Cross-references** — `[[Section 5.2]]`, `[[Exhibit A]]`
 - **Tables** — Simple bracket syntax
@@ -47,7 +47,7 @@ Notes:
 - [x] Roman styles: `@@@i`, `@@@I`, ...
 - [x] Bullets: `@-`, `@@-`, ...
 - [x] Continuation paragraphs inside items (indentation)
-- [x] `@numbering default|decimal` scheme directive
+- [x] `@document` numbering scheme
 
 ### Inline Features
 
@@ -69,9 +69,7 @@ Notes:
 
 - [x] `@pagebreak`
 - [x] Headers/footers: `@header`, `@footer`, `@firstpage`
-- [x] `@margins` (Section page margins)
-- [x] `@spacing` (Default paragraph spacing)
-- [x] `@landscape` (Landscape page orientation)
+- [x] `@document` layout (margins, spacing, page_size, orientation)
 - [x] `@columns` region blocks (multi-column sections)
 
 ### Templates, Imports, Control Flow
@@ -215,23 +213,24 @@ As described in [[Section 5.2]], subject to [[Exhibit A]].
 ### Style customization
 
 ```ldoc
-@styles body font="Georgia" size=11pt
-@styles heading1 font="Helvetica" size=24pt
-@styles header font="Arial" size=9pt
+@document
+  styles:
+    body:
+      font: Georgia
+      size: 11pt
+    heading1:
+      font: Helvetica
+      size: 24pt
+    header:
+      font: Arial
+      size: 9pt
 ```
 
-**Supported targets:**
-- `body` — Normal paragraph text
-- `heading1`, `heading2`, `heading3` — Markdown headers (`#`, `##`, `###`)
-- `header` — Document header content
-- `footer` — Document footer content
+**Supported targets:** `body`, `heading`, `heading1`..`heading6`, `header`, `footer`
 
-**Supported keys:**
-- `font="FontName"` — Font family (e.g., "Times New Roman", "Arial")
-- `size=Npt` — Font size in points (e.g., `12pt`, `11pt`)
-- `color=#RRGGBB` — Text color as hex (e.g., `#333333`)
+**Supported keys:** `font`, `size` (pt), `bold`, `italic`, `color` (#RRGGBB)
 
-**Note:** `@styles` directives should appear at the top of the document before content. Later `@styles` directives for the same target override earlier ones.
+**Note:** document-wide options must be configured in `@document` (standalone `@margins/@spacing/@landscape/@numbering/@styles` are errors).
 
 ## Neovim Setup
 

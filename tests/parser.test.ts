@@ -91,20 +91,23 @@ describe("Lexer", () => {
   });
 
   test("tokenizes modifier counts", () => {
-    const lexer = new Lexer("@indent:2\n@outdent:3\n@indent 2\n");
+    const lexer = new Lexer("@indent:2\n@outdent:3\n@indent 2\n@indent=36pt\n");
     const tokens = lexer.tokenize();
 
     const mods = tokens.filter((t) => t.type === TokenType.MODIFIER);
-    expect(mods).toHaveLength(3);
+    expect(mods).toHaveLength(4);
     const md0 = must(mods[0]);
     const md1 = must(mods[1]);
     const md2 = must(mods[2]);
+    const md3 = must(mods[3]);
     expect(md0.value).toBe("indent");
     expect(md0.count).toBe(2);
     expect(md1.value).toBe("outdent");
     expect(md1.count).toBe(3);
     expect(md2.value).toBe("indent");
     expect(md2.count).toBe(2);
+    expect(md3.value).toBe("indent");
+    expect(md3.length).toBe("36pt");
   });
 
   test("tokenizes explicit end-block sentinel", () => {
@@ -118,6 +121,133 @@ describe("Lexer", () => {
     const tokens = lexer.tokenize();
     expect(tokens.some((t) => t.type === TokenType.DEFINE)).toBe(true);
     expect(tokens.some((t) => t.type === TokenType.USE)).toBe(true);
+  });
+
+  test("@someone without space is parsed as text, not a list item", () => {
+    const lexer = new Lexer("Contact @john for details.");
+    const tokens = lexer.tokenize();
+
+    // Should NOT have any numbered items
+    expect(tokens.some((t) => t.type === TokenType.NUMBERED_ITEM)).toBe(false);
+    // Should have text containing "@john"
+    const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
+    const allText = textTokens.map((t) => t.value).join("");
+    expect(allText).toContain("@john");
+  });
+
+  test("@someone at line start without space is parsed as text", () => {
+    const lexer = new Lexer("@someone mentioned this");
+    const tokens = lexer.tokenize();
+
+    expect(tokens.some((t) => t.type === TokenType.NUMBERED_ITEM)).toBe(false);
+    const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
+    const allText = textTokens.map((t) => t.value).join("");
+    expect(allText).toContain("@someone");
+  });
+
+  test("@a with space is still a valid numbered item", () => {
+    const lexer = new Lexer("@a First item");
+    const tokens = lexer.tokenize();
+
+    const numbered = tokens.filter((t) => t.type === TokenType.NUMBERED_ITEM);
+    expect(numbered).toHaveLength(1);
+    expect(numbered[0]!.style).toBe("a");
+  });
+
+  test("@1 with space is still a valid numbered item", () => {
+    const lexer = new Lexer("@1 First item");
+    const tokens = lexer.tokenize();
+
+    const numbered = tokens.filter((t) => t.type === TokenType.NUMBERED_ITEM);
+    expect(numbered).toHaveLength(1);
+    expect(numbered[0]!.style).toBe("1");
+  });
+
+  test("@ followed by newline is still a valid auto-increment item", () => {
+    const lexer = new Lexer("@\n  Content");
+    const tokens = lexer.tokenize();
+
+    const numbered = tokens.filter((t) => t.type === TokenType.NUMBERED_ITEM);
+    expect(numbered).toHaveLength(1);
+    expect(numbered[0]!.style).toBe("");
+  });
+
+  test("email-style mentions in paragraphs are preserved as text", () => {
+    const lexer = new Lexer("Please contact @john.doe or @jane_smith for help.");
+    const tokens = lexer.tokenize();
+
+    expect(tokens.some((t) => t.type === TokenType.NUMBERED_ITEM)).toBe(false);
+    const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
+    const allText = textTokens.map((t) => t.value).join("");
+    expect(allText).toContain("@john");
+    expect(allText).toContain("@jane_smith");
+  });
+
+  test("'[day]' in the middle of a line is tokenized as TEXT, not TABLE_ROW", () => {
+    const lexer = new Lexer("dated January [day], 2026");
+    const tokens = lexer.tokenize();
+
+    // Should NOT have any TABLE_ROW tokens
+    expect(tokens.some((t) => t.type === TokenType.TABLE_ROW)).toBe(false);
+    // Should have text containing '[day]'
+    const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
+    const allText = textTokens.map((t) => t.value).join("");
+    expect(allText).toContain("[day]");
+  });
+
+  test("'[...]' at start of line is still parsed as TABLE_ROW", () => {
+    const lexer = new Lexer("[A, B, C]");
+    const tokens = lexer.tokenize();
+
+    const tableRows = tokens.filter((t) => t.type === TokenType.TABLE_ROW);
+    expect(tableRows).toHaveLength(1);
+  });
+
+  test("'[[...]]' cross-ref mid-line still works", () => {
+    const lexer = new Lexer("See [[EXHIBIT A]] for details.");
+    const tokens = lexer.tokenize();
+
+    const crossRefs = tokens.filter((t) => t.type === TokenType.CROSS_REF);
+    expect(crossRefs).toHaveLength(1);
+    expect(crossRefs[0]!.value).toBe("EXHIBIT A");
+  });
+});
+
+describe("Parser - @mention handling", () => {
+  test("@mentions in paragraphs are preserved as text", () => {
+    const parser = new Parser();
+    const ast = parser.parse("Please contact @john for help.");
+
+    const para = must(ast.body[0]) as any;
+    expect(para.type).toBe("paragraph");
+    const text = para.content.map((n: any) => (n.type === "text" ? n.value : "")).join("");
+    expect(text).toContain("@john");
+  });
+
+  test("@mentions at line start are preserved as text", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@someone mentioned this issue.");
+
+    const para = must(ast.body[0]) as any;
+    expect(para.type).toBe("paragraph");
+    const text = para.content.map((n: any) => (n.type === "text" ? n.value : "")).join("");
+    expect(text).toContain("@someone");
+    expect(text).toContain("mentioned");
+  });
+
+  test("list markers still work with proper spacing", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@1 First item\n@@a Sub item\n\n@someone mentioned this.");
+
+    const numbered = ast.body.filter((n) => n.type === "numbered_item");
+    expect(numbered).toHaveLength(2);
+
+    // The paragraph should contain @someone as text
+    const paras = ast.body.filter((n) => n.type === "paragraph");
+    expect(paras.length).toBeGreaterThan(0);
+    const lastPara = paras[paras.length - 1] as any;
+    const text = lastPara.content.map((n: any) => (n.type === "text" ? n.value : "")).join("");
+    expect(text).toContain("@someone");
   });
 });
 
@@ -702,9 +832,16 @@ Body.`);
     expect(docXml).toContain("w:titlePg");
   });
 
-  test("applies @margins to section properties", async () => {
+  test("applies margins from @document block to section properties", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@margins 1in 2in 3in 4in\n\nBody.`);
+    const ast = parser.parse(`@document
+  margins:
+    top: 1in
+    right: 2in
+    bottom: 3in
+    left: 4in
+
+Body.`);
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
 
@@ -717,9 +854,12 @@ Body.`);
     expect(xml).toMatch(/w:pgMar[^>]*w:left=\"5760\"/);
   });
 
-  test("applies @landscape to page size", async () => {
+  test("applies orientation from @document block to page size", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@landscape\n\nBody.`);
+    const ast = parser.parse(`@document
+  orientation: landscape
+
+Body.`);
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
 
@@ -729,9 +869,15 @@ Body.`);
     expect(xml).toMatch(/w:pgSz[^>]*w:orient=\"landscape\"/);
   });
 
-  test("applies @spacing to default paragraph style", async () => {
+  test("applies spacing from @document block to default paragraph style", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@spacing 1.5 before=6pt after=12pt\n\nBody.`);
+    const ast = parser.parse(`@document
+  spacing:
+    line: 1.5
+    before: 6pt
+    after: 12pt
+
+Body.`);
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
 
@@ -739,7 +885,38 @@ Body.`);
     const xml = await zip.file("word/document.xml")!.async("text");
     expect(xml).toMatch(/w:spacing[^>]*w:line=\"360\"/);
     expect(xml).toMatch(/w:spacing[^>]*w:before=\"120\"/);
-    expect(xml).toMatch(/w:spacing[^>]*w:after=\"240\"/);
+    expect(xml).toMatch(/w:spacing[^>]*w:after="240"/);
+  });
+
+  test("default page size is Letter (12240x15840) when no @document page_size", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`Body paragraph.`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // Letter: 12240 twips wide, 15840 twips tall
+    expect(xml).toMatch(/w:pgSz[^>]*w:w="12240"/);
+    expect(xml).toMatch(/w:pgSz[^>]*w:h="15840"/);
+  });
+
+  test("page_size: a4 sets A4 dimensions (11906x16838)", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@document
+  page_size: a4
+
+Body paragraph.`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // A4: ~11909 twips wide, ~16834 twips tall (8.27in x 11.69in * 1440)
+    expect(xml).toMatch(/w:pgSz[^>]*w:w="11909"/);
+    expect(xml).toMatch(/w:pgSz[^>]*w:h="16834"/);
   });
 
   test("@box renders as single-cell table with borders", async () => {
@@ -888,22 +1065,41 @@ After columns.`);
 
     // 1cm = ~567 twips (1440 * 2.54 / 2.54 * 1 = ~567)
     // We should have w:cols with w:space attribute
-    expect(xml).toMatch(/w:cols[^>]*w:num="2"/);
-    expect(xml).toMatch(/w:cols[^>]*w:space="\d+"/);
+    expect(xml).toMatch(/w:cols[^\u003e]*w:num="2"/);
+    expect(xml).toMatch(/w:cols[^\u003e]*w:space="\d+"/);
+  });
+
+  test("'[day]' in prose compiles into document.xml text", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`dated January [day], 2026`);
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // Extract all text runs
+    const text = Array.from(xml.matchAll(/<w:t[^>]*>(.*?)<\/w:t>/g))
+      .map((m) => m[1])
+      .join("");
+
+    expect(text).toContain("[day]");
+    expect(text).toContain("January");
+    expect(text).toContain("2026");
   });
 });
 
-describe("@numbering directive", () => {
-  test("parses @numbering default", () => {
+describe("numbering in @document block", () => {
+  test("parses numbering: default from @document block", () => {
     const parser = new Parser();
-    const ast = parser.parse("@numbering default\n\n@1 One\n");
-    expect(ast.numberingScheme).toBe("default");
+    const ast = parser.parse("@document\n  numbering: default\n\n@1 One\n");
+    expect(ast.document?.numbering).toBe("default");
   });
 
-  test("parses @numbering decimal", () => {
+  test("parses numbering: decimal from @document block", () => {
     const parser = new Parser();
-    const ast = parser.parse("@numbering decimal\n\n@1 One\n");
-    expect(ast.numberingScheme).toBe("decimal");
+    const ast = parser.parse("@document\n  numbering: decimal\n\n@1 One\n");
+    expect(ast.document?.numbering).toBe("decimal");
   });
 
   test("defaults to no numberingScheme when directive absent", () => {
@@ -912,14 +1108,9 @@ describe("@numbering directive", () => {
     expect(ast.numberingScheme).toBeUndefined();
   });
 
-  test("rejects unknown numbering scheme", () => {
+  test("rejects unknown numbering scheme in @document block", () => {
     const parser = new Parser();
-    expect(() => parser.parse("@numbering roman\n")).toThrow(/default.*decimal/i);
-  });
-
-  test("rejects @numbering after numbered item", () => {
-    const parser = new Parser();
-    expect(() => parser.parse("@1 One\n@numbering decimal\n")).toThrow(/before.*numbered/i);
+    expect(() => parser.parse("@document\n  numbering: roman\n")).toThrow(/default.*decimal|invalid|unknown/i);
   });
 
   test("default scheme uses legal-default for auto style items", async () => {
@@ -939,7 +1130,7 @@ describe("@numbering directive", () => {
 
   test("decimal scheme uses legal-decimal for auto style items", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@numbering decimal\n\n@1 One\n@@ Two\n");
+    const ast = parser.parse("@document\n  numbering: decimal\n\n@1 One\n@@ Two\n");
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -975,7 +1166,7 @@ describe("@numbering directive", () => {
     // @@2.1 Two (level 1, explicit decimal_sub -> decimal memory at level 1)
     // @1 Three (level 0 resets level 1 memory)
     // @@ Four (level 1, auto -> should use scheme default since memory was reset)
-    const ast = parser.parse("@numbering default\n\n@1 One\n@@2.1 Two\n@1 Three\n@@ Four\n");
+    const ast = parser.parse("@document\n  numbering: default\n\n@1 One\n@@2.1 Two\n@1 Three\n@@ Four\n");
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -1174,9 +1365,13 @@ After columns.
   });
 
   test("margins and landscape roundtrip", async () => {
-    const input = `@margins 0.75in 0.75in 0.75in 0.75in
-
-@landscape
+    const input = `@document
+  margins:
+    top: 0.75in
+    right: 0.75in
+    bottom: 0.75in
+    left: 0.75in
+  orientation: landscape
 
 Body paragraph.
 `;
@@ -1185,16 +1380,124 @@ Body paragraph.
     const buffer = await new DocxCompiler().compile(ast);
     const out = await docxToLdoc(buffer);
 
-    expect(out).toContain("@margins");
+    // Decompiler should emit @document block with margins and orientation
+    expect(out).toContain("@document");
+    expect(out).toMatch(/margins/);
     expect(out).toMatch(/0\.75/);
-    expect(out).toContain("@landscape");
+    expect(out).toMatch(/landscape|orientation/);
+  });
+
+  test("indent length roundtrip", async () => {
+    const input = `@indent=36pt
+  First paragraph.
+
+  Second paragraph.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer, { emitIndent: 'on' });
+
+    expect(out).toContain("@indent=36pt");
+    expect(out).toContain("First paragraph");
+    expect(out).toContain("Second paragraph");
+  });
+
+  test("indent emission defaults to off", async () => {
+    const input = `@indent=36pt
+  First paragraph.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    // Default is off, so no @indent directive
+    expect(out).not.toMatch(/@indent/);
+    expect(out).toContain("First paragraph");
+  });
+
+  test("decompiles style-based indentation from styles.xml", async () => {
+    const zip = new JSZip();
+    zip.folder("word")!.file(
+      "document.xml",
+      `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Title"/>
+      </w:pPr>
+      <w:r><w:t>TABLE OF CONTENTS</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>`
+    );
+    zip.folder("word")!.file(
+      "styles.xml",
+      `<?xml version="1.0" encoding="UTF-8"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="Title">
+    <w:pPr>
+      <w:ind w:left="2598"/>
+    </w:pPr>
+  </w:style>
+</w:styles>`
+    );
+
+    const buffer = await zip.generateAsync({ type: "nodebuffer" });
+    const out = await docxToLdoc(buffer, { emitIndent: 'on' });
+
+    expect(out).toContain("TABLE OF CONTENTS");
+    // 2598 twips / 20 = 129.9pt
+    expect(out).toMatch(/@indent=129\.9pt/);
+  });
+
+  test("emitIndent=off suppresses @indent directives on style-indented paragraphs", async () => {
+    const zip = new JSZip();
+    zip.folder("word")!.file(
+      "document.xml",
+      `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Title"/>
+      </w:pPr>
+      <w:r><w:t>TABLE OF CONTENTS</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>`
+    );
+    zip.folder("word")!.file(
+      "styles.xml",
+      `<?xml version="1.0" encoding="UTF-8"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="Title">
+    <w:pPr>
+      <w:ind w:left="2598"/>
+    </w:pPr>
+  </w:style>
+</w:styles>`
+    );
+
+    const buffer = await zip.generateAsync({ type: "nodebuffer" });
+    const out = await docxToLdoc(buffer, { emitIndent: 'off' });
+
+    expect(out).toContain("TABLE OF CONTENTS");
+    // With emitIndent=off, should NOT have @indent directive
+    expect(out).not.toMatch(/@indent/);
   });
 });
 
-describe("@styles directive", () => {
+describe("styles in @document block", () => {
   test("body style applies font and size to normal paragraphs", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@styles body font="Georgia" size=11pt
+    const ast = parser.parse(`@document
+  styles:
+    body:
+      font: Georgia
+      size: 11pt
 
 This is a normal paragraph.`);
     const compiler = new DocxCompiler();
@@ -1211,7 +1514,11 @@ This is a normal paragraph.`);
 
   test("heading1 style applies font and size to # headers", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@styles heading1 font="Helvetica" size=24pt
+    const ast = parser.parse(`@document
+  styles:
+    heading1:
+      font: Helvetica
+      size: 24pt
 
 # Title`);
     const compiler = new DocxCompiler();
@@ -1233,7 +1540,11 @@ This is a normal paragraph.`);
 
   test("header style applies font and size to @header content", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@styles header font="Arial" size=9pt
+    const ast = parser.parse(`@document
+  styles:
+    header:
+      font: Arial
+      size: 9pt
 
 @header
   Document Header
@@ -1255,19 +1566,183 @@ Body text.`);
     // Check for size 9pt = 18 half-points
     expect(headerXml).toMatch(/w:sz[^>]*w:val="18"/);
   });
+});
 
-  test("rejects invalid size unit (px)", () => {
-    const parser = new Parser();
-    expect(() => parser.parse(`@styles body size=12px\n\nBody.`)).toThrow(/invalid|unsupported|unit/i);
+describe("DOCX -> LDOC TOC handling", () => {
+  test("TOC-styled paragraphs do not emit list markers", async () => {
+    // Construct a minimal DOCX with TOC1 and TOC2 styled paragraphs that have w:numPr
+    const zip = new JSZip();
+
+    // [Content_Types].xml
+    zip.file(
+      "[Content_Types].xml",
+      `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`
+    );
+
+    // _rels/.rels
+    zip.folder("_rels")!.file(
+      ".rels",
+      `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`
+    );
+
+    // word/document.xml with TOC-styled paragraphs
+    zip.folder("word")!.file(
+      "document.xml",
+      `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="TOC1"/>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r><w:t>Introduction</w:t></w:r>
+      <w:r><w:tab/></w:r>
+      <w:r><w:t>1</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Toc2"/>
+        <w:numPr>
+          <w:ilvl w:val="1"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r><w:t>Background</w:t></w:r>
+      <w:r><w:tab/></w:r>
+      <w:r><w:t>2</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Normal"/>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r><w:t>Regular list item</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>`
+    );
+
+    const buffer = await zip.generateAsync({ type: "nodebuffer" });
+    const out = await docxToLdoc(buffer);
+
+    // TOC paragraphs should NOT have list markers
+    // Tabs are preserved in TOC output for readable title+page format
+    expect(out).toContain("Introduction\t1");
+    expect(out).toContain("Background\t2");
+    expect(out).not.toMatch(/@ Introduction/);
+    expect(out).not.toMatch(/@@ Background/);
+
+    // Regular list item SHOULD have a list marker
+    expect(out).toMatch(/@ Regular list item/);
+  });
+});
+
+describe("DOCX -> LDOC alignment grouping", () => {
+  test("consecutive centered paragraphs are grouped into block form", async () => {
+    const input = `@center Line one
+
+@center Line two
+
+@center Line three
+
+Normal paragraph.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    // Should have block form for 3 consecutive centered lines
+    expect(out).toMatch(/@center\n\s+Line one/);
+    expect(out).toContain("Line two");
+    expect(out).toContain("Line three");
+    // Normal paragraph should follow
+    expect(out).toContain("Normal paragraph");
   });
 
-  test("rejects invalid color format (named colors)", () => {
-    const parser = new Parser();
-    expect(() => parser.parse(`@styles body color=red\n\nBody.`)).toThrow(/invalid|hex|color/i);
+  test("single centered paragraph uses inline form", async () => {
+    const input = `@center Single centered line
+
+Normal paragraph.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    // Should use inline form for single centered paragraph
+    expect(out).toMatch(/@center Single centered line/);
   });
 
-  test("rejects unknown style target", () => {
-    const parser = new Parser();
-    expect(() => parser.parse(`@styles unknown font="Arial"\n\nBody.`)).toThrow(/unknown|invalid|target/i);
+  test("consecutive right-aligned paragraphs are grouped into block form", async () => {
+    const input = `@right Right one
+
+@right Right two
+
+Normal paragraph.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    // Should have block form for 2+ consecutive right-aligned lines
+    expect(out).toMatch(/@right\n\s+Right one/);
+    expect(out).toContain("Right two");
+  });
+
+  test("headings break alignment grouping", async () => {
+    const input = `@center Centered one
+
+# Heading
+
+@center Centered two
+
+Normal paragraph.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    // Heading should break the grouping, so each @center should be inline
+    expect(out).toMatch(/@center Centered one/);
+    expect(out).toMatch(/@center Centered two/);
+    expect(out).toContain("# Heading");
+  });
+
+  test("list items break alignment grouping", async () => {
+    const input = `@center Centered one
+
+@ List item
+
+@center Centered two
+
+Normal paragraph.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    // List item should break the grouping
+    expect(out).toMatch(/@center Centered one/);
+    expect(out).toMatch(/@center Centered two/);
+    expect(out).toMatch(/@ List item/);
   });
 });

@@ -4,7 +4,7 @@
 
 import { Parser } from "../parser/parser";
 import { compile } from "../compiler";
-import { docxToLdoc } from "../decompiler";
+import { docxToLdoc, type DecompilerOptions } from "../decompiler";
 
 const HELP = `
 ldoc - Legal Document DSL Compiler
@@ -13,7 +13,7 @@ Usage:
   ldoc compile <input.ldoc> [-o output.docx]
   ldoc watch <input.ldoc>
   ldoc parse <input.ldoc> [--json]
-  ldoc decompile <input.docx> [-o output.ldoc]
+  ldoc decompile <input.docx> [-o output.ldoc] [--emit-indent | --no-indent]
 
 Commands:
   compile   Compile .ldoc to .docx
@@ -22,9 +22,11 @@ Commands:
   decompile Convert .docx to .ldoc (lossy)
 
 Options:
-  -o, --output    Output file path (default: <input>.docx)
-  --json          Output AST as JSON
-  -h, --help      Show this help
+  -o, --output      Output file path (default: <input>.docx)
+  --json            Output AST as JSON
+  --emit-indent     Emit @indent/@outdent directives (default)
+  --no-indent       Suppress @indent/@outdent directives for simpler output
+  -h, --help        Show this help
 
 Examples:
   ldoc compile agreement.ldoc
@@ -33,6 +35,7 @@ Examples:
   ldoc parse agreement.ldoc --json
   ldoc decompile agreement.docx
   ldoc decompile agreement.docx -o agreement.ldoc
+  ldoc decompile agreement.docx --no-indent
 `;
 
 async function main() {
@@ -91,11 +94,19 @@ async function decompileCommand(args: string[]) {
     process.exit(1);
   }
 
+  // Parse emitIndent option
+  const options: DecompilerOptions = {};
+  if (args.includes("--no-indent")) {
+    options.emitIndent = 'off';
+  } else if (args.includes("--emit-indent")) {
+    options.emitIndent = 'on';
+  }
+
   console.log(`Decompiling ${inputFile} -> ${outputFile}`);
 
   try {
     const buf = await Bun.file(inputFile).arrayBuffer();
-    const ldoc = await docxToLdoc(buf);
+    const ldoc = await docxToLdoc(buf, options);
     await Bun.write(outputFile, ldoc);
     console.log(`✓ Written ${outputFile} (${ldoc.length} chars)`);
   } catch (error) {

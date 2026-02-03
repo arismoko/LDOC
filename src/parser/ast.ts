@@ -62,7 +62,7 @@ export interface DocHeaderFooterNode extends BaseNode {
   content: Node[];
 }
 
-export type DocLayoutKind = "margins" | "spacing" | "landscape" | "columns";
+export type DocLayoutKind = "columns"; // margins, spacing, landscape now in @document block
 
 export interface DocLayoutNode extends BaseNode {
   type: "doc_layout";
@@ -176,6 +176,7 @@ export interface ModifierNode extends BaseNode {
   type: "modifier";
   modifier: ModifierType;
   count?: number;
+  length?: string;
   content: Node[];
 }
 

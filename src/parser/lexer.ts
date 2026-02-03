@@ -41,8 +41,8 @@ export enum TokenType {
   TABLE = "TABLE",
   TABLE_ROW = "TABLE_ROW",
 
-  // Numbering scheme
-  NUMBERING = "NUMBERING",
+  // Numbering scheme - now handled in @document block
+  // NUMBERING = "NUMBERING", // REMOVED - legacy
 
   // Control
   PAGEBREAK = "PAGEBREAK",
@@ -50,12 +50,12 @@ export enum TokenType {
   DOC_FOOTER = "DOC_FOOTER",
   DOC_FIRSTPAGE = "DOC_FIRSTPAGE",
   DOC_EVENPAGE = "DOC_EVENPAGE",
-  DOC_MARGINS = "DOC_MARGINS",
-  DOC_SPACING = "DOC_SPACING",
-  DOC_LANDSCAPE = "DOC_LANDSCAPE",
+  // DOC_MARGINS = "DOC_MARGINS", // REMOVED - legacy
+  // DOC_SPACING = "DOC_SPACING", // REMOVED - legacy
+  // DOC_LANDSCAPE = "DOC_LANDSCAPE", // REMOVED - legacy
   DOC_COLUMNS = "DOC_COLUMNS",
   DOC_ANCHOR = "DOC_ANCHOR",
-  DOC_STYLES = "DOC_STYLES",
+  // DOC_STYLES = "DOC_STYLES", // REMOVED - legacy
   END_BLOCK = "END_BLOCK",
   COMMENT = "COMMENT",
   TODO = "TODO",
@@ -75,6 +75,7 @@ export interface Token {
   indent: number;
   // For modifiers
   count?: number; // e.g. @indent:2
+  length?: string; // e.g. @indent=36pt
   // For numbered items
   level?: number; // Number of @ symbols
   style?: string; // '1', 'a', 'i', 'A', 'I', '1.1', etc.
@@ -106,6 +107,15 @@ const MODIFIERS = new Set([
   "h6",
 ]);
 
+// Legacy directives that are now errors (must use @document block)
+const LEGACY_DOCUMENT_DIRECTIVES = new Set([
+  "margins",
+  "spacing",
+  "landscape",
+  "numbering",
+  "styles",
+]);
+
 const KEYWORDS = new Set([
   "document",
   "meta",
@@ -119,13 +129,8 @@ const KEYWORDS = new Set([
   "footer",
   "firstpage",
   "evenpage",
-  "margins",
-  "spacing",
-  "landscape",
   "columns",
   "anchor",
-  "numbering",
-  "styles",
   "if",
   "else",
   "end",
@@ -147,6 +152,7 @@ export class Lexer {
 
   private debug: boolean = false;
   private maxIterations: number = 100000;
+  private lineHasContent: boolean = false;
 
   constructor(input: string, options?: { debug?: boolean }) {
     this.input = input;
@@ -268,6 +274,7 @@ export class Lexer {
       this.advance();
       this.line++;
       this.column = 1;
+      this.lineHasContent = false;
       return;
     }
 
@@ -319,8 +326,8 @@ export class Lexer {
       return;
     }
 
-    // Table row [...]
-    if (char === "[") {
+    // Table row [...] - only at start of line content (after indentation)
+    if (char === "[" && !this.lineHasContent) {
       this.scanTableRow();
       return;
     }
@@ -393,6 +400,7 @@ export class Lexer {
         indent: this.indentStack[this.indentStack.length - 1] ?? 0,
         level,
       });
+      this.lineHasContent = true;
       return;
     }
 
@@ -407,9 +415,13 @@ export class Lexer {
     // Is it a modifier?
     if (level === 1 && MODIFIERS.has(word)) {
       let count: number | undefined;
+      let length: string | undefined;
+
+      const isLengthToken = (raw: string) => /^(?:\d+(?:\.\d+)?)(?:in|pt|cm|mm)$/i.test(raw);
 
       // Parameter forms:
       // - @indent:2
+      // - @indent=36pt
       // - @indent 2   (only when the number is the only thing left on the line)
       if (this.peek() === ":") {
         this.advance();
@@ -419,6 +431,23 @@ export class Lexer {
         }
         const raw = this.input.slice(start, this.pos);
         if (raw) count = parseInt(raw, 10);
+      } else if (this.peek() === "=") {
+        // Equals form: allow length tokens and keep rest of line as content
+        const savePos = this.pos;
+        const saveCol = this.column;
+        this.advance();
+        const start = this.pos;
+        while (this.pos < this.input.length && this.peek() !== " " && this.peek() !== "\t" && this.peek() !== "\n") {
+          this.advance();
+        }
+        const raw = this.input.slice(start, this.pos);
+        if (raw && isLengthToken(raw)) {
+          length = raw;
+        } else {
+          // Roll back; treat '=' and following as content
+          this.pos = savePos;
+          this.column = saveCol;
+        }
       } else {
         // Try space form safely
         const savePos = this.pos;
@@ -426,7 +455,10 @@ export class Lexer {
         this.skipInlineWhitespace();
 
         const start = this.pos;
-        while (/[0-9]/.test(this.peek())) {
+        while (/[0-9.]/.test(this.peek())) {
+          this.advance();
+        }
+        while (/[a-zA-Z]/.test(this.peek())) {
           this.advance();
         }
         const raw = this.input.slice(start, this.pos);
@@ -437,7 +469,8 @@ export class Lexer {
           this.advance();
         }
         if (raw && (this.peek() === "\n" || this.pos >= this.input.length)) {
-          count = parseInt(raw, 10);
+          if (/^\d+$/.test(raw)) count = parseInt(raw, 10);
+          else if (isLengthToken(raw)) length = raw;
         } else {
           // Roll back; it was content
           this.pos = savePos;
@@ -452,8 +485,19 @@ export class Lexer {
         column: startCol,
         indent: this.indentStack[this.indentStack.length - 1] ?? 0,
         count,
+        length,
       });
+      this.lineHasContent = true;
       return;
+    }
+
+    // Check for legacy directives that are now errors
+    if (level === 1 && LEGACY_DOCUMENT_DIRECTIVES.has(word)) {
+      throw new Error(
+        `@${word} is no longer supported. Use @document block instead. ` +
+        `Example: @document\\n  ${word}: ...\\n` +
+        `(line ${this.line}, column ${startCol})`
+      );
     }
 
     // Is it a keyword?
@@ -466,15 +510,54 @@ export class Lexer {
         column: startCol,
         indent: this.indentStack[this.indentStack.length - 1] ?? 0,
       });
+      this.lineHasContent = true;
       return;
     }
 
-    // Otherwise it's a numbered item
+    // Otherwise it might be a numbered item - but we need to validate
     // Backtrack and re-parse for style
     this.pos = startPos + level;
     this.column = startCol + level;
 
+    const styleStart = this.pos;
     const style = this.parseNumberedStyle();
+    const afterStyle = this.pos;
+
+    // A numbered item MUST be followed by whitespace (space/tab) or newline/EOF
+    // This prevents @someone from being parsed as a list item
+    const nextChar = this.peek();
+    const isValidTerminator = nextChar === " " || nextChar === "\t" || nextChar === "\n" || nextChar === "";
+
+    if (!isValidTerminator) {
+      // Not a valid numbered item - treat @... as plain text
+      // We need to consume the @ symbols AND the following word-like characters
+      // First, move past the @ symbols (level count)
+      this.pos = startPos;
+      this.column = startCol;
+      
+      // Consume the @ symbols
+      for (let i = 0; i < level; i++) {
+        this.advance();
+      }
+      
+      // Consume word characters (letters, digits, underscores, dots, hyphens)
+      // This captures things like @someone, @john.doe, @jane_smith
+      while (this.pos < this.input.length && /[a-zA-Z0-9_.\-]/.test(this.peek())) {
+        this.advance();
+      }
+      
+      const text = this.input.slice(startPos, this.pos);
+      this.tokens.push({
+        type: TokenType.TEXT,
+        value: text,
+        line: this.line,
+        column: startCol,
+        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+      });
+      this.lineHasContent = true;
+      return;
+    }
+
     const marker = this.input.slice(startPos, this.pos);
 
     this.tokens.push({
@@ -487,6 +570,7 @@ export class Lexer {
       style,
       marker,
     });
+    this.lineHasContent = true;
   }
 
   private parseNumberedStyle(): string {
@@ -552,6 +636,7 @@ export class Lexer {
       indent: this.indentStack[this.indentStack.length - 1] ?? 0,
       level,
     });
+    this.lineHasContent = true;
   }
 
   private scanVariable(): void {
@@ -575,6 +660,7 @@ export class Lexer {
       column: startCol,
       indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
+    this.lineHasContent = true;
   }
 
   private scanCrossRef(): void {
@@ -598,6 +684,7 @@ export class Lexer {
       column: startCol,
       indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
+    this.lineHasContent = true;
   }
 
   private scanDefinedTerm(): void {
@@ -619,6 +706,7 @@ export class Lexer {
       column: startCol,
       indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
+    this.lineHasContent = true;
   }
 
   private scanEmphasis(): void {
@@ -663,6 +751,7 @@ export class Lexer {
         column: startCol,
         indent: this.indentStack[this.indentStack.length - 1] ?? 0,
       });
+      this.lineHasContent = true;
       return;
     }
 
@@ -677,6 +766,7 @@ export class Lexer {
       column: startCol,
       indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
+    this.lineHasContent = true;
   }
 
   private scanBlank(): void {
@@ -695,6 +785,7 @@ export class Lexer {
       column: startCol,
       indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
+    this.lineHasContent = true;
   }
 
   private scanTableRow(): void {
@@ -731,6 +822,7 @@ export class Lexer {
       column: startCol,
       indent: this.indentStack[this.indentStack.length - 1] ?? 0,
     });
+    this.lineHasContent = true;
   }
 
   private scanText(): void {
@@ -761,6 +853,7 @@ export class Lexer {
         column: startCol,
         indent: this.indentStack[this.indentStack.length - 1] ?? 0,
       });
+      this.lineHasContent = true;
     }
   }
 
@@ -837,18 +930,10 @@ export class Lexer {
         return TokenType.DOC_FIRSTPAGE;
       case "evenpage":
         return TokenType.DOC_EVENPAGE;
-      case "margins":
-        return TokenType.DOC_MARGINS;
-      case "spacing":
-        return TokenType.DOC_SPACING;
-      case "landscape":
-        return TokenType.DOC_LANDSCAPE;
       case "columns":
         return TokenType.DOC_COLUMNS;
       case "anchor":
         return TokenType.DOC_ANCHOR;
-      case "styles":
-        return TokenType.DOC_STYLES;
       case "if":
         return TokenType.IF;
       case "else":
@@ -861,8 +946,6 @@ export class Lexer {
         return TokenType.FOREACH;
       case "todo":
         return TokenType.TODO;
-      case "numbering":
-        return TokenType.NUMBERING;
       default:
         return TokenType.TEXT;
     }

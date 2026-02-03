@@ -16,3 +16,13 @@ debug*.ts
 
 # Auto-generated linter config
 .markdownlint.yaml
+
+# Local scratch/debug artifacts
+.scratch/
+
+# Roundtrip test outputs (regenerated)
+examples/_roundtrip/
+
+# LibreOffice lock files
+~$*
+.~lock.*#
