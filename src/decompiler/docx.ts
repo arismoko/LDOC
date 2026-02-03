@@ -24,6 +24,26 @@ type NumberingInfo = {
   abstractLevels: Map<string, Map<number, NumberingLevel>>;
 };
 
+type SectionProps = {
+  cols?: number;
+  colSpace?: number; // twips
+  colSep?: boolean;
+  sectionType?: string; // "continuous", "nextPage", etc.
+};
+
+type LayoutInfo = {
+  margins?: { top: number; right: number; bottom: number; left: number };
+  landscape?: boolean;
+  spacing?: { lineMultiplier?: number };
+};
+
+type HeaderFooterRefs = {
+  defaultHeader?: string;
+  defaultFooter?: string;
+  firstHeader?: string;
+  firstFooter?: string;
+};
+
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
   preserveOrder: true,
@@ -97,6 +117,16 @@ function normalizeWs(s: string): string {
     .trimEnd();
 }
 
+function twipsToInches(twips: number): number {
+  return twips / 1440;
+}
+
+function formatInches(inches: number): string {
+  // Format to up to 2 decimal places, remove trailing zeros
+  const rounded = Math.round(inches * 100) / 100;
+  return rounded.toString();
+}
+
 function wrapEmphasis(text: string, style: RunStyle): string {
   if (!text) return text;
   const m = text.match(/^(\s*)([\s\S]*?)(\s*)$/);
@@ -129,6 +159,72 @@ function parseRunStyle(runNode: XmlNode): RunStyle {
   const bold = bNode ? truthyWordBool(attrVal(bNode, "@_w:val")) : false;
   const italic = iNode ? truthyWordBool(attrVal(iNode, "@_w:val")) : false;
   return { bold, italic };
+}
+
+function paragraphAlignment(pNode: XmlNode): string | undefined {
+  const pChildren = pNode["w:p"] as XmlNode[];
+  const pPr = findFirst(pChildren, "w:pPr");
+  if (!pPr) return undefined;
+  const pPrChildren = pPr["w:pPr"] as XmlNode[];
+  const jc = findFirst(pPrChildren, "w:jc");
+  return attrVal(jc, "@_w:val");
+}
+
+function isPageBreakParagraph(pNode: XmlNode): boolean {
+  // Check for a paragraph that is just a page break:
+  // - Has a run with w:br w:type="page"
+  // - Or has w:lastRenderedPageBreak (but we ignore that as it's auto-generated)
+  // We look for explicit page break
+  const pChildren = pNode["w:p"] as XmlNode[];
+  let hasPageBreak = false;
+  let hasText = false;
+
+  for (const child of pChildren ?? []) {
+    const key = getOnlyKey(child);
+    if (key === "w:r") {
+      const runChildren = child["w:r"] as XmlNode[];
+      for (const rc of runChildren ?? []) {
+        const rk = getOnlyKey(rc);
+        if (rk === "w:br") {
+          const brType = attrVal(rc, "@_w:type");
+          if (brType === "page") {
+            hasPageBreak = true;
+          }
+        }
+        if (rk === "w:t") {
+          // Check if there's actual text
+          const kids = rc["w:t"] as XmlNode[];
+          for (const c of kids ?? []) {
+            const t = c?.["#text"];
+            if (typeof t === "string" && t.trim()) hasText = true;
+          }
+        }
+      }
+    }
+  }
+
+  return hasPageBreak && !hasText;
+}
+
+function paragraphHasPageBreak(pNode: XmlNode): boolean {
+  // Check if paragraph contains a page break (even with other content)
+  const pChildren = pNode["w:p"] as XmlNode[];
+  for (const child of pChildren ?? []) {
+    const key = getOnlyKey(child);
+    if (key === "w:r") {
+      const runChildren = child["w:r"] as XmlNode[];
+      for (const rc of runChildren ?? []) {
+        const rk = getOnlyKey(rc);
+        if (rk === "w:br") {
+          const brType = attrVal(rc, "@_w:type");
+          if (brType === "page") {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
 }
 
 function collectTextFromNodes(nodes: XmlNode[], segments: TextSegment[], currentStyle: RunStyle): void {
@@ -347,9 +443,231 @@ function tableToLdoc(tblNode: XmlNode): string {
   return `@table\n${indented}`;
 }
 
+function parseSectionProps(sectPrNode: XmlNode): SectionProps {
+  const props: SectionProps = {};
+  const sectPrChildren = sectPrNode["w:sectPr"] as XmlNode[];
+
+  for (const child of sectPrChildren ?? []) {
+    const key = getOnlyKey(child);
+    if (key === "w:cols") {
+      const num = attrVal(child, "@_w:num");
+      if (num) {
+        props.cols = parseInt(num, 10);
+      }
+      const space = attrVal(child, "@_w:space");
+      if (space) {
+        props.colSpace = parseInt(space, 10);
+      }
+      const sep = attrVal(child, "@_w:sep");
+      if (sep === "true" || sep === "1") {
+        props.colSep = true;
+      }
+    }
+    if (key === "w:type") {
+      props.sectionType = attrVal(child, "@_w:val");
+    }
+  }
+
+  return props;
+}
+
+function parseLayoutFromSectPr(sectPrNode: XmlNode): LayoutInfo {
+  const layout: LayoutInfo = {};
+  const sectPrChildren = sectPrNode["w:sectPr"] as XmlNode[];
+
+  for (const child of sectPrChildren ?? []) {
+    const key = getOnlyKey(child);
+    if (key === "w:pgMar") {
+      const top = attrVal(child, "@_w:top");
+      const right = attrVal(child, "@_w:right");
+      const bottom = attrVal(child, "@_w:bottom");
+      const left = attrVal(child, "@_w:left");
+      if (top && right && bottom && left) {
+        layout.margins = {
+          top: parseInt(top, 10),
+          right: parseInt(right, 10),
+          bottom: parseInt(bottom, 10),
+          left: parseInt(left, 10),
+        };
+      }
+    }
+    if (key === "w:pgSz") {
+      const orient = attrVal(child, "@_w:orient");
+      if (orient === "landscape") {
+        layout.landscape = true;
+      }
+    }
+  }
+
+  return layout;
+}
+
+function parseHeaderFooterRefs(sectPrNode: XmlNode): HeaderFooterRefs {
+  const refs: HeaderFooterRefs = {};
+  const sectPrChildren = sectPrNode["w:sectPr"] as XmlNode[];
+
+  for (const child of sectPrChildren ?? []) {
+    const key = getOnlyKey(child);
+    if (key === "w:headerReference") {
+      const type = attrVal(child, "@_w:type");
+      const rId = attrVal(child, "@_r:id");
+      if (type === "default" && rId) {
+        refs.defaultHeader = rId;
+      } else if (type === "first" && rId) {
+        refs.firstHeader = rId;
+      }
+    }
+    if (key === "w:footerReference") {
+      const type = attrVal(child, "@_w:type");
+      const rId = attrVal(child, "@_r:id");
+      if (type === "default" && rId) {
+        refs.defaultFooter = rId;
+      } else if (type === "first" && rId) {
+        refs.firstFooter = rId;
+      }
+    }
+  }
+
+  return refs;
+}
+
+function parseDocumentRels(relsXml: string): Map<string, string> {
+  const relMap = new Map<string, string>();
+  const tree = xmlParser.parse(relsXml) as XmlNode[];
+
+  const relationships = findFirst(tree, "Relationships");
+  if (!relationships) return relMap;
+
+  const relChildren = relationships["Relationships"] as XmlNode[];
+  for (const child of relChildren ?? []) {
+    const key = getOnlyKey(child);
+    if (key === "Relationship") {
+      const rId = attrVal(child, "@_Id");
+      const target = attrVal(child, "@_Target");
+      if (rId && target) {
+        relMap.set(rId, target);
+      }
+    }
+  }
+
+  return relMap;
+}
+
+function parseSpacingFromStylesXml(stylesXml: string | undefined): { lineMultiplier?: number } | undefined {
+  if (!stylesXml) return undefined;
+
+  const tree = xmlParser.parse(stylesXml) as XmlNode[];
+  const styles = findFirst(tree, "w:styles");
+  if (!styles) return undefined;
+
+  const stylesChildren = styles["w:styles"] as XmlNode[];
+  const docDefaults = findFirst(stylesChildren, "w:docDefaults");
+  if (!docDefaults) return undefined;
+
+  const docDefaultsChildren = docDefaults["w:docDefaults"] as XmlNode[];
+  const pPrDefault = findFirst(docDefaultsChildren, "w:pPrDefault");
+  if (!pPrDefault) return undefined;
+
+  const pPrDefaultChildren = pPrDefault["w:pPrDefault"] as XmlNode[];
+  const pPr = findFirst(pPrDefaultChildren, "w:pPr");
+  if (!pPr) return undefined;
+
+  const pPrChildren = pPr["w:pPr"] as XmlNode[];
+  const spacing = findFirst(pPrChildren, "w:spacing");
+  if (!spacing) return undefined;
+
+  const lineVal = attrVal(spacing, "@_w:line");
+  const lineRule = attrVal(spacing, "@_w:lineRule");
+
+  if (lineVal && lineRule === "auto") {
+    const line = parseInt(lineVal, 10);
+    // In auto mode, line is in 1/240ths of a line (240 = single space)
+    const multiplier = line / 240;
+    // Check for common multipliers
+    if (Math.abs(multiplier - 1.0) < 0.05) return { lineMultiplier: 1.0 };
+    if (Math.abs(multiplier - 1.15) < 0.05) return { lineMultiplier: 1.15 };
+    if (Math.abs(multiplier - 1.5) < 0.05) return { lineMultiplier: 1.5 };
+    if (Math.abs(multiplier - 2.0) < 0.05) return { lineMultiplier: 2.0 };
+    // Not a standard multiplier, don't emit
+  }
+
+  return undefined;
+}
+
+async function parseHeaderFooterContent(
+  zip: JSZip,
+  rId: string,
+  rels: Map<string, string>,
+  numInfo: NumberingInfo
+): Promise<string[]> {
+  const target = rels.get(rId);
+  if (!target) return [];
+
+  // Target is like "header1.xml" or "footer1.xml"
+  const filePath = `word/${target}`;
+  const xml = await zip.file(filePath)?.async("text");
+  if (!xml) return [];
+
+  const tree = xmlParser.parse(xml) as XmlNode[];
+
+  // Find w:hdr or w:ftr
+  const hdr = findFirst(tree, "w:hdr");
+  const ftr = findFirst(tree, "w:ftr");
+  const root = hdr ?? ftr;
+  if (!root) return [];
+
+  const rootChildren = (hdr ? root["w:hdr"] : root["w:ftr"]) as XmlNode[];
+  const lines: string[] = [];
+
+  for (const child of rootChildren ?? []) {
+    const key = getOnlyKey(child);
+    if (key === "w:p") {
+      const line = paragraphToLdoc(child, numInfo);
+      lines.push(line);
+    } else if (key === "w:tbl") {
+      lines.push(tableToLdoc(child));
+    }
+  }
+
+  return lines;
+}
+
+function findFinalSectPr(bodyChildren: XmlNode[]): XmlNode | undefined {
+  // The final sectPr is a direct child of w:body
+  for (const child of bodyChildren ?? []) {
+    const key = getOnlyKey(child);
+    if (key === "w:sectPr") {
+      return child;
+    }
+  }
+  return undefined;
+}
+
+function findParagraphSectPr(pNode: XmlNode): XmlNode | undefined {
+  const pChildren = pNode["w:p"] as XmlNode[];
+  const pPr = findFirst(pChildren, "w:pPr");
+  if (!pPr) return undefined;
+  const pPrChildren = pPr["w:pPr"] as XmlNode[];
+  return findFirst(pPrChildren, "w:sectPr");
+}
+
 function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo): string {
+  // Check for page break only paragraph
+  if (isPageBreakParagraph(pNode)) {
+    return "@pagebreak";
+  }
+
   const text = paragraphText(pNode);
   const styleId = paragraphStyleId(pNode);
+  const alignment = paragraphAlignment(pNode);
+
+  // Build alignment prefix
+  let alignPrefix = "";
+  if (alignment === "center") {
+    alignPrefix = "@center ";
+  } else if (alignment === "right") {
+    alignPrefix = "@right ";
+  }
 
   if (styleId) {
     const m = styleId.match(/^Heading([1-6])$/i);
@@ -363,10 +681,10 @@ function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo): string {
   const num = paragraphNumbering(pNode);
   if (num) {
     const { prefix } = listPrefix(numInfo, num.numId, num.ilvl);
-    return `${prefix}${text}`.trimEnd();
+    return `${alignPrefix}${prefix}${text}`.trimEnd();
   }
 
-  return text;
+  return `${alignPrefix}${text}`.trimEnd();
 }
 
 export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer): Promise<string> {
@@ -377,27 +695,182 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer): Prom
   const numberingXml = await zip.file("word/numbering.xml")?.async("text");
   const numInfo = parseNumbering(numberingXml);
 
+  const stylesXml = await zip.file("word/styles.xml")?.async("text");
+  const spacingInfo = parseSpacingFromStylesXml(stylesXml);
+
+  const relsXml = await zip.file("word/_rels/document.xml.rels")?.async("text");
+  const rels = relsXml ? parseDocumentRels(relsXml) : new Map<string, string>();
+
   const tree = xmlParser.parse(documentXml) as XmlNode[];
   const body = findPath(tree, ["w:document", "w:body"]);
   if (!body) throw new Error("Invalid .docx: missing w:body");
 
   const bodyChildren = body["w:body"] as XmlNode[];
-  const blocks: string[] = [];
+
+  // Find final sectPr for layout and header/footer references
+  const finalSectPr = findFinalSectPr(bodyChildren);
+  let layout: LayoutInfo = {};
+  let hfRefs: HeaderFooterRefs = {};
+
+  if (finalSectPr) {
+    layout = parseLayoutFromSectPr(finalSectPr);
+    hfRefs = parseHeaderFooterRefs(finalSectPr);
+  }
+
+  // Build output
+  const output: string[] = [];
+
+  // Emit header if present
+  if (hfRefs.defaultHeader) {
+    const headerLines = await parseHeaderFooterContent(zip, hfRefs.defaultHeader, rels, numInfo);
+    const nonEmptyLines = headerLines.filter((l) => l.trim());
+    if (nonEmptyLines.length > 0) {
+      output.push("@header\n" + nonEmptyLines.map((l) => `  ${l}`).join("\n"));
+    }
+  }
+
+  // Emit footer if present
+  if (hfRefs.defaultFooter) {
+    const footerLines = await parseHeaderFooterContent(zip, hfRefs.defaultFooter, rels, numInfo);
+    const nonEmptyLines = footerLines.filter((l) => l.trim());
+    if (nonEmptyLines.length > 0) {
+      output.push("@footer\n" + nonEmptyLines.map((l) => `  ${l}`).join("\n"));
+    }
+  }
+
+  // Emit layout directives
+  if (layout.margins) {
+    const { top, right, bottom, left } = layout.margins;
+    const topIn = formatInches(twipsToInches(top));
+    const rightIn = formatInches(twipsToInches(right));
+    const bottomIn = formatInches(twipsToInches(bottom));
+    const leftIn = formatInches(twipsToInches(left));
+
+    // Only emit if not all 1 inch (default)
+    const isDefault =
+      Math.abs(twipsToInches(top) - 1) < 0.05 &&
+      Math.abs(twipsToInches(right) - 1) < 0.05 &&
+      Math.abs(twipsToInches(bottom) - 1) < 0.05 &&
+      Math.abs(twipsToInches(left) - 1) < 0.05;
+
+    if (!isDefault) {
+      output.push(`@margins ${topIn}in ${rightIn}in ${bottomIn}in ${leftIn}in`);
+      output.push("");
+    }
+  }
+
+  if (layout.landscape) {
+    output.push("@landscape");
+    output.push("");
+  }
+
+  if (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0) {
+    output.push(`@spacing ${spacingInfo.lineMultiplier}`);
+    output.push("");
+  }
+
+  // Partition body children into sections based on sectPr in paragraph pPr
+  type Section = {
+    props?: SectionProps;
+    children: XmlNode[];
+  };
+
+  const sections: Section[] = [];
+  let currentSection: Section = { children: [] };
 
   for (const child of bodyChildren ?? []) {
     const key = getOnlyKey(child);
+
+    if (key === "w:sectPr") {
+      // Final sectPr - handled separately for layout
+      continue;
+    }
+
     if (key === "w:p") {
-      const line = paragraphToLdoc(child, numInfo);
-      blocks.push(line);
-      continue;
+      // Check for sectPr in paragraph
+      const pSectPr = findParagraphSectPr(child);
+      if (pSectPr) {
+        // This paragraph ends a section
+        currentSection.children.push(child);
+        currentSection.props = parseSectionProps(pSectPr);
+        sections.push(currentSection);
+        currentSection = { children: [] };
+        continue;
+      }
     }
-    if (key === "w:tbl") {
-      blocks.push(tableToLdoc(child));
-      continue;
-    }
-    // ignore sectPr and others
+
+    currentSection.children.push(child);
   }
 
-  // Preserve blank paragraphs as blank lines
-  return blocks.join("\n\n").replace(/\n{3,}/g, "\n\n\n");
+  // Push remaining content as the final section
+  if (currentSection.children.length > 0) {
+    if (finalSectPr) {
+      currentSection.props = parseSectionProps(finalSectPr);
+    }
+    sections.push(currentSection);
+  }
+
+  // Convert sections to LDOC
+  const blocks: string[] = [];
+
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i]!;
+    const isColumnsSection = section.props?.cols && section.props.cols > 1;
+
+    if (isColumnsSection) {
+      // Emit @columns block
+      const cols = section.props!.cols!;
+      let columnsLine = `@columns ${cols}`;
+
+      if (section.props!.colSpace !== undefined) {
+        const gapIn = formatInches(twipsToInches(section.props!.colSpace));
+        columnsLine += ` gap=${gapIn}in`;
+      }
+
+      if (section.props!.colSep) {
+        columnsLine += " separator";
+      }
+
+      // Collect content lines for columns block
+      const contentLines: string[] = [];
+      for (const child of section.children) {
+        const key = getOnlyKey(child);
+        if (key === "w:p") {
+          const line = paragraphToLdoc(child, numInfo);
+          if (line.trim()) {
+            contentLines.push(`  ${line}`);
+          }
+        } else if (key === "w:tbl") {
+          const tableLines = tableToLdoc(child).split("\n");
+          for (const tl of tableLines) {
+            contentLines.push(`  ${tl}`);
+          }
+        }
+      }
+
+      // Emit as a single block
+      blocks.push(columnsLine + "\n" + contentLines.join("\n") + "\n@;");
+    } else {
+      // Normal section - emit blocks directly
+      for (const child of section.children) {
+        const key = getOnlyKey(child);
+        if (key === "w:p") {
+          const line = paragraphToLdoc(child, numInfo);
+          blocks.push(line);
+        } else if (key === "w:tbl") {
+          blocks.push(tableToLdoc(child));
+        }
+      }
+    }
+  }
+
+  // Combine output
+  const finalOutput = [...output, ...blocks];
+
+  // Join, preserve at most one blank line between blocks, clean up trailing whitespace
+  return finalOutput
+    .join("\n\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
 }

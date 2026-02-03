@@ -1096,6 +1096,99 @@ This is **bold** and *italic* and ***both***.
   test("errors on non-docx input", async () => {
     await expect(docxToLdoc(new Uint8Array([1, 2, 3]))).rejects.toThrow(/document\.xml|zip|corrupt/i);
   });
+
+  test("header/footer roundtrip", async () => {
+    const input = `@header
+  Header Text Here
+
+@footer
+  Footer Text Here
+
+# Title
+
+Body paragraph.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    expect(out).toContain("@header");
+    expect(out).toContain("Header Text Here");
+    expect(out).toContain("@footer");
+    expect(out).toContain("Footer Text Here");
+  });
+
+  test("alignment roundtrip", async () => {
+    const input = `@center Centered paragraph
+
+@right Right aligned paragraph
+
+Normal paragraph.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    expect(out).toContain("@center");
+    expect(out).toContain("Centered paragraph");
+    expect(out).toContain("@right");
+    expect(out).toContain("Right aligned paragraph");
+  });
+
+  test("pagebreak roundtrip", async () => {
+    const input = `First paragraph.
+
+@pagebreak
+
+Second paragraph.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    expect(out).toContain("First paragraph");
+    expect(out).toContain("@pagebreak");
+    expect(out).toContain("Second paragraph");
+  });
+
+  test("columns roundtrip", async () => {
+    const input = `Before columns.
+
+@columns 2 gap=0.5in separator
+  Column content here.
+@;
+
+After columns.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    expect(out).toContain("@columns 2");
+    expect(out).toContain("Column content here");
+    expect(out).toContain("@;");
+  });
+
+  test("margins and landscape roundtrip", async () => {
+    const input = `@margins 0.75in 0.75in 0.75in 0.75in
+
+@landscape
+
+Body paragraph.
+`;
+
+    const ast = new Parser().parse(input);
+    const buffer = await new DocxCompiler().compile(ast);
+    const out = await docxToLdoc(buffer);
+
+    expect(out).toContain("@margins");
+    expect(out).toMatch(/0\.75/);
+    expect(out).toContain("@landscape");
+  });
 });
 
 describe("@styles directive", () => {
