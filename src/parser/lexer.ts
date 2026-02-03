@@ -41,6 +41,9 @@ export enum TokenType {
   TABLE = "TABLE",
   TABLE_ROW = "TABLE_ROW",
 
+  // Numbering scheme
+  NUMBERING = "NUMBERING",
+
   // Control
   PAGEBREAK = "PAGEBREAK",
   DOC_HEADER = "DOC_HEADER",
@@ -854,6 +857,8 @@ export class Lexer {
         return TokenType.FOREACH;
       case "todo":
         return TokenType.TODO;
+      case "numbering":
+        return TokenType.NUMBERING;
       default:
         return TokenType.TEXT;
     }

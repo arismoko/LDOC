@@ -24,7 +24,9 @@ import type {
   CommentNode,
   ImportNode,
   NumberingStyle,
+  NumberingScheme,
   ModifierType,
+  ColumnsRegionNode,
 } from "./ast";
 
 export class Parser {
@@ -32,6 +34,7 @@ export class Parser {
   private pos: number = 0;
   private definedTerms: Set<string> = new Set();
   private sourcePath?: string;
+  private insideColumnsRegion: boolean = false;
 
   private isBlockStart(type: TokenType): boolean {
     return (
@@ -62,7 +65,8 @@ export class Parser {
       type === TokenType.DEFINE ||
       type === TokenType.USE ||
       type === TokenType.COMMENT ||
-      type === TokenType.TODO
+      type === TokenType.TODO ||
+      type === TokenType.NUMBERING
     );
   }
 
@@ -167,6 +171,7 @@ export class Parser {
     this.tokens = lexer.tokenize();
     this.pos = 0;
     this.definedTerms = new Set();
+    this.insideColumnsRegion = false;
 
     this.sourcePath = options?.sourcePath;
 
@@ -176,6 +181,7 @@ export class Parser {
   private parseDocument(): DocumentNode {
     let document: Record<string, any> | undefined;
     let meta: MetaNode | undefined;
+    let numberingScheme: NumberingScheme | undefined;
     const imports: ImportNode[] = [];
     const body: Node[] = [];
 
@@ -236,8 +242,23 @@ export class Parser {
         continue;
       }
 
+      if (this.check(TokenType.NUMBERING)) {
+        const numToken = this.advance();
+        const schemeArg = this.parseRestOfLineRaw().toLowerCase();
+        if (schemeArg !== "default" && schemeArg !== "decimal") {
+          throw new Error(
+            `@numbering requires 'default' or 'decimal' at line ${numToken.line}, column ${numToken.column}. Got: ${schemeArg || "(empty)"}`
+          );
+        }
+        numberingScheme = schemeArg as NumberingScheme;
+        continue;
+      }
+
       break;
     }
+
+    // Track whether we've seen a numbered item (for @numbering validation)
+    let sawNumberedItem = false;
 
     // Parse body (preserve blank lines as spacing)
     while (!this.isAtEnd()) {
@@ -248,8 +269,28 @@ export class Parser {
         continue;
       }
 
+      // Reject @numbering after a numbered item
+      if (this.check(TokenType.NUMBERING)) {
+        const numToken = this.peek();
+        if (sawNumberedItem) {
+          throw new Error(
+            `@numbering must appear before any numbered items (line ${numToken.line}, column ${numToken.column})`
+          );
+        }
+        // Also reject if appearing in the body (after preamble ended)
+        throw new Error(
+          `@numbering must appear in the document preamble, before body content (line ${numToken.line}, column ${numToken.column})`
+        );
+      }
+
       const node = this.parseNode();
-      if (node) body.push(node);
+      if (node) {
+        body.push(node);
+        // Track if we've seen a numbered item
+        if (node.type === "numbered_item") {
+          sawNumberedItem = true;
+        }
+      }
     }
 
     return {
@@ -260,6 +301,7 @@ export class Parser {
       meta,
       imports,
       sourcePath: this.sourcePath,
+      numberingScheme,
       body,
     };
   }
@@ -295,7 +337,7 @@ export class Parser {
         return this.parseDocLayout("landscape");
 
       case TokenType.DOC_COLUMNS:
-        return this.parseDocLayout("columns");
+        return this.parseColumnsRegion();
 
       case TokenType.DOC_ANCHOR:
         return this.parseAnchor();
@@ -850,7 +892,7 @@ export class Parser {
     } as any;
   }
 
-  private parseDocLayout(kind: "margins" | "spacing" | "landscape" | "columns"): Node {
+  private parseDocLayout(kind: "margins" | "spacing" | "landscape"): Node {
     const token = this.advance();
     const args = this.parseRestOfLineRaw();
     return {
@@ -860,6 +902,148 @@ export class Parser {
       line: token.line,
       column: token.column,
     } as any;
+  }
+
+  private parseColumnsRegion(): ColumnsRegionNode {
+    const token = this.advance();
+    const args = this.parseRestOfLineRaw();
+
+    // Check for nested columns region
+    if (this.insideColumnsRegion) {
+      throw new Error(`Nested @columns regions are not allowed (line ${token.line}, column ${token.column})`);
+    }
+
+    // Parse args: @columns <N> [gap=<len>] [separator]
+    const parsed = this.parseColumnsArgs(args, token.line, token.column);
+
+    const children: Node[] = [];
+
+    // Mark that we're inside a columns region
+    this.insideColumnsRegion = true;
+
+    // Look ahead to see if there's an indented block
+    const la = this.lookaheadNewlinesThenIndent();
+    if (la.indentAfter) {
+      // Consume newline(s) up to indent
+      const start = this.peek();
+      const n = this.consumeNewlines();
+      this.pushBlankLines(children, start.line, start.column, n);
+
+      // Consume INDENT
+      this.advance();
+
+      // Parse children until DEDENT or END_BLOCK
+      while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+        if (this.check(TokenType.END_BLOCK)) {
+          this.consumeEndBlockOrThrow("columns");
+          break;
+        }
+
+        if (this.check(TokenType.NEWLINE)) {
+          const start2 = this.peek();
+          const n2 = this.consumeNewlines();
+          this.pushBlankLines(children, start2.line, start2.column, n2);
+          continue;
+        }
+
+        if (this.check(TokenType.DEDENT)) break;
+
+        const child = this.parseNode();
+        if (child) children.push(child);
+      }
+
+      if (this.check(TokenType.DEDENT)) this.advance();
+    } else {
+      // No indented block; parse until @;
+      // Consume any newlines first
+      this.skipNewlines();
+
+      while (!this.isAtEnd() && !this.check(TokenType.END_BLOCK)) {
+        if (this.check(TokenType.NEWLINE)) {
+          const start = this.peek();
+          const n = this.consumeNewlines();
+          this.pushBlankLines(children, start.line, start.column, n);
+          continue;
+        }
+
+        const child = this.parseNode();
+        if (child) children.push(child);
+      }
+
+      if (!this.check(TokenType.END_BLOCK)) {
+        throw new Error(`@columns region must end with @; (line ${token.line})`);
+      }
+      this.consumeEndBlockOrThrow("columns");
+    }
+
+    this.insideColumnsRegion = false;
+
+    return {
+      type: "columns_region",
+      columnCount: parsed.columnCount,
+      gapTwip: parsed.gapTwip,
+      separator: parsed.separator,
+      children,
+      line: token.line,
+      column: token.column,
+    };
+  }
+
+  private parseColumnsArgs(
+    args: string,
+    line: number,
+    column: number
+  ): { columnCount: number; gapTwip: number; separator: boolean } {
+    const parts = args.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) {
+      throw new Error(`@columns requires a column count, e.g. @columns 2 (line ${line})`);
+    }
+
+    // First part should be the column count
+    const countStr = parts[0]!;
+    const columnCount = parseInt(countStr, 10);
+    if (!Number.isFinite(columnCount) || columnCount < 1 || columnCount > 10) {
+      throw new Error(`@columns count must be between 1 and 10 (line ${line}). Got: ${countStr}`);
+    }
+
+    // Default gap: 0.5in = 720 twips
+    let gapTwip = 720;
+    let separator = false;
+
+    for (let i = 1; i < parts.length; i++) {
+      const part = parts[i]!;
+      if (part.startsWith("gap=")) {
+        const gapValue = part.slice(4);
+        gapTwip = this.parseLengthToTwip(gapValue, line);
+      } else if (part === "separator") {
+        separator = true;
+      } else {
+        throw new Error(`Unknown @columns option: ${part} (line ${line})`);
+      }
+    }
+
+    return { columnCount, gapTwip, separator };
+  }
+
+  private parseLengthToTwip(raw: string, line: number): number {
+    const m = raw.trim().match(/^([0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt)$/i);
+    if (!m) {
+      throw new Error(`Invalid length: ${raw} at line ${line}. Use units like 1in, 2cm, 12pt.`);
+    }
+    const value = parseFloat(m[1]!);
+    const unit = m[2]!.toLowerCase();
+    switch (unit) {
+      case "in":
+        return Math.round(value * 1440);
+      case "cm":
+        return Math.round((value * 1440) / 2.54);
+      case "mm":
+        return Math.round((value * 1440) / 25.4);
+      case "pt":
+        return Math.round(value * 20);
+      default:
+        throw new Error(`Unsupported unit: ${unit}`);
+    }
   }
 
   private parseDocHeaderFooterWithScope(scope: "first" | "even"): Node | null {

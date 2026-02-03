@@ -4,6 +4,7 @@ export type Node =
   | DocumentNode
   | DocHeaderFooterNode
   | DocLayoutNode
+  | ColumnsRegionNode
   | AnchorNode
   | MetaNode
   | DefineNode
@@ -38,6 +39,8 @@ export interface BaseNode {
   scope?: string;
 }
 
+export type NumberingScheme = "default" | "decimal";
+
 export interface DocumentNode extends BaseNode {
   type: "document";
   // Document-level settings/metadata from @document block
@@ -45,6 +48,8 @@ export interface DocumentNode extends BaseNode {
   meta?: MetaNode;
   imports: ImportNode[];
   sourcePath?: string;
+  // Numbering scheme: 'default' or 'decimal', defaults to 'default'
+  numberingScheme?: NumberingScheme;
   body: Node[];
 }
 
@@ -63,6 +68,16 @@ export interface DocLayoutNode extends BaseNode {
   kind: DocLayoutKind;
   // Raw args as written on the directive line
   args: string;
+}
+
+export interface ColumnsRegionNode extends BaseNode {
+  type: "columns_region";
+  columnCount: number;
+  /** Gap between columns in twips */
+  gapTwip: number;
+  /** Whether to show separator line between columns */
+  separator: boolean;
+  children: Node[];
 }
 
 export interface AnchorNode extends BaseNode {
@@ -262,6 +277,7 @@ export interface NodeVisitor<T = void> {
   visitDocument?(node: DocumentNode): T;
   visitDocHeaderFooter?(node: DocHeaderFooterNode): T;
   visitDocLayout?(node: DocLayoutNode): T;
+  visitColumnsRegion?(node: ColumnsRegionNode): T;
   visitAnchor?(node: AnchorNode): T;
   visitMeta?(node: MetaNode): T;
   visitImport?(node: ImportNode): T;
@@ -297,6 +313,8 @@ export function visit<T>(node: Node, visitor: NodeVisitor<T>): T | undefined {
       return visitor.visitDocHeaderFooter?.(node as DocHeaderFooterNode);
     case "doc_layout":
       return visitor.visitDocLayout?.(node as DocLayoutNode);
+    case "columns_region":
+      return visitor.visitColumnsRegion?.(node as ColumnsRegionNode);
     case "anchor":
       return visitor.visitAnchor?.(node as AnchorNode);
     case "meta":

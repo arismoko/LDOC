@@ -13,3 +13,6 @@ debug*.ts
 *.swp
 *.swo
 *~
+
+# Auto-generated linter config
+.markdownlint.yaml

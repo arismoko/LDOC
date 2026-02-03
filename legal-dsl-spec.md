@@ -348,7 +348,7 @@ If you never specify a style, defaults cascade:
 ```
 @numbering default
 ```
-- Level 1: `1.` `2.` `3.`
+- Level 1: `1.` `2.` `3.` (flush-left, number starts at margin)
 - Level 2: `(a)` `(b)` `(c)`
 - Level 3: `(i)` `(ii)` `(iii)`
 - Level 4: `(A)` `(B)` `(C)`
@@ -356,7 +356,9 @@ If you never specify a style, defaults cascade:
 ```
 @numbering decimal
 ```
-- All levels: `1.` → `1.1.` → `1.1.1.` → `1.1.1.1.`
+- All levels: `1.` -> `1.1.` -> `1.1.1.` -> `1.1.1.1.`
+
+The `@numbering` directive must appear before any numbered items. Level-1 items are flush-left (number at the left margin, text indented 0.25 inches).
 
 ---
 
@@ -658,6 +660,13 @@ Tax Parcel Identification No(s). 29.030.21.31.0084
 - Use quotes for content with `,` or `:`: `"Escrow Fee, Split"`
 - Empty cell: `""`
 
+**Default Styling:**
+- Legal grid: thin black borders (0.5pt) on all sides and between cells
+- Header row: light gray background (#F2F2F2), bold text
+- Cell padding: ~120 twips (~0.08 inches) on all sides
+- Column widths: auto-fit to content
+- Vertical alignment: top
+
 ---
 
 ### Table with Modifiers
@@ -807,9 +816,26 @@ Seller makes ***no warranty*** regarding condition.
   paragraph: 12pt
 
 @landscape
-
-@columns 2
 ```
+
+### Multi-Column Regions
+
+Use `@columns` to create a multi-column section. The region ends with `@;`:
+
+```
+@columns 2 gap=0.5in separator
+  First column content...
+  
+  More content...
+@;
+
+Back to single column here.
+```
+
+**Options:**
+- First argument: number of columns (1-10)
+- `gap=<length>`: space between columns (default: 0.5in)
+- `separator`: draw a line between columns
 
 Most documents won't need these - they'll inherit from the template.
 

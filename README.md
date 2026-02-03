@@ -46,7 +46,7 @@ Notes:
 - [x] Roman styles: `@@@i`, `@@@I`, ...
 - [x] Bullets: `@-`, `@@-`, ...
 - [x] Continuation paragraphs inside items (indentation)
-- [ ] `@numbering ...` defaults (Missing)
+- [x] `@numbering default|decimal` scheme directive
 
 ### Inline Features
 
@@ -62,7 +62,7 @@ Notes:
 - [x] `@table` + row syntax `[a, b, c]`
 - [x] First row treated as header
 - [x] Quoted cell values for commas
-- [ ] Table styling/modifiers (Partial: basic table output only)
+- [x] Table styling (legal grid: thin borders, light gray header shading, cell padding, auto-fit columns)
 
 ### Page & Layout
 
@@ -71,15 +71,16 @@ Notes:
 - [x] `@margins` (Section page margins)
 - [x] `@spacing` (Default paragraph spacing)
 - [x] `@landscape` (Landscape page orientation)
-- [ ] `@columns` (Missing)
+- [x] `@columns` region blocks (multi-column sections)
 
 ### Templates, Imports, Control Flow
 
-- [ ] `@import` resolution/loading (Partial: parsed only)
-- [ ] `@define name(params)` (Missing)
-- [ ] `@params` / `@template` blocks (Missing)
-- [ ] `@if` / `@else` / `@end` (Missing)
-- [ ] `@repeat` (Missing)
+- [x] `@import` resolution/loading
+- [x] `@define name(params)` template definitions
+- [x] `@use name(args)` template expansion
+- [x] `@if` / `@else` / `@end` conditionals
+- [x] `@repeat` count-based loops
+- [x] `@foreach item in iterable` iteration
 
 ### Tooling
 

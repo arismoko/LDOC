@@ -23,16 +23,19 @@ import {
   ShadingType,
   WidthType,
   TableLayoutType,
+  VerticalAlign,
   convertInchesToTwip,
+  SectionType,
 } from "docx";
 
-import type { INumberingOptions, IParagraphOptions, IRunOptions } from "docx";
+import type { INumberingOptions, IParagraphOptions, IRunOptions, ISectionOptions } from "docx";
 
 import type {
   Node,
   DocumentNode,
   DocHeaderFooterNode,
   DocLayoutNode,
+  ColumnsRegionNode,
   AnchorNode,
   DefineNode,
   HeaderNode,
@@ -51,6 +54,7 @@ import type {
   BlankNode,
   PageBreakNode,
   NumberingStyle,
+  NumberingScheme,
 } from "../parser/ast";
 
 import { resolveDefinesFromImports } from "../import/resolver";
@@ -99,6 +103,12 @@ export class DocxCompiler {
   private missingCrossRefs: Set<string> = new Set();
   private missingVariables: Map<string, { line: number; column: number }> = new Map();
 
+  // Numbering scheme: 'default' or 'decimal'. Default is 'default'.
+  private numberingScheme: NumberingScheme = "default";
+  // Per-level style memory: tracks the numbering reference used for each depth (0-indexed).
+  // Reset deeper levels when a shallower/equal level is encountered.
+  private styleMemory: Map<number, string> = new Map();
+
   constructor(variables: Record<string, any> = {}) {
     this.ctx = {
       variables,
@@ -123,7 +133,8 @@ export class DocxCompiler {
               alignment: AlignmentType.START,
               style: {
                 paragraph: {
-                  indent: { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.25) },
+                  // Flush-left: left=0.25in, hanging=0.25in -> number starts at 0
+                  indent: { left: convertInchesToTwip(0.25), hanging: convertInchesToTwip(0.25) },
                 },
               },
             },
@@ -134,7 +145,7 @@ export class DocxCompiler {
               alignment: AlignmentType.START,
               style: {
                 paragraph: {
-                  indent: { left: convertInchesToTwip(1), hanging: convertInchesToTwip(0.25) },
+                  indent: { left: convertInchesToTwip(0.75), hanging: convertInchesToTwip(0.25) },
                 },
               },
             },
@@ -145,7 +156,7 @@ export class DocxCompiler {
               alignment: AlignmentType.START,
               style: {
                 paragraph: {
-                  indent: { left: convertInchesToTwip(1.5), hanging: convertInchesToTwip(0.25) },
+                  indent: { left: convertInchesToTwip(1.25), hanging: convertInchesToTwip(0.25) },
                 },
               },
             },
@@ -156,7 +167,7 @@ export class DocxCompiler {
               alignment: AlignmentType.START,
               style: {
                 paragraph: {
-                  indent: { left: convertInchesToTwip(2), hanging: convertInchesToTwip(0.25) },
+                  indent: { left: convertInchesToTwip(1.75), hanging: convertInchesToTwip(0.25) },
                 },
               },
             },
@@ -173,7 +184,8 @@ export class DocxCompiler {
               alignment: AlignmentType.START,
               style: {
                 paragraph: {
-                  indent: { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.25) },
+                  // Flush-left: left=0.25in, hanging=0.25in -> number starts at 0
+                  indent: { left: convertInchesToTwip(0.25), hanging: convertInchesToTwip(0.25) },
                 },
               },
             },
@@ -184,7 +196,7 @@ export class DocxCompiler {
               alignment: AlignmentType.START,
               style: {
                 paragraph: {
-                  indent: { left: convertInchesToTwip(1), hanging: convertInchesToTwip(0.35) },
+                  indent: { left: convertInchesToTwip(0.75), hanging: convertInchesToTwip(0.35) },
                 },
               },
             },
@@ -195,7 +207,7 @@ export class DocxCompiler {
               alignment: AlignmentType.START,
               style: {
                 paragraph: {
-                  indent: { left: convertInchesToTwip(1.5), hanging: convertInchesToTwip(0.45) },
+                  indent: { left: convertInchesToTwip(1.25), hanging: convertInchesToTwip(0.45) },
                 },
               },
             },
@@ -206,7 +218,7 @@ export class DocxCompiler {
               alignment: AlignmentType.START,
               style: {
                 paragraph: {
-                  indent: { left: convertInchesToTwip(2), hanging: convertInchesToTwip(0.55) },
+                  indent: { left: convertInchesToTwip(1.75), hanging: convertInchesToTwip(0.55) },
                 },
               },
             },
@@ -271,6 +283,10 @@ export class DocxCompiler {
     this.missingCrossRefs = new Set();
     this.missingVariables = new Map();
 
+    // Set numbering scheme from AST
+    this.numberingScheme = ast.numberingScheme ?? "default";
+    this.styleMemory = new Map();
+
     log("compile:state-reset");
 
     // Extract document-level settings/metadata
@@ -304,8 +320,6 @@ export class DocxCompiler {
 
     log(`compile:indexAnchors keys=${this.bookmarkByKey.size}`);
 
-    const children: (Paragraph | Table)[] = [];
-
     const { body: bodyWithoutLayout, layout } = this.extractLayout(expandedAst.body);
     this.defaultSpacing = layout.spacing;
     const { body, headers, footers } = this.extractHeadersFooters(bodyWithoutLayout);
@@ -314,7 +328,78 @@ export class DocxCompiler {
 
     // NOTE: @document does not auto-render a visible title.
 
-    // Compile body
+    // Build base page properties for all sections
+    const basePageProps: any = {};
+    if (layout.margins) {
+      basePageProps.margin = layout.margins;
+    }
+    if (layout.landscape) {
+      basePageProps.size = {
+        orientation: PageOrientation.LANDSCAPE,
+        width: layout.pageWidthTwip,
+        height: layout.pageHeightTwip,
+      };
+    }
+
+    const hasFirst = Boolean(headers.first || footers.first);
+    const hasEven = Boolean(headers.even || footers.even);
+
+    const sectionHeaders: any = {};
+    const sectionFooters: any = {};
+    if (headers.default) sectionHeaders.default = headers.default;
+    if (headers.first) sectionHeaders.first = headers.first;
+    if (headers.even) sectionHeaders.even = headers.even;
+    if (footers.default) sectionFooters.default = footers.default;
+    if (footers.first) sectionFooters.first = footers.first;
+    if (footers.even) sectionFooters.even = footers.even;
+
+    // Build sections array - split around columns_region nodes
+    const sections: ISectionOptions[] = [];
+    let currentChildren: (Paragraph | Table)[] = [];
+    let isFirstSection = true;
+
+    const finishSection = (columnsConfig?: { count: number; space: number; separate: boolean }) => {
+      if (currentChildren.length === 0 && !columnsConfig) {
+        // Don't create empty sections unless it's a columns section
+        return;
+      }
+
+      const sectionProps: any = {};
+      
+      // First section gets titlePage for first-page headers/footers
+      if (isFirstSection) {
+        sectionProps.titlePage = hasFirst;
+      } else {
+        // Subsequent sections use continuous section break
+        sectionProps.type = SectionType.CONTINUOUS;
+      }
+
+      // Apply page properties
+      if (Object.keys(basePageProps).length > 0) {
+        sectionProps.page = { ...basePageProps };
+      }
+
+      // Apply columns configuration
+      if (columnsConfig) {
+        sectionProps.column = {
+          count: columnsConfig.count,
+          space: columnsConfig.space,
+          separate: columnsConfig.separate,
+        };
+      }
+
+      sections.push({
+        properties: sectionProps,
+        headers: isFirstSection && Object.keys(sectionHeaders).length ? sectionHeaders : undefined,
+        footers: isFirstSection && Object.keys(sectionFooters).length ? sectionFooters : undefined,
+        children: currentChildren,
+      });
+
+      currentChildren = [];
+      isFirstSection = false;
+    };
+
+    // Compile body nodes
     const isAnchorRenderable = (n: Node): boolean =>
       n.type === "header" ||
       n.type === "paragraph" ||
@@ -322,7 +407,8 @@ export class DocxCompiler {
       n.type === "bullet_item" ||
       n.type === "modifier" ||
       n.type === "table" ||
-      n.type === "page_break";
+      n.type === "page_break" ||
+      n.type === "columns_region";
 
     let pendingAnchors: string[] = [];
     for (const node of body) {
@@ -333,10 +419,59 @@ export class DocxCompiler {
         continue;
       }
 
+      // Handle columns_region specially
+      if (node.type === "columns_region") {
+        const colNode = node as ColumnsRegionNode;
+
+        // Finish the current section (content before columns)
+        finishSection();
+
+        // Start a new section with columns
+        const columnsChildren: (Paragraph | Table)[] = [];
+
+        // Compile children of the columns region
+        let colPendingAnchors: string[] = [];
+        for (const child of colNode.children) {
+          if (child.type === "anchor") {
+            const scope = (child as any).scope as string | undefined;
+            const name = (child as any).name as string;
+            colPendingAnchors.push(scope && !name.includes(".") ? `${scope}.${name}` : name);
+            continue;
+          }
+
+          if (!isAnchorRenderable(child)) {
+            const compiled = this.compileNode(child);
+            columnsChildren.push(...compiled);
+            continue;
+          }
+
+          const bookmarkIds = colPendingAnchors.length
+            ? (colPendingAnchors
+                .map((a) => this.bookmarkByKey.get(this.normalizeRefKey(a)))
+                .filter(Boolean) as string[])
+            : undefined;
+
+          const compiled = this.compileNode(child, {}, undefined, undefined, bookmarkIds);
+          columnsChildren.push(...compiled);
+          colPendingAnchors = [];
+        }
+
+        currentChildren = columnsChildren;
+        finishSection({
+          count: colNode.columnCount,
+          space: colNode.gapTwip,
+          separate: colNode.separator,
+        });
+
+        // After columns, we'll create another section that reverts to single column
+        // This will be done when the next content is added or at the end
+        continue;
+      }
+
       // Skip non-renderables without consuming pending anchors
       if (!isAnchorRenderable(node)) {
         const compiled = this.compileNode(node);
-        children.push(...compiled);
+        currentChildren.push(...compiled);
         continue;
       }
 
@@ -347,11 +482,29 @@ export class DocxCompiler {
         : undefined;
 
       const compiled = this.compileNode(node, {}, undefined, undefined, bookmarkIds);
-      children.push(...compiled);
+      currentChildren.push(...compiled);
       pendingAnchors = [];
     }
 
-    log(`compile:body-compiled blocks=${children.length}`);
+    // Finish the last section
+    if (currentChildren.length > 0 || sections.length === 0) {
+      finishSection();
+    }
+
+    // If no sections created, create an empty one
+    if (sections.length === 0) {
+      sections.push({
+        properties: {
+          titlePage: hasFirst,
+          ...(Object.keys(basePageProps).length ? { page: basePageProps } : {}),
+        },
+        headers: Object.keys(sectionHeaders).length ? sectionHeaders : undefined,
+        footers: Object.keys(sectionFooters).length ? sectionFooters : undefined,
+        children: [],
+      });
+    }
+
+    log(`compile:body-compiled sections=${sections.length}`);
 
     const allowUndefined = Boolean((this.ctx.variables.document as any)?.allow_undefined);
 
@@ -369,34 +522,10 @@ export class DocxCompiler {
 
     log("compile:validation-ok");
 
-    const hasFirst = Boolean(headers.first || footers.first);
-    const hasEven = Boolean(headers.even || footers.even);
-
-    const sectionHeaders: any = {};
-    const sectionFooters: any = {};
-    if (headers.default) sectionHeaders.default = headers.default;
-    if (headers.first) sectionHeaders.first = headers.first;
-    if (headers.even) sectionHeaders.even = headers.even;
-    if (footers.default) sectionFooters.default = footers.default;
-    if (footers.first) sectionFooters.first = footers.first;
-    if (footers.even) sectionFooters.even = footers.even;
-
     const docTitle = (this.ctx.variables.document as any)?.title;
     const docSubject = (this.ctx.variables.document as any)?.subject;
     const docCreator = (this.ctx.variables.document as any)?.creator;
     const docKeywords = (this.ctx.variables.document as any)?.keywords;
-
-    const sectionPage: any = {};
-    if (layout.margins) {
-      sectionPage.margin = layout.margins;
-    }
-    if (layout.landscape) {
-      sectionPage.size = {
-        orientation: PageOrientation.LANDSCAPE,
-        width: layout.pageWidthTwip,
-        height: layout.pageHeightTwip,
-      };
-    }
 
     const doc = new Document({
       numbering: this.numberingConfig,
@@ -405,17 +534,7 @@ export class DocxCompiler {
       subject: typeof docSubject === "string" ? docSubject : undefined,
       creator: typeof docCreator === "string" ? docCreator : undefined,
       keywords: typeof docKeywords === "string" ? docKeywords : undefined,
-      sections: [
-        {
-          properties: {
-            titlePage: hasFirst,
-            ...(Object.keys(sectionPage).length ? { page: sectionPage } : {}),
-          },
-          headers: Object.keys(sectionHeaders).length ? sectionHeaders : undefined,
-          footers: Object.keys(sectionFooters).length ? sectionFooters : undefined,
-          children,
-        },
-      ],
+      sections,
     });
 
     log("compile:doc-constructed");
@@ -1242,9 +1361,17 @@ export class DocxCompiler {
   ): (Paragraph | Table)[] {
     const results: (Paragraph | Table)[] = [];
 
-    // Determine numbering reference based on style
-    const reference = this.getNumberingReference(node.style);
     const level = node.level - 1; // 0-indexed
+
+    // Reset style memory for deeper levels when encountering shallower/equal level
+    for (const [memLevel] of this.styleMemory) {
+      if (memLevel > level) {
+        this.styleMemory.delete(memLevel);
+      }
+    }
+
+    // Determine numbering reference based on style and level
+    const reference = this.getNumberingReference(node.style, level);
 
     const listChildren = this.wrapBookmarkForListItem(node, style, forcedBookmarks);
     results.push(
@@ -1462,15 +1589,30 @@ export class DocxCompiler {
   }
 
   private getListTextIndentTwip(levelIndex: number): number {
-    // Matches numbering config left indents (0->0.5in, 1->1.0in, ...).
-    const inches = 0.5 * (levelIndex + 1);
+    // Matches numbering config left indents:
+    // level 0: 0.25in (flush-left text start)
+    // level 1+: 0.25 + 0.5 * levelIndex (0.75in, 1.25in, 1.75in, ...)
+    if (levelIndex === 0) {
+      return convertInchesToTwip(0.25);
+    }
+    const inches = 0.25 + 0.5 * levelIndex;
     return convertInchesToTwip(inches);
   }
 
   private compileTable(node: TableNode, forcedBookmarks?: string[], indentLeftTwip?: number): Table {
+    // Table styling defaults: legal grid with thin borders, light gray header, padding
+    const tableBorder = {
+      style: BorderStyle.SINGLE,
+      size: 4, // 0.5pt (size is in eighths of a point)
+      color: "000000",
+    };
+
+    const cellMargin = 120; // ~120 twips for padding
+
     const rows = node.rows.map((row, index) => {
+      const isHeader = index === 0;
       const cells = row.cells.map((cellContent) => {
-        let paragraphChildren: any[] = this.compileInlineNodes(cellContent, {}, (node as any).scope);
+        let paragraphChildren: any[] = this.compileInlineNodes(cellContent, isHeader ? { bold: true } : {}, (node as any).scope);
         if (forcedBookmarks && forcedBookmarks.length > 0 && index === 0) {
           for (let i = forcedBookmarks.length - 1; i >= 0; i--) {
             paragraphChildren = [new Bookmark({ id: forcedBookmarks[i], children: paragraphChildren })];
@@ -1483,19 +1625,38 @@ export class DocxCompiler {
               children: paragraphChildren,
             }),
           ],
+          verticalAlign: VerticalAlign.TOP,
+          shading: isHeader
+            ? { type: ShadingType.CLEAR, fill: "F2F2F2" }
+            : undefined,
         });
       });
 
       return new TableRow({
         children: cells,
-        tableHeader: index === 0,
+        tableHeader: isHeader,
       });
     });
 
     return new Table({
       rows,
       width: { size: 100, type: WidthType.PERCENTAGE },
+      layout: TableLayoutType.AUTOFIT,
       indent: indentLeftTwip ? { size: indentLeftTwip, type: WidthType.DXA } : undefined,
+      borders: {
+        top: tableBorder,
+        bottom: tableBorder,
+        left: tableBorder,
+        right: tableBorder,
+        insideHorizontal: tableBorder,
+        insideVertical: tableBorder,
+      },
+      margins: {
+        top: cellMargin,
+        bottom: cellMargin,
+        left: cellMargin,
+        right: cellMargin,
+      },
     });
   }
 
@@ -1996,11 +2157,32 @@ export class DocxCompiler {
     }
   }
 
-  private getNumberingReference(style: NumberingStyle): string {
+  private getNumberingReference(style: NumberingStyle, level: number): string {
+    // For explicit decimal_sub style:
     if (style.type === "decimal_sub") {
-      return "legal-decimal";
+      const ref = "legal-decimal";
+      this.styleMemory.set(level, ref);
+      return ref;
     }
-    return "legal-default";
+
+    // For other explicit styles (not auto): decimal, alpha_lower, alpha_upper, roman_lower, roman_upper
+    if (style.type !== "auto") {
+      const ref = "legal-default";
+      this.styleMemory.set(level, ref);
+      return ref;
+    }
+
+    // For auto style:
+    // 1. If we have remembered style for this level, use it
+    const remembered = this.styleMemory.get(level);
+    if (remembered) {
+      return remembered;
+    }
+
+    // 2. Otherwise use scheme default
+    const ref = this.numberingScheme === "decimal" ? "legal-decimal" : "legal-default";
+    this.styleMemory.set(level, ref);
+    return ref;
   }
 
   private flattenMeta(data: Record<string, any>, prefix = ""): Record<string, any> {

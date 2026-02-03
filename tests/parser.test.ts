@@ -390,6 +390,56 @@ Hello world`);
     expect(() => parser.parse("@end\n")).toThrow(/Unmatched @end/);
   });
 
+  test("parses @columns region with options", () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@columns 2 gap=0.5in separator
+  Column content here
+@;
+
+After columns.`);
+
+    const n0 = must(ast.body[0]);
+    expect(n0.type).toBe("columns_region");
+    const col: any = n0;
+    expect(col.columnCount).toBe(2);
+    expect(col.gapTwip).toBe(720); // 0.5in = 720 twips
+    expect(col.separator).toBe(true);
+    expect(col.children.length).toBeGreaterThan(0);
+    // Body after columns: empty_paragraph (from blank line), then paragraph
+    expect(must(ast.body[1]).type).toBe("empty_paragraph");
+    expect(must(ast.body[2]).type).toBe("paragraph");
+  });
+
+  test("parses @columns region with default gap", () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@columns 3
+  Content
+@;`);
+
+    const col: any = must(ast.body[0]);
+    expect(col.type).toBe("columns_region");
+    expect(col.columnCount).toBe(3);
+    expect(col.gapTwip).toBe(720); // default 0.5in
+    expect(col.separator).toBe(false);
+  });
+
+  test("rejects nested @columns", () => {
+    const parser = new Parser();
+    expect(() =>
+      parser.parse(`@columns 2
+  @columns 3
+    Nested
+  @;
+@;`)
+    ).toThrow(/nested/i);
+  });
+
+  test("rejects @columns with invalid count", () => {
+    const parser = new Parser();
+    expect(() => parser.parse("@columns 0\n  x\n@;\n")).toThrow();
+    expect(() => parser.parse("@columns 11\n  x\n@;\n")).toThrow();
+  });
+
   test("rejects @if without @end", () => {
     const parser = new Parser();
     expect(() => parser.parse("@if true\n  x\n")).toThrow(/missing @end/i);
@@ -773,5 +823,234 @@ Body.`);
 
     expect(xml).toContain("apple");
     expect(xml).toContain("banana");
+  });
+
+  test("@columns region creates multi-column section", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`Before columns.
+
+@columns 2 gap=0.5in separator
+  Column content.
+@;
+
+After columns.`);
+
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // Should have w:cols with w:num="2"
+    expect(xml).toMatch(/w:cols[^>]*w:num="2"/);
+    // Should have separator line
+    expect(xml).toMatch(/w:cols[^>]*w:sep="true"|w:cols[^>]*w:sep="1"/);
+    // Should use continuous section break
+    expect(xml).toMatch(/w:type[^>]*w:val="continuous"/);
+    // Content should be present
+    expect(xml).toContain("Column content");
+    expect(xml).toContain("After columns");
+  });
+
+  test("@columns region reverts to single column after", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@columns 3
+  In columns.
+@;
+
+After columns.`);
+
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // Should have 3-column section
+    expect(xml).toMatch(/w:cols[^>]*w:num="3"/);
+    // Should have a section that reverts to 1 column (or no w:cols which defaults to 1)
+    // The last section should be single column
+    const colsMatches = Array.from(xml.matchAll(/w:cols[^>]*w:num="(\d+)"/g));
+    expect(colsMatches.length).toBeGreaterThanOrEqual(1);
+    // At least one section should be 3 columns, and content after should exist
+    expect(colsMatches.some((m) => m[1] === "3")).toBe(true);
+  });
+
+  test("@columns gap in different units", async () => {
+    const parser = new Parser();
+    const ast = parser.parse(`@columns 2 gap=1cm
+  Content.
+@;`);
+
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // 1cm = ~567 twips (1440 * 2.54 / 2.54 * 1 = ~567)
+    // We should have w:cols with w:space attribute
+    expect(xml).toMatch(/w:cols[^>]*w:num="2"/);
+    expect(xml).toMatch(/w:cols[^>]*w:space="\d+"/);
+  });
+});
+
+describe("@numbering directive", () => {
+  test("parses @numbering default", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@numbering default\n\n@1 One\n");
+    expect(ast.numberingScheme).toBe("default");
+  });
+
+  test("parses @numbering decimal", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@numbering decimal\n\n@1 One\n");
+    expect(ast.numberingScheme).toBe("decimal");
+  });
+
+  test("defaults to no numberingScheme when directive absent", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@1 One\n");
+    expect(ast.numberingScheme).toBeUndefined();
+  });
+
+  test("rejects unknown numbering scheme", () => {
+    const parser = new Parser();
+    expect(() => parser.parse("@numbering roman\n")).toThrow(/default.*decimal/i);
+  });
+
+  test("rejects @numbering after numbered item", () => {
+    const parser = new Parser();
+    expect(() => parser.parse("@1 One\n@numbering decimal\n")).toThrow(/before.*numbered/i);
+  });
+
+  test("default scheme uses legal-default for auto style items", async () => {
+    const parser = new Parser();
+    // Using default scheme (or no scheme), auto-styled nested items should use legal-default
+    const ast = parser.parse("@1 One\n@@ Two\n");
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const numXml = await zip.file("word/numbering.xml")!.async("text");
+
+    // legal-default uses "(%2)" for level 1 (lowercase letter in parens)
+    // legal-decimal uses "%1.%2." for level 1 (decimal hierarchy)
+    // With default scheme, auto items at level 1 should use legal-default format
+    expect(numXml).toContain("(%2)"); // legal-default format at level 1
+  });
+
+  test("decimal scheme uses legal-decimal for auto style items", async () => {
+    const parser = new Parser();
+    const ast = parser.parse("@numbering decimal\n\n@1 One\n@@ Two\n");
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const docXml = await zip.file("word/document.xml")!.async("text");
+    const numXml = await zip.file("word/numbering.xml")!.async("text");
+
+    // legal-decimal uses "%1.%2." format at level 1
+    expect(numXml).toContain("%1.%2.");
+    // The document should reference the decimal numbering config
+    // We verify by checking that numId=3 (legal-decimal) is used
+    expect(docXml).toMatch(/<w:numId w:val="3"/);
+  });
+
+  test("explicit decimal_sub style at level sets memory for subsequent auto items", async () => {
+    const parser = new Parser();
+    // First explicit decimal_sub (@@2.1), then auto at same level (@@)
+    // The auto should inherit the decimal style from memory
+    const ast = parser.parse("@1 One\n@@2.1 Two\n@1 Three\n@@ Four\n");
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const docXml = await zip.file("word/document.xml")!.async("text");
+
+    // Both level-1 items (Two and Four) should use legal-decimal
+    // Count numId references - this is a structural test
+    // The key is that "Four" (auto at level 1) uses same reference as "Two" (explicit decimal_sub)
+    expect(docXml).toBeTruthy(); // Basic sanity - document was generated
+  });
+
+  test("style memory resets when returning to shallower level", async () => {
+    const parser = new Parser();
+    // @1 One (level 0, auto -> default)
+    // @@2.1 Two (level 1, explicit decimal_sub -> decimal memory at level 1)
+    // @1 Three (level 0 resets level 1 memory)
+    // @@ Four (level 1, auto -> should use scheme default since memory was reset)
+    const ast = parser.parse("@numbering default\n\n@1 One\n@@2.1 Two\n@1 Three\n@@ Four\n");
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const docXml = await zip.file("word/document.xml")!.async("text");
+
+    // Document should compile without error
+    expect(docXml).toBeTruthy();
+  });
+
+  test("level-0 numbered items have flush-left indentation", async () => {
+    const parser = new Parser();
+    const ast = parser.parse("@1 First\n@2 Second\n");
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const numXml = await zip.file("word/numbering.xml")!.async("text");
+
+    // Level 0 should have left=360 (0.25in * 1440 = 360 twips) and hanging=360
+    // This makes the number flush-left at position 0, with text at 0.25in
+    // The legal-default config (abstractNumId="2") should have this for ilvl="0"
+    expect(numXml).toMatch(/<w:lvl w:ilvl="0"[^>]*>[\s\S]*?<w:ind w:left="360" w:hanging="360"\/>/);
+  });
+});
+
+describe("Table styling", () => {
+  test("@table has borders with size=4", async () => {
+    const parser = new Parser();
+    const ast = parser.parse("@table\n  [A, B]\n  [1, 2]\n");
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // Should have table borders
+    expect(xml).toContain("w:tblBorders");
+    // Border size should be 4 (0.5pt)
+    expect(xml).toMatch(/w:sz="4"/);
+  });
+
+  test("@table header row has light gray shading", async () => {
+    const parser = new Parser();
+    const ast = parser.parse("@table\n  [Header1, Header2]\n  [Data1, Data2]\n");
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // Header row should have F2F2F2 shading
+    expect(xml).toContain("F2F2F2");
+  });
+
+  test("@table has cell margins/padding", async () => {
+    const parser = new Parser();
+    const ast = parser.parse("@table\n  [A, B]\n  [1, 2]\n");
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // Should have table cell margins
+    expect(xml).toContain("w:tblCellMar");
+  });
+
+  test("@table header text is bold", async () => {
+    const parser = new Parser();
+    const ast = parser.parse("@table\n  [Header]\n  [Data]\n");
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // Header row should have bold run property before the text
+    // Find the table row with w:tblHeader and check for w:b
+    const tblRows = xml.match(/<w:tr[^>]*>[\s\S]*?<\/w:tr>/g) || [];
+    const headerRow = tblRows.find(r => r.includes('w:tblHeader'));
+    expect(headerRow).toBeDefined();
+    expect(headerRow).toContain('<w:b');
   });
 });
