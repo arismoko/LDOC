@@ -14,6 +14,7 @@
     "ldoc": "bun run src/cli/index.ts"
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "diff": "^8.0.3",
     "docx": "^9.4.1",
     "fast-xml-parser": "^5.3.4",

@@ -179,20 +179,19 @@ export class Lexer {
         return;
       }
 
-      // If at start of line content, try Table Row first
-      // This allows [cell1, cell2] and [^, ...] to be parsed as table row
-      if (!this.lineHasContent) {
-        this.scanTableRow();
+      // Check for Link [text](url) FIRST - lookahead for ](
+      // This must come before table row check, otherwise [link](url) at start
+      // of line gets parsed as a single-cell table row.
+      const isLink = this.lookaheadIsLink();
+      if (isLink) {
+        this.scanLink();
         return;
       }
 
-      // Check for Link [text](url)
-      // We need to look ahead for `](`
-      // This is O(N) for the line length, but lines are short.
-      const isLink = this.lookaheadIsLink();
-
-      if (isLink) {
-        this.scanLink();
+      // If at start of line content and not a link, try Table Row
+      // This allows [cell1, cell2] and [^, ...] to be parsed as table row
+      if (!this.lineHasContent) {
+        this.scanTableRow();
         return;
       }
 
