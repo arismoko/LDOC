@@ -1,0 +1,203 @@
+@document
+  title: LDOC Structure Test Document
+  short_title: Structure Test
+  author: Test Suite
+  numbering: decimal
+  page_size: letter
+  orientation: portrait
+  margins:
+    top: 1in
+    right: 1.25in
+    bottom: 1in
+    left: 1.25in
+  spacing:
+    line: 1.15
+    before: 6pt
+    after: 6pt
+  styles:
+    body:
+      font: Times New Roman
+      size: 12pt
+    heading1:
+      font: Arial
+      size: 16pt
+      bold: true
+    heading2:
+      font: Arial
+      size: 14pt
+      bold: true
+
+// =============================================================================
+// LDOC Structure Test Corpus
+// =============================================================================
+// This file covers all structure-related LDOC features for parser verification.
+// Each section demonstrates a specific feature with comments explaining usage.
+//
+// The @document block above defines document-level settings.
+// All settings are optional. Keys use snake_case or dash-case.
+// Supported settings:
+//   - title, short_title, author
+//   - numbering: default or decimal
+//   - page_size: letter or a4
+//   - orientation: portrait or landscape
+//   - margins: nested object with top/right/bottom/left
+//   - spacing: line multiplier and before/after paragraph spacing
+//   - styles: nested for body, heading1, heading2, etc.
+
+// =============================================================================
+// @import Directive
+// =============================================================================
+// Import other LDOC files to include their definitions and content.
+// Paths are relative to the current file.
+// Note: Importing a non-existent file will error at compile time.
+// Example (commented out to avoid error):
+// @import ./shared-definitions.ldoc
+
+// =============================================================================
+// @meta Block
+// =============================================================================
+// Metadata block for document-specific data accessible via variables.
+// Supports simple key-value pairs, nested objects, and arrays.
+
+@meta
+  version: 1.0
+  status: draft
+  keywords: structure, test, corpus
+  contact:
+    name: Test Author
+    email: test@example.com
+  reviewers: Alice, Bob, Carol
+@end
+
+// =============================================================================
+// Headers (Multiple Levels)
+// =============================================================================
+// Markdown-style headers from H1 through H6.
+
+# Heading Level 1
+
+## Heading Level 2
+
+### Heading Level 3
+
+#### Heading Level 4
+
+##### Heading Level 5
+
+###### Heading Level 6
+
+// =============================================================================
+// @anchor Directive
+// =============================================================================
+// Create a named anchor for cross-references within the document.
+
+@anchor section-introduction
+
+This paragraph follows the anchor and can be referenced using [[section-introduction]].
+
+@anchor "Section 5.2"
+
+Anchors can have quoted names with special characters.
+
+// =============================================================================
+// Page and Column Layout
+// =============================================================================
+
+// @pagebreak - Forces a new page
+@pagebreak
+
+## Page Layout Section
+
+This content appears on a new page after the page break.
+
+// @columns - Multi-column layout with options
+// Syntax: @columns <count> [gap=<length>] [separator]
+
+@columns 2 gap=0.5in
+  ### Two Column Layout
+  
+  This is the left column content. Text flows naturally between columns.
+  
+  @break
+  
+  This text appears in the right column after the column break.
+@end
+
+@columns 3 gap=0.25in separator
+  Column one content.
+  
+  @break
+  
+  Column two content.
+  
+  @break
+  
+  Column three content with a separator line between columns.
+@end
+
+// =============================================================================
+// @header and @footer Directives
+// =============================================================================
+// Document headers and footers with page-specific variants.
+
+// Default header (appears on all pages unless overridden)
+@header
+  Document Title - Page {page} of {pages}
+@end
+
+// Default footer
+@footer
+  Confidential - {date}
+@end
+
+// First page header (different header for the first page)
+@firstpage @header
+  Welcome to the Document
+@end
+
+// First page footer
+@firstpage @footer
+  First Page Footer
+@end
+
+// Even page header (for double-sided printing)
+@evenpage @header
+  Even Page Header - {short_title}
+@end
+
+// Even page footer
+@evenpage @footer
+  Even Page Footer
+@end
+
+// =============================================================================
+// Single-line Header/Footer Variants
+// =============================================================================
+// Headers and footers can also be single-line:
+
+@header Single-line header content
+
+@footer Single-line footer content
+
+// =============================================================================
+// Additional Structure Examples
+// =============================================================================
+
+## Mixed Content Section
+
+This section demonstrates that structure directives can be mixed with
+regular content paragraphs and other elements.
+
+@center This paragraph is centered.
+
+@bold This paragraph is bold.
+
+@indent:2 This paragraph is double-indented.
+
+### Nested Headers Work
+
+Content continues after nested headers.
+
+// =============================================================================
+// End of Structure Test Corpus
+// =============================================================================

@@ -1,0 +1,393 @@
+// ============================================================
+// LDOC Corpus: Control Flow Features
+// ============================================================
+// This file tests @if/@elseif/@else, @repeat, @foreach, @set,
+// and variable interpolation with filters.
+
+@meta
+  show_section: true
+  count: 3
+  items:
+    - first
+    - second
+    - third
+  user:
+    name: John
+    role: admin
+  score: 85
+  level: medium
+  threshold: 50
+  empty_list:
+  // Pre-define @set target variables for compiler validation
+  greeting: ""
+  total: 0
+  product: 0
+  diff: 0
+  fullname: ""
+  doubled: 0
+  threshold_check: 0
+  current_index: 0
+
+// ------------------------------------------------------------
+// SECTION 1: @if/@else Simple Conditions
+// ------------------------------------------------------------
+
+// 1.1 Simple true condition
+@if show_section
+  This section is visible because show_section is true.
+@end
+
+// 1.2 Simple false condition with else
+@if false
+  This should NOT appear.
+@else
+  This appears because the condition is false.
+@end
+
+// 1.3 Literal true condition
+@if true
+  Literal true always shows.
+@end
+
+// 1.4 Variable comparison
+@if score >= 80
+  High score achieved!
+@end
+
+// 1.5 Nested property access in condition
+@if user.role == "admin"
+  Admin privileges granted.
+@end
+
+// ------------------------------------------------------------
+// SECTION 2: @elseif Chains
+// ------------------------------------------------------------
+
+// 2.1 Multiple elseif branches - score is 85, so B grade
+@if score >= 90
+  Grade: A
+@elseif score >= 80
+  Grade: B
+@elseif score >= 70
+  Grade: C
+@elseif score >= 60
+  Grade: D
+@else
+  Grade: F
+@end
+
+// 2.2 Level-based elseif chain
+@if level == "high"
+  Priority: HIGH
+@elseif level == "medium"
+  Priority: MEDIUM
+@elseif level == "low"
+  Priority: LOW
+@else
+  Priority: UNKNOWN
+@end
+
+// 2.3 Numeric comparison chain
+@if threshold > 100
+  Very high threshold
+@elseif threshold > 50
+  High threshold
+@elseif threshold > 25
+  Medium threshold
+@else
+  Low threshold (50 or below)
+@end
+
+// ------------------------------------------------------------
+// SECTION 3: Nested @if Blocks
+// ------------------------------------------------------------
+
+// 3.1 Basic nesting
+@if show_section
+  Outer block is visible.
+  @if score >= 80
+    Inner block: Score qualifies!
+  @else
+    Inner block: Score too low.
+  @end
+@end
+
+// 3.2 Deep nesting (3 levels)
+@if true
+  Level 1
+  @if show_section
+    Level 2
+    @if user.role == "admin"
+      Level 3: Admin at all levels
+    @end
+  @end
+@end
+
+// 3.3 Nested with elseif
+@if score >= 90
+  Excellent
+@elseif score >= 80
+  Good score
+  @if user.role == "admin"
+    Admin bonus applied!
+  @end
+@else
+  Needs improvement
+@end
+
+// ------------------------------------------------------------
+// SECTION 4: @if Block vs Inline Forms
+// ------------------------------------------------------------
+
+// 4.1 Block form with indented content
+@if show_section
+  This is a block form.
+  It can have multiple lines.
+  And even more content.
+@end
+
+// 4.2 Block form with single line
+@if true
+  Single line in block form.
+@end
+
+// 4.3 @if with formatted content inside
+@if show_section
+  This has **bold** and *italic* text inside.
+@end
+
+// 4.4 @if with list inside
+@if show_section
+  @- Item one
+  @- Item two
+  @- Item three
+@end
+
+// ------------------------------------------------------------
+// SECTION 5: @repeat with Numeric Count
+// ------------------------------------------------------------
+
+// 5.1 Basic repeat
+@repeat 3
+  Repeated line.
+@end
+
+// 5.2 Repeat zero times (no output)
+@repeat 0
+  This should not appear.
+@end
+
+// 5.3 Repeat once
+@repeat 1
+  Single occurrence.
+@end
+
+// 5.4 Repeat with nested content
+@repeat 2
+  Outer repeat:
+  @- Nested bullet point
+@end
+
+// 5.5 Repeat with conditional inside
+@repeat 2
+  @if show_section
+    Conditional inside repeat.
+  @end
+@end
+
+// ------------------------------------------------------------
+// SECTION 6: @foreach Iteration
+// ------------------------------------------------------------
+
+// 6.1 Iterate over array from @meta
+@foreach item in items
+  Item: {{item}}
+@end
+
+// 6.2 Using loop.index (0-based)
+@foreach item in items
+  Index {{loop.index}}: {{item}}
+@end
+
+// 6.3 Using loop.count (1-based)
+@foreach item in items
+  Count {{loop.count}}: {{item}}
+@end
+
+// 6.4 Using loop.first
+@foreach item in items
+  @if loop.first
+    First item: {{item}}
+  @else
+    Other item: {{item}}
+  @end
+@end
+
+// 6.5 Using loop.last
+@foreach item in items
+  {{item}}
+  @if loop.last
+    (This is the last item)
+  @end
+@end
+
+// 6.6 Using loop.length
+@foreach item in items
+  Item {{loop.count}} of {{loop.length}}: {{item}}
+@end
+
+// 6.7 All loop metadata combined
+@foreach item in items
+  [{{loop.count}}/{{loop.length}}] {{item}} (index: {{loop.index}}, first: {{loop.first}}, last: {{loop.last}})
+@end
+
+// ------------------------------------------------------------
+// SECTION 7: Nested @foreach
+// ------------------------------------------------------------
+
+// 7.1 Foreach inside foreach (outer loop with inner content)
+@foreach item in items
+  Outer: {{item}}
+  @repeat 2
+    Inner repeat within {{item}}
+  @end
+@end
+
+// 7.2 Foreach with conditional inside
+@foreach item in items
+  @if loop.first
+    START: {{item}}
+  @elseif loop.last
+    END: {{item}}
+  @else
+    MIDDLE: {{item}}
+  @end
+@end
+
+// ------------------------------------------------------------
+// SECTION 8: @set Variable Assignment
+// ------------------------------------------------------------
+
+// 8.1 Simple assignment
+@set greeting = "Hello, World!"
+Result: {{greeting}}
+
+// 8.2 Assignment with arithmetic expression
+@set total = 10 + 5
+Total: {{total}}
+
+// 8.3 Assignment with multiplication
+@set product = 6 * 7
+Product: {{product}}
+
+// 8.4 Assignment with subtraction
+@set diff = 100 - 25
+Difference: {{diff}}
+
+// 8.5 String concatenation (if supported)
+@set fullname = "John" + " " + "Doe"
+Full name: {{fullname}}
+
+// 8.6 Assignment referencing other variables
+@set doubled = count * 2
+Doubled count: {{doubled}}
+
+// ------------------------------------------------------------
+// SECTION 9: Variable Interpolation
+// ------------------------------------------------------------
+
+// 9.1 Simple variable
+Hello, {{user.name}}!
+
+// 9.2 Path access
+User role: {{user.role}}
+
+// 9.3 Variable with upper filter
+Uppercase: {{user.name | upper}}
+
+// 9.4 Variable with lower filter
+Lowercase: {{user.name | lower}}
+
+// 9.5 Variable with capitalize filter
+Capitalized: {{user.role | capitalize}}
+
+// 9.6 Multiple variables in one line
+User {{user.name}} has role {{user.role}}.
+
+// 9.7 Variable inside emphasis
+**{{user.name}}** is an *{{user.role}}*.
+
+// 9.8 Nested path access
+The user's name is {{user.name}} and they are assigned {{user.role}} privileges.
+
+// ------------------------------------------------------------
+// SECTION 10: Filters in Various Contexts
+// ------------------------------------------------------------
+
+// 10.1 Filter in @foreach loop
+@foreach item in items
+  Uppercase item: {{item | upper}}
+@end
+
+// 10.2 Filter with @if condition content
+@if show_section
+  Filtered user: {{user.name | upper}}
+@end
+
+// 10.3 Multiple filtered outputs
+Name variations:
+- Original: {{user.name}}
+- Upper: {{user.name | upper}}
+- Lower: {{user.name | lower}}
+- Capitalized: {{user.name | capitalize}}
+
+// ------------------------------------------------------------
+// SECTION 11: Complex Combined Scenarios
+// ------------------------------------------------------------
+
+// 11.1 @set + @if + variable
+@set threshold_check = score - threshold
+@if threshold_check > 0
+  Score exceeds threshold by {{threshold_check}} points.
+@else
+  Score does not exceed threshold.
+@end
+
+// 11.2 @foreach + @set + @if
+@foreach item in items
+  @set current_index = loop.count
+  @if current_index == 1
+    First: {{item | upper}}
+  @elseif current_index == 2
+    Second: {{item | capitalize}}
+  @else
+    Other: {{item}}
+  @end
+@end
+
+// 11.3 Nested conditionals with loop metadata
+@foreach item in items
+  @if loop.first
+    === Begin List ===
+  @end
+  {{loop.count}}. {{item}}
+  @if loop.last
+    === End List ===
+  @end
+@end
+
+// 11.4 @repeat with @foreach inside
+@repeat 2
+  Repetition block:
+  @foreach item in items
+    - {{item}}
+  @end
+@end
+
+// 11.5 Empty list handling
+@foreach item in empty_list
+  This should not appear since empty_list is empty.
+@end
+After empty foreach.
+
+// End of control-flow corpus test file.

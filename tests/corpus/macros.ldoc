@@ -1,0 +1,224 @@
+// ============================================================
+// LDOC Corpus: Macro/Template Features
+// ============================================================
+// This file tests @define/@use macro functionality.
+
+// ------------------------------------------------------------
+// SECTION 1: Simple Macro Definitions
+// ------------------------------------------------------------
+
+// 1.1 Macro with no parameters
+@define Separator
+  ---
+@end
+
+// 1.2 Simple macro with one required parameter
+@define Greeting(name)
+  Hello, {{name}}!
+@end
+
+// 1.3 Macro with multiple required parameters
+@define FullGreeting(first, last)
+  Welcome, {{first}} {{last}}.
+@end
+
+// ------------------------------------------------------------
+// SECTION 2: Macros with Optional Parameters (Defaults)
+// ------------------------------------------------------------
+
+// 2.1 Macro with one optional parameter
+@define Alert(type="info")
+  [{{type}}] Alert notification
+@end
+
+// 2.2 Macro with required and optional parameters mixed
+@define Message(content, level="normal", prefix="Note")
+  {{prefix}}: {{content}} ({{level}})
+@end
+
+// 2.3 Macro with all optional parameters
+@define Badge(color="blue", size="medium", text="OK")
+  Badge: {{text}} [{{color}}/{{size}}]
+@end
+
+// ------------------------------------------------------------
+// SECTION 3: Macros with @slot for Content Injection
+// ------------------------------------------------------------
+
+// 3.1 Simple slot macro
+@define Box(title)
+  === {{title}} ===
+  @slot
+  ===============
+@end
+
+// 3.2 Slot with surrounding content
+@define Card(header, footer="End of card")
+  +++ {{header}} +++
+  @slot
+  --- {{footer}} ---
+@end
+
+// 3.3 Nested content structure with slot
+@define Section(name)
+  # {{name}}
+  @slot
+@end
+
+// ------------------------------------------------------------
+// SECTION 4: Parameter Substitution with Filters
+// ------------------------------------------------------------
+
+// 4.1 Macro using upper filter
+@define Shout(message)
+  {{message | upper}}!
+@end
+
+// 4.2 Macro using lower filter
+@define Whisper(message)
+  {{message | lower}}...
+@end
+
+// 4.3 Macro using capitalize filter
+@define Title(text)
+  {{text | capitalize}} - Document
+@end
+
+// ------------------------------------------------------------
+// SECTION 5: Basic @use Invocations
+// ------------------------------------------------------------
+
+// 5.1 Use macro with no parameters
+@use Separator
+
+// 5.2 Use macro with single required parameter
+@use Greeting(name="World")
+
+// 5.3 Use macro with multiple required parameters
+@use FullGreeting(first="Jane", last="Doe")
+
+// 5.4 Use macro with quoted string containing special chars
+@use Greeting(name="Dr. Smith")
+
+// ------------------------------------------------------------
+// SECTION 6: @use with Optional Parameters
+// ------------------------------------------------------------
+
+// 6.1 Omit optional parameter (uses default)
+@use Alert
+
+// 6.2 Override optional parameter
+@use Alert(type="warning")
+
+// 6.3 Mix required and optional - provide only required
+@use Message(content="Something happened")
+
+// 6.4 Mix required and optional - override some optionals
+@use Message(content="Critical event", level="high")
+
+// 6.5 Mix required and optional - override all
+@use Message(content="System update", level="low", prefix="Info")
+
+// 6.6 All optional with none provided
+@use Badge
+
+// 6.7 All optional with some provided
+@use Badge(color="red", text="Error")
+
+// ------------------------------------------------------------
+// SECTION 7: @use with @slot Content (Block Form)
+// ------------------------------------------------------------
+
+// 7.1 Simple slot usage
+@use Box(title="Notice")
+  This is the box content.
+  It can have multiple lines.
+@end
+
+// 7.2 Slot with formatted content
+@use Box(title="Important")
+  **Bold text** and *italic text* inside the slot.
+@end
+
+// 7.3 Card with custom footer
+@use Card(header="Welcome", footer="Thank you")
+  This is the card body content.
+  
+  With multiple paragraphs.
+@end
+
+// 7.4 Card using default footer
+@use Card(header="Quick Note")
+  Just a short note.
+@end
+
+// 7.5 Section with nested list
+@use Section(name="Features")
+  @- First feature
+  @- Second feature
+  @- Third feature
+@end
+
+// ------------------------------------------------------------
+// SECTION 8: Multiple Uses of Same Macro
+// ------------------------------------------------------------
+
+// 8.1 Multiple separator uses
+@use Separator
+Some content between separators.
+@use Separator
+
+// 8.2 Multiple greetings with different names
+@use Greeting(name="Alice")
+@use Greeting(name="Bob")
+@use Greeting(name="Charlie")
+
+// 8.3 Multiple alerts with varying types
+@use Alert(type="info")
+@use Alert(type="warning")
+@use Alert(type="error")
+
+// ------------------------------------------------------------
+// SECTION 9: Filter Usage in @use
+// ------------------------------------------------------------
+
+// 9.1 Use macro that applies upper filter
+@use Shout(message="hello world")
+
+// 9.2 Use macro that applies lower filter
+@use Whisper(message="QUIET PLEASE")
+
+// 9.3 Use macro that applies capitalize filter
+@use Title(text="annual report")
+
+// ------------------------------------------------------------
+// SECTION 10: Labeled @use (for cross-referencing)
+// ------------------------------------------------------------
+
+// 10.1 Labeled use for potential cross-reference
+@use Box(title="Referenced Box") as RefBox
+  This box can be referenced elsewhere.
+@end
+
+// 10.2 Another labeled use
+@use Alert(type="notice") as MainAlert
+
+// ------------------------------------------------------------
+// SECTION 11: Complex Nested Scenarios
+// ------------------------------------------------------------
+
+// 11.1 Multiple slots in sequence
+@use Box(title="First Box")
+  Content of first box.
+@end
+
+@use Box(title="Second Box")
+  Content of second box.
+@end
+
+// 11.2 Box containing formatted message
+@use Box(title="Status Report")
+  @use Message(content="All systems operational", level="normal", prefix="Status")
+@end
+
+// End of macro corpus test file.

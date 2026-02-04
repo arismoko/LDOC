@@ -1,0 +1,161 @@
+@meta
+	company: ACME Corp
+	amount: $1,000,000
+@end
+
+# Table Corpus Tests
+
+This file exercises all table LDOC features.
+
+## Basic Table
+
+Simple table with header row (first row) and data rows:
+
+@table
+	[Header 1, Header 2, Header 3]
+	[Cell A1, Cell A2, Cell A3]
+	[Cell B1, Cell B2, Cell B3]
+	[Cell C1, Cell C2, Cell C3]
+
+## Horizontal Merge (Colspan)
+
+Use `>` in a cell to merge with the cell to its left:
+
+@table
+	[Column A, Column B, Column C]
+	[Spans two columns, >, Normal cell]
+	[Normal, Spans two columns, >]
+	[All three columns span, >, >]
+	[A, B, C]
+
+## Vertical Merge (Rowspan)
+
+Use `^` in a cell to merge with the cell above it:
+
+@table
+	[Header A, Header B, Header C]
+	[Spans down, Value 1, Value 2]
+	[^, Value 3, Value 4]
+	[^, Value 5, Value 6]
+	[Normal, Normal, Normal]
+
+## Combined Horizontal and Vertical Merge
+
+Both colspan and rowspan in the same table:
+
+@table
+	[A, B, C, D]
+	[Spans 2x2, >, Normal C, Normal D]
+	[^, >, More C, More D]
+	[Bottom A, Bottom B, Bottom C, Bottom D]
+
+@table
+	[Col 1, Col 2, Col 3]
+	[Wide cell, >, Tall cell]
+	[Regular 1, Regular 2, ^]
+	[Regular 3, Regular 4, ^]
+
+## Inline Formatting in Cells
+
+Cells can contain **bold**, *italic*, and other inline formatting:
+
+@table
+	[**Bold Header**, *Italic Header*, Normal Header]
+	[**bold text**, *italic text*, normal text]
+	[mixed **bold** and *italic*, plain, more plain]
+	[`inline code`, plain, more plain]
+
+## Variables in Cells
+
+Cells can contain variable references (defined at top of file):
+
+@table
+	[Field, Value]
+	[Company Name, {{company}}]
+	[Contract Amount, {{amount}}]
+	[Description, Payment to {{company}} for {{amount}}]
+
+## Quoting Cell Values
+
+Special characters and merge markers can be quoted:
+
+@table
+	[Header, Special Values]
+	[Comma in cell, "Hello, World"]
+	[Greater than literal, ">"]
+	[Caret literal, "^"]
+	[Leading space, " starts with space"]
+	[Trailing space, "ends with space "]
+	[Quote marks, "He said ""hello"""]
+
+## Single Column Table
+
+@table
+	[Single Column Header]
+	[Row 1]
+	[Row 2]
+	[Row 3]
+
+## Single Row Table (Header Only)
+
+@table
+	[Column A, Column B, Column C]
+
+## Empty Cells
+
+@table
+	[Header A, Header B, Header C]
+	[, Value 2, Value 3]
+	[Value 1, , Value 3]
+	[Value 1, Value 2, ]
+	[, , ]
+
+## Complex Merge Pattern
+
+@table
+	[A, B, C, D, E]
+	[Span 3 cols, >, >, D1, E1]
+	[A2, B2, C2, Span 2 rows, E2]
+	[A3, B3, C3, ^, E3]
+	[Span 2x2, >, C4, D4, E4]
+	[^, >, C5, D5, E5]
+
+## Table with @end Marker
+
+@table
+	[With End, Header 2]
+	[Row 1, Data 1]
+	[Row 2, Data 2]
+@end
+
+Some text after the table.
+
+## Multiple Tables in Sequence
+
+First table:
+
+@table
+	[Table 1 Col A, Table 1 Col B]
+	[T1 R1 A, T1 R1 B]
+
+Second table:
+
+@table
+	[Table 2 Col A, Table 2 Col B]
+	[T2 R1 A, T2 R1 B]
+
+## Table with Links
+
+@table
+	[Link Type, Example]
+	[Plain link, [Click here](https://example.com)]
+	[Bold link, [**Bold link**](https://example.org)]
+
+## Long Cell Content
+
+@table
+	[Short, Long Content Column]
+	[A, This is a much longer piece of text that demonstrates how cells handle longer content strings]
+	[B, Another long cell with plenty of words to fill the space]
+
+End of table corpus tests.
