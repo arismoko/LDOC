@@ -197,12 +197,28 @@ export function parseDefine(ctx: ParserContext): Node {
 
   const { name, params, optionalParams } = parseDefineSignature(sig, token.line, token.column);
 
-  const { content: template, hasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@define" });
+  const { content: template, hasEnd, endToken } = parseIndentedBlock(ctx, { required: true, directiveName: "@define" });
+
+  // Determine end position: use endToken if available, else last template node, else token
+  let endLine = token.endLine;
+  let endColumn = token.endColumn;
+  if (endToken) {
+    endLine = endToken.endLine;
+    endColumn = endToken.endColumn;
+  } else {
+    const lastNode = template[template.length - 1];
+    if (lastNode && lastNode.endLine !== undefined && lastNode.endColumn !== undefined) {
+      endLine = lastNode.endLine;
+      endColumn = lastNode.endColumn;
+    }
+  }
 
   return {
     type: "define",
     line: token.line,
     column: token.column,
+    endLine,
+    endColumn,
     name,
     params,
     optionalParams,
@@ -219,12 +235,28 @@ export function parseUse(ctx: ParserContext): Node {
   }
   const { name, args, label } = parseUseSignature(sig, token.line, token.column);
 
-  const { content: children, hasEnd } = parseIndentedBlock(ctx, { required: false });
+  const { content: children, hasEnd, endToken } = parseIndentedBlock(ctx, { required: false });
+
+  // Determine end position: use endToken if available, else last child node, else token
+  let endLine = token.endLine;
+  let endColumn = token.endColumn;
+  if (endToken) {
+    endLine = endToken.endLine;
+    endColumn = endToken.endColumn;
+  } else if (children.length > 0) {
+    const lastNode = children[children.length - 1];
+    if (lastNode && lastNode.endLine !== undefined && lastNode.endColumn !== undefined) {
+      endLine = lastNode.endLine;
+      endColumn = lastNode.endColumn;
+    }
+  }
 
   return {
     type: "use",
     line: token.line,
     column: token.column,
+    endLine,
+    endColumn,
     name,
     label,
     args,

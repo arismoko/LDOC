@@ -10,6 +10,7 @@ interface RawCell {
 export function parseTable(ctx: ParserContext): TableNode {
   const token = ctx.stream.advance();
   const rows: TableRowNode[] = [];
+  let lastToken = token;
 
   ctx.stream.skipNewlines();
 
@@ -24,6 +25,7 @@ export function parseTable(ctx: ParserContext): TableNode {
 
       if (ctx.stream.check(TokenType.TABLE_ROW)) {
         const rowToken = ctx.stream.advance();
+        lastToken = rowToken;
         const rawCells = JSON.parse(rowToken.value) as RawCell[];
 
         const cells: TableCellNode[] = [];
@@ -49,6 +51,8 @@ export function parseTable(ctx: ParserContext): TableNode {
               type: "table_cell",
               line: rowToken.line,
               column: rowToken.column,
+              endLine: rowToken.endLine,
+              endColumn: rowToken.endColumn,
               content: [],
               colspan: 1,
               rowspan: 1,
@@ -62,6 +66,8 @@ export function parseTable(ctx: ParserContext): TableNode {
             type: "table_cell",
             line: rowToken.line,
             column: rowToken.column,
+            endLine: rowToken.endLine,
+            endColumn: rowToken.endColumn,
             content: parseInlineContent(val),
             colspan: 1,
             rowspan: 1,
@@ -72,6 +78,8 @@ export function parseTable(ctx: ParserContext): TableNode {
           type: "table_row",
           line: rowToken.line,
           column: rowToken.column,
+          endLine: rowToken.endLine,
+          endColumn: rowToken.endColumn,
           cells,
           isHeader: isFirst,
         });
@@ -83,7 +91,7 @@ export function parseTable(ctx: ParserContext): TableNode {
     }
 
     if (ctx.stream.check(TokenType.DEDENT)) {
-      ctx.stream.advance();
+      lastToken = ctx.stream.advance();
     }
 
     // Optional @end after indented block
@@ -94,7 +102,7 @@ export function parseTable(ctx: ParserContext): TableNode {
       ctx.stream.advance();
     }
     if (ctx.stream.check(TokenType.END)) {
-      ctx.stream.advance();
+      lastToken = ctx.stream.advance();
       hasEnd = true;
     } else {
       // No @end found, restore position to preserve blank lines
@@ -108,6 +116,8 @@ export function parseTable(ctx: ParserContext): TableNode {
       type: "table",
       line: token.line,
       column: token.column,
+      endLine: lastToken.endLine,
+      endColumn: lastToken.endColumn,
       rows,
       hasEnd,
     };
@@ -120,6 +130,8 @@ export function parseTable(ctx: ParserContext): TableNode {
     type: "table",
     line: token.line,
     column: token.column,
+    endLine: token.endLine,
+    endColumn: token.endColumn,
     rows,
     hasEnd: false,
   };

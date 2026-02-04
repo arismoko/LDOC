@@ -2,7 +2,7 @@
  * Shared helpers for parsing indented blocks
  */
 
-import { TokenType } from "../lexer";
+import { TokenType, type Token } from "../lexer";
 import type { ParserContext } from "./inline";
 import type { Node } from "../ast";
 import { pushBlankLines } from "../utils";
@@ -10,6 +10,8 @@ import { pushBlankLines } from "../utils";
 export interface BlockResult {
   content: Node[];
   hasEnd: boolean;
+  /** The last consumed token (DEDENT or @end), for tracking end position */
+  endToken?: Token;
 }
 
 /**
@@ -31,6 +33,7 @@ export function parseIndentedBlock(
 ): BlockResult {
   const content: Node[] = [];
   let hasEnd = false;
+  let endToken: Token | undefined;
 
   const la = ctx.stream.lookaheadNewlinesThenIndent();
   if (!la.indentAfter) {
@@ -74,7 +77,7 @@ export function parseIndentedBlock(
   }
 
   if (ctx.stream.check(TokenType.DEDENT)) {
-    ctx.stream.advance();
+    endToken = ctx.stream.advance();
   }
 
   // Optional @end - only consume newlines if @end follows
@@ -83,14 +86,14 @@ export function parseIndentedBlock(
     ctx.stream.advance();
   }
   if (ctx.stream.check(TokenType.END)) {
-    ctx.stream.advance();
+    endToken = ctx.stream.advance();
     hasEnd = true;
   } else {
     // No @end found, restore position to preserve blank lines
     ctx.stream.setPosition(savedPos);
   }
 
-  return { content, hasEnd };
+  return { content, hasEnd, endToken };
 }
 
 /**

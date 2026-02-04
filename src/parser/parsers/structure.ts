@@ -62,6 +62,7 @@ export function parseMeta(ctx: ParserContext): MetaNode {
 
   const data: Record<string, any> = {};
   let trailingBlanks = 0;
+  let lastToken = token;
 
   if (ctx.stream.check(TokenType.INDENT)) {
     ctx.stream.advance();
@@ -116,7 +117,7 @@ export function parseMeta(ctx: ParserContext): MetaNode {
     }
 
     if (ctx.stream.check(TokenType.DEDENT)) {
-      ctx.stream.advance();
+      lastToken = ctx.stream.advance();
     }
 
     // Optional @end after indented block
@@ -129,7 +130,7 @@ export function parseMeta(ctx: ParserContext): MetaNode {
       nlCount++;
     }
     if (ctx.stream.check(TokenType.END)) {
-      ctx.stream.advance();
+      lastToken = ctx.stream.advance();
       hasEnd = true;
     } else {
       // No @end found, restore position to preserve blank lines
@@ -140,6 +141,8 @@ export function parseMeta(ctx: ParserContext): MetaNode {
       type: "meta",
       line: token.line,
       column: token.column,
+      endLine: lastToken.endLine,
+      endColumn: lastToken.endColumn,
       data,
       hasEnd,
       trailingBlanks,
@@ -150,6 +153,8 @@ export function parseMeta(ctx: ParserContext): MetaNode {
     type: "meta",
     line: token.line,
     column: token.column,
+    endLine: token.endLine,
+    endColumn: token.endColumn,
     data,
     hasEnd: false,
     trailingBlanks: 0,
@@ -165,6 +170,8 @@ export function parseImport(ctx: ParserContext): ImportNode {
     type: "import",
     line: token.line,
     column: token.column,
+    endLine: token.endLine,
+    endColumn: token.endColumn,
     path,
   };
 }
@@ -279,10 +286,21 @@ export function parseDocument(ctx: ParserContext, sourcePath?: string): Document
     numberingScheme = schemeArg as NumberingScheme;
   }
 
+  // Determine end position from the last body node or fallback to start
+  let endLine = 1;
+  let endColumn = 1;
+  if (body.length > 0) {
+    const lastNode = body[body.length - 1]!;
+    endLine = lastNode.endLine ?? lastNode.line;
+    endColumn = lastNode.endColumn ?? lastNode.column;
+  }
+
   return {
     type: "document",
     line: 1,
     column: 1,
+    endLine,
+    endColumn,
     document,
     meta,
     imports,
@@ -304,25 +322,49 @@ function parseDocHeaderFooter(
     const content: Node[] = [];
     const para = parseParagraph(ctx);
     if (para) content.push(para);
+    // Determine end position from content or token
+    let endLine = token.endLine;
+    let endColumn = token.endColumn;
+    if (content.length > 0) {
+      const lastNode = content[content.length - 1]!;
+      endLine = lastNode.endLine ?? lastNode.line;
+      endColumn = lastNode.endColumn ?? lastNode.column;
+    }
     // leave trailing newlines to outer loop
     return {
       type,
       scope,
       line: token.line,
       column: token.column,
+      endLine,
+      endColumn,
       content,
       hasEnd: false,
     } as any;
   }
 
   // Indented block content
-  const { content, hasEnd } = parseIndentedBlock(ctx, { required: false });
+  const { content, hasEnd, endToken } = parseIndentedBlock(ctx, { required: false });
+
+  // Determine end position
+  let endLine = token.endLine;
+  let endColumn = token.endColumn;
+  if (endToken) {
+    endLine = endToken.endLine;
+    endColumn = endToken.endColumn;
+  } else if (content.length > 0) {
+    const lastNode = content[content.length - 1]!;
+    endLine = lastNode.endLine ?? lastNode.line;
+    endColumn = lastNode.endColumn ?? lastNode.column;
+  }
 
   return {
     type,
     scope,
     line: token.line,
     column: token.column,
+    endLine,
+    endColumn,
     content,
     hasEnd,
   } as any;
@@ -397,6 +439,7 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
 
   let children: Node[] = [];
   let hasEnd = false;
+  let lastToken = token;
 
   // Mark that we're inside a columns region
   const wasInside = ctx.insideColumnsRegion;
@@ -410,6 +453,15 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
       const result = parseIndentedBlock(ctx, { required: false, directiveName: "@columns" });
       children = result.content;
       hasEnd = result.hasEnd;
+      if (result.endToken) {
+        lastToken = result.endToken;
+      } else if (children.length > 0) {
+        // Use last child's end position
+        const lastChild = children[children.length - 1]!;
+        if (lastChild.endLine !== undefined && lastChild.endColumn !== undefined) {
+          lastToken = { ...token, endLine: lastChild.endLine, endColumn: lastChild.endColumn };
+        }
+      }
     } else {
       // No indented block; parse until @end
       // Consume any newlines first
@@ -429,8 +481,14 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
 
       // Optional @end
       if (ctx.stream.check(TokenType.END)) {
-        ctx.stream.advance();
+        lastToken = ctx.stream.advance();
         hasEnd = true;
+      } else if (children.length > 0) {
+        // Use last child's end position
+        const lastChild = children[children.length - 1]!;
+        if (lastChild.endLine !== undefined && lastChild.endColumn !== undefined) {
+          lastToken = { ...token, endLine: lastChild.endLine, endColumn: lastChild.endColumn };
+        }
       }
     }
   } finally {
@@ -445,6 +503,8 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
     children,
     line: token.line,
     column: token.column,
+    endLine: lastToken.endLine,
+    endColumn: lastToken.endColumn,
     hasEnd,
   };
 }

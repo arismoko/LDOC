@@ -46,10 +46,15 @@ export function parseNumberedItem(ctx: ParserContext): NumberedItemNode {
   const level = token.level ?? 1;
   const style = parseNumberingStyle(token.style ?? "");
 
+  // Track last consumed token for endLine/endColumn
+  let endToken: Token = token;
+
   // Parse content on the same line; allow soft-wrapped lines until a blank line or block start.
   const contentTokens: Token[] = [];
   while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.NEWLINE) && !ctx.stream.check(TokenType.EOF)) {
-    contentTokens.push(ctx.stream.advance());
+    const t = ctx.stream.advance();
+    contentTokens.push(t);
+    endToken = t;
   }
   // Soft-wrap continuation lines into the same numbered paragraph.
   while (ctx.stream.check(TokenType.NEWLINE)) {
@@ -57,6 +62,9 @@ export function parseNumberedItem(ctx: ParserContext): NumberedItemNode {
     ctx.stream.consumeSoftWrappedLine(contentTokens);
     if (ctx.stream.getPosition() === before) break;
   }
+  // Update endToken from last content token
+  const lastContentToken = contentTokens[contentTokens.length - 1];
+  if (lastContentToken) endToken = lastContentToken;
 
   // Trim leading whitespace from the first token
   const firstToken = contentTokens[0];
@@ -97,8 +105,14 @@ export function parseNumberedItem(ctx: ParserContext): NumberedItemNode {
       }
     }
     if (ctx.stream.check(TokenType.DEDENT)) {
-      ctx.stream.advance();
+      endToken = ctx.stream.advance();
     }
+  }
+
+  // Update endToken from last child if present
+  const lastChild = children[children.length - 1];
+  if (lastChild && lastChild.endLine !== undefined && lastChild.endColumn !== undefined) {
+    endToken = { ...endToken, endLine: lastChild.endLine, endColumn: lastChild.endColumn };
   }
 
   // If the numbered item has no inline content, and the first child is a paragraph,
@@ -116,6 +130,8 @@ export function parseNumberedItem(ctx: ParserContext): NumberedItemNode {
     type: "numbered_item",
     line: token.line,
     column: token.column,
+    endLine: endToken.endLine,
+    endColumn: endToken.endColumn,
     level,
     style,
     marker: token.marker ?? "",
@@ -128,16 +144,24 @@ export function parseBulletItem(ctx: ParserContext): BulletItemNode {
   const token = ctx.stream.advance();
   const level = token.level ?? 1;
 
+  // Track last consumed token for endLine/endColumn
+  let endToken: Token = token;
+
   // Parse content on the same line; allow soft-wrapped lines until a blank line or block start.
   const contentTokens: Token[] = [];
   while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.NEWLINE) && !ctx.stream.check(TokenType.EOF)) {
-    contentTokens.push(ctx.stream.advance());
+    const t = ctx.stream.advance();
+    contentTokens.push(t);
+    endToken = t;
   }
   while (ctx.stream.check(TokenType.NEWLINE)) {
     const before = ctx.stream.getPosition();
     ctx.stream.consumeSoftWrappedLine(contentTokens);
     if (ctx.stream.getPosition() === before) break;
   }
+  // Update endToken from last content token
+  const lastContentToken = contentTokens[contentTokens.length - 1];
+  if (lastContentToken) endToken = lastContentToken;
 
   // Trim leading whitespace from the first token
   const firstToken = contentTokens[0];
@@ -178,8 +202,14 @@ export function parseBulletItem(ctx: ParserContext): BulletItemNode {
       }
     }
     if (ctx.stream.check(TokenType.DEDENT)) {
-      ctx.stream.advance();
+      endToken = ctx.stream.advance();
     }
+  }
+
+  // Update endToken from last child if present
+  const lastChild = children[children.length - 1];
+  if (lastChild && lastChild.endLine !== undefined && lastChild.endColumn !== undefined) {
+    endToken = { ...endToken, endLine: lastChild.endLine, endColumn: lastChild.endColumn };
   }
 
   if (content.length === 0) {
@@ -195,6 +225,8 @@ export function parseBulletItem(ctx: ParserContext): BulletItemNode {
     type: "bullet_item",
     line: token.line,
     column: token.column,
+    endLine: endToken.endLine,
+    endColumn: endToken.endColumn,
     level,
     content,
     children,

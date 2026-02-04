@@ -15,10 +15,13 @@ export function parseIf(ctx: ParserContext): Node {
 
   // If @end was consumed, we're done
   if (ifHasEnd) {
+    const lastChild = thenBranch[thenBranch.length - 1];
     return {
       type: "if",
       line: token.line,
       column: token.column,
+      endLine: lastChild?.endLine ?? token.endLine,
+      endColumn: lastChild?.endColumn ?? token.endColumn,
       condition,
       thenBranch,
       elseBranch: [],
@@ -30,6 +33,15 @@ export function parseIf(ctx: ParserContext): Node {
   const rootElseBranch: Node[] = [];
   let currentElseBranch = rootElseBranch;
   let hasEnd = false;
+  let endLine = token.endLine;
+  let endColumn = token.endColumn;
+
+  // Track end from thenBranch initially
+  const lastThenChild = thenBranch[thenBranch.length - 1];
+  if (lastThenChild) {
+    endLine = lastThenChild.endLine ?? endLine;
+    endColumn = lastThenChild.endColumn ?? endColumn;
+  }
 
   // Parse @elseif blocks (transform to nested @if)
   while (ctx.stream.check(TokenType.ELSEIF)) {
@@ -45,13 +57,26 @@ export function parseIf(ctx: ParserContext): Node {
       type: "if",
       line: elseifToken.line,
       column: elseifToken.column,
+      endLine: elseifToken.endLine,
+      endColumn: elseifToken.endColumn,
       condition: elseifCond,
       thenBranch: elseifThen,
       elseBranch: [],
     };
 
+    // Update nestedIf end position from its children
+    const lastElseifChild = elseifThen[elseifThen.length - 1];
+    if (lastElseifChild) {
+      nestedIf.endLine = lastElseifChild.endLine ?? nestedIf.endLine;
+      nestedIf.endColumn = lastElseifChild.endColumn ?? nestedIf.endColumn;
+    }
+
     currentElseBranch.push(nestedIf);
     currentElseBranch = nestedIf.elseBranch;
+
+    // Update parent end position
+    endLine = nestedIf.endLine ?? endLine;
+    endColumn = nestedIf.endColumn ?? endColumn;
 
     if (elseifHasEnd) {
       hasEnd = true;
@@ -66,12 +91,19 @@ export function parseIf(ctx: ParserContext): Node {
     const { content: elseBranchContent, hasEnd: elseHasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@else" });
     currentElseBranch.push(...elseBranchContent);
     hasEnd = elseHasEnd;
+    const lastElseChild = elseBranchContent[elseBranchContent.length - 1];
+    if (lastElseChild) {
+      endLine = lastElseChild.endLine ?? endLine;
+      endColumn = lastElseChild.endColumn ?? endColumn;
+    }
   }
 
   return {
     type: "if",
     line: token.line,
     column: token.column,
+    endLine,
+    endColumn,
     condition,
     thenBranch,
     elseBranch: rootElseBranch,
@@ -95,11 +127,14 @@ export function parseRepeat(ctx: ParserContext): Node {
   }
 
   const { content: body, hasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@repeat" });
+  const lastChild = body[body.length - 1];
 
   return {
     type: "repeat",
     line: token.line,
     column: token.column,
+    endLine: lastChild?.endLine ?? token.endLine,
+    endColumn: lastChild?.endColumn ?? token.endColumn,
     count: n,
     body,
     hasEnd,
@@ -125,11 +160,14 @@ export function parseForeach(ctx: ParserContext): Node {
   }
 
   const { content: body, hasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@foreach" });
+  const lastChild = body[body.length - 1];
 
   return {
     type: "foreach",
     line: token.line,
     column: token.column,
+    endLine: lastChild?.endLine ?? token.endLine,
+    endColumn: lastChild?.endColumn ?? token.endColumn,
     item,
     iterable,
     body,
@@ -139,6 +177,7 @@ export function parseForeach(ctx: ParserContext): Node {
 
 export function parseSet(ctx: ParserContext): Node {
   const token = ctx.stream.advance();
+  const startPos = ctx.stream.getPosition();
   const raw = parseRestOfLineRaw(ctx);
   if (!raw) {
     throw new Error(`@set requires syntax: @set <variable> = <expression> (line ${token.line})`);
@@ -155,10 +194,16 @@ export function parseSet(ctx: ParserContext): Node {
     throw new Error(`@set missing expression at line ${token.line}`);
   }
 
+  // Get end position from last consumed token
+  const endPos = ctx.stream.getPosition();
+  const endToken = endPos > startPos ? ctx.stream.getTokenAt(endPos - 1) : token;
+
   return {
     type: "set",
     line: token.line,
     column: token.column,
+    endLine: endToken?.endLine ?? token.endLine,
+    endColumn: endToken?.endColumn ?? token.endColumn,
     name,
     expression,
   } as any;

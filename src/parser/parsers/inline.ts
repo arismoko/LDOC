@@ -46,7 +46,7 @@ export function parseInlineContent(text: string): InlineNode[] {
     // Variable
     if (text[i] === "{" && text[i + 1] === "{") {
       if (current) {
-        nodes.push({ type: "text", line: 0, column: 0, value: current });
+        nodes.push({ type: "text", line: 0, column: 0, endLine: 0, endColumn: 0, value: current });
         current = "";
       }
 
@@ -68,6 +68,8 @@ export function parseInlineContent(text: string): InlineNode[] {
         type: "variable",
         line: 0,
         column: 0,
+        endLine: 0,
+        endColumn: 0,
         name: namePart,
         path: namePart.split("."),
         filters: parts.slice(1),
@@ -78,7 +80,7 @@ export function parseInlineContent(text: string): InlineNode[] {
     // Cross-reference
     if (text[i] === "[" && text[i + 1] === "[") {
       if (current) {
-        nodes.push({ type: "text", line: 0, column: 0, value: current });
+        nodes.push({ type: "text", line: 0, column: 0, endLine: 0, endColumn: 0, value: current });
         current = "";
       }
 
@@ -94,6 +96,8 @@ export function parseInlineContent(text: string): InlineNode[] {
         type: "cross_ref",
         line: 0,
         column: 0,
+        endLine: 0,
+        endColumn: 0,
         target: ref,
       });
       continue;
@@ -120,6 +124,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "text",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           value: token.value,
         });
         break;
@@ -137,6 +143,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "variable",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           name: namePart,
           path,
           filters,
@@ -148,6 +156,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "cross_ref",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           target: token.value,
         });
         break;
@@ -162,6 +172,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "defined_term",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           term: token.value,
           isDefinition,
         });
@@ -172,6 +184,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "blank",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           length: token.value.length,
         });
         break;
@@ -181,6 +195,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "emphasis",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           style: "bold",
           content: parseInlineContent(token.value),
         });
@@ -191,6 +207,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "emphasis",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           style: "italic",
           content: parseInlineContent(token.value),
         });
@@ -201,6 +219,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "emphasis",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           style: "bold_italic",
           content: parseInlineContent(token.value),
         });
@@ -211,6 +231,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "hard_break",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
         });
         break;
 
@@ -221,6 +243,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "link",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           text: linkText ?? "",
           url: linkUrl ?? "",
         });
@@ -233,6 +257,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "image",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           alt: imgAlt ?? "",
           src: imgSrc ?? "",
         });
@@ -243,6 +269,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "strikethrough",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           content: parseInlineContent(token.value),
         });
         break;
@@ -252,6 +280,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "inline_code",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           value: token.value,
         });
         break;
@@ -261,6 +291,8 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           type: "footnote_ref",
           line: token.line,
           column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
           label: token.value,
         });
         break;
