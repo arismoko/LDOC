@@ -546,12 +546,14 @@ module.exports = grammar({
 
     // =========================================================================
     // Emphasis: *italic*, **bold**, ***bold_italic***
+    // Note: Nested emphasis (**bold *italic* bold**) requires complex state
+    // tracking. Current grammar handles the common non-nested cases.
     // =========================================================================
     emphasis: ($) =>
       choice(
         seq("***", /[^*]+/, "***"),
         seq("**", /[^*]+/, "**"),
-        seq("*", /[^*]+/, "*")
+        seq("*", /[^*\n]+/, "*")
       ),
 
     // =========================================================================

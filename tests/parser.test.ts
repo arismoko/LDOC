@@ -296,6 +296,47 @@ describe("Parser", () => {
     expect(para.content.some((n: any) => n.type === "variable")).toBe(true);
   });
 
+  test("parses nested emphasis: italic inside bold", () => {
+    const parser = new Parser();
+    const ast = parser.parse("**bold with *nested italic* inside**");
+
+    const para = must(ast.body[0]) as any;
+    expect(para.type).toBe("paragraph");
+    expect(para.content).toHaveLength(1);
+
+    const bold = para.content[0];
+    expect(bold.type).toBe("emphasis");
+    expect(bold.style).toBe("bold");
+
+    // Bold content should have: text, italic, text
+    expect(bold.content).toHaveLength(3);
+    expect(bold.content[0].type).toBe("text");
+    expect(bold.content[0].value).toBe("bold with ");
+    expect(bold.content[1].type).toBe("emphasis");
+    expect(bold.content[1].style).toBe("italic");
+    expect(bold.content[2].type).toBe("text");
+    expect(bold.content[2].value).toBe(" inside");
+  });
+
+  test("parses nested inline: strikethrough and code inside bold", () => {
+    const parser = new Parser();
+    const ast = parser.parse("**bold ~~strike~~ and `code` here**");
+
+    const para = must(ast.body[0]) as any;
+    const bold = para.content[0];
+    expect(bold.type).toBe("emphasis");
+    expect(bold.style).toBe("bold");
+
+    // Bold content should have: text, strikethrough, text, code, text
+    expect(bold.content).toHaveLength(5);
+    expect(bold.content[0].value).toBe("bold ");
+    expect(bold.content[1].type).toBe("strikethrough");
+    expect(bold.content[2].value).toBe(" and ");
+    expect(bold.content[3].type).toBe("inline_code");
+    expect(bold.content[3].value).toBe("code");
+    expect(bold.content[4].value).toBe(" here");
+  });
+
   test("soft-wraps single newlines within paragraphs", () => {
     const parser = new Parser();
     const ast = parser.parse("Hello\nWorld");

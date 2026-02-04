@@ -36,19 +36,23 @@ export function parseTextUntilNewline(ctx: ParserContext): string {
   return text.trim();
 }
 
-export function parseInlineContent(text: string): InlineNode[] {
-  // Simple inline parser for text that may contain {{vars}} and [[refs]]
+export function parseInlineContent(text: string, allowEmphasis = true): InlineNode[] {
+  // Inline parser for text that may contain {{vars}}, [[refs]], and emphasis
   const nodes: InlineNode[] = [];
   let current = "";
   let i = 0;
 
+  const flushText = () => {
+    if (current) {
+      nodes.push({ type: "text", line: 0, column: 0, endLine: 0, endColumn: 0, value: current });
+      current = "";
+    }
+  };
+
   while (i < text.length) {
     // Variable
     if (text[i] === "{" && text[i + 1] === "{") {
-      if (current) {
-        nodes.push({ type: "text", line: 0, column: 0, endLine: 0, endColumn: 0, value: current });
-        current = "";
-      }
+      flushText();
 
       i += 2;
       let varName = "";
@@ -79,10 +83,7 @@ export function parseInlineContent(text: string): InlineNode[] {
 
     // Cross-reference
     if (text[i] === "[" && text[i + 1] === "[") {
-      if (current) {
-        nodes.push({ type: "text", line: 0, column: 0, endLine: 0, endColumn: 0, value: current });
-        current = "";
-      }
+      flushText();
 
       i += 2;
       let ref = "";
@@ -101,6 +102,94 @@ export function parseInlineContent(text: string): InlineNode[] {
         target: ref,
       });
       continue;
+    }
+
+    // Nested emphasis (only when allowed to prevent infinite recursion)
+    if (allowEmphasis && text[i] === "*") {
+      // Check for *** (bold_italic), ** (bold), or * (italic)
+      let stars = 0;
+      let j = i;
+      while (j < text.length && text[j] === "*" && stars < 3) {
+        stars++;
+        j++;
+      }
+
+      if (stars >= 1) {
+        const marker = "*".repeat(stars);
+        // Find closing marker
+        const closeIdx = text.indexOf(marker, j);
+        if (closeIdx !== -1) {
+          // Check it's the right closing (e.g., for **, don't match a single * inside)
+          const inner = text.slice(j, closeIdx);
+          // Make sure we're not matching partial markers
+          const afterClose = text[closeIdx + stars];
+          const isValidClose = afterClose !== "*";
+
+          if (isValidClose && inner.length > 0) {
+            flushText();
+
+            const style = stars === 3 ? "bold_italic" : stars === 2 ? "bold" : "italic";
+            nodes.push({
+              type: "emphasis",
+              line: 0,
+              column: 0,
+              endLine: 0,
+              endColumn: 0,
+              style,
+              // Parse inner content, but disable emphasis if we're already in italic
+              // to prevent **a *b* c** from infinite recursion
+              content: parseInlineContent(inner, stars !== 1),
+            });
+
+            i = closeIdx + stars;
+            continue;
+          }
+        }
+      }
+    }
+
+    // Strikethrough: ~~text~~
+    if (text[i] === "~" && text[i + 1] === "~") {
+      const start = i + 2;
+      const closeIdx = text.indexOf("~~", start);
+      if (closeIdx !== -1) {
+        const inner = text.slice(start, closeIdx);
+        if (inner.length > 0) {
+          flushText();
+          nodes.push({
+            type: "strikethrough",
+            line: 0,
+            column: 0,
+            endLine: 0,
+            endColumn: 0,
+            content: parseInlineContent(inner, allowEmphasis),
+          });
+          i = closeIdx + 2;
+          continue;
+        }
+      }
+    }
+
+    // Inline code: `text` (no recursive parsing - code is literal)
+    if (text[i] === "`") {
+      const start = i + 1;
+      const closeIdx = text.indexOf("`", start);
+      if (closeIdx !== -1) {
+        const inner = text.slice(start, closeIdx);
+        if (inner.length > 0) {
+          flushText();
+          nodes.push({
+            type: "inline_code",
+            line: 0,
+            column: 0,
+            endLine: 0,
+            endColumn: 0,
+            value: inner,
+          });
+          i = closeIdx + 1;
+          continue;
+        }
+      }
     }
 
     current += text[i];
