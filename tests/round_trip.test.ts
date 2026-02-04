@@ -177,8 +177,8 @@ See [[target-section]] for more details.
     const result = await decompile(docxBuffer);
 
     expect(result.source).toContain("@table");
-    expect(result.source).toContain("[");
-    expect(result.source).toContain("]");
+    expect(result.source).toContain("@row");
+    expect(result.source).toContain("@cell");
   });
 
   test("external link round-trip", async () => {

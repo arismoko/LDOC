@@ -49,7 +49,9 @@ export enum TokenType {
 
   // Table
   TABLE = "TABLE",
-  TABLE_ROW = "TABLE_ROW",
+  TABLE_ROW = "TABLE_ROW", // Legacy [cell, cell] syntax
+  ROW = "ROW",
+  CELL = "CELL",
 
   // Control
   PAGEBREAK = "PAGEBREAK",
@@ -136,6 +138,8 @@ export const KEYWORDS = new Set([
   "define",
   "use",
   "table",
+  "row",
+  "cell",
   "pagebreak",
   "break",
   "todo",

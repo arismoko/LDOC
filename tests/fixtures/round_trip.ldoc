@@ -22,9 +22,18 @@ This is a plain paragraph with **bold** and *italic* text. Also test ~~strikethr
 @italic This is styled as italic via modifier
 
 @table
-	[Header A, Header B, Header C]
-	[Value 1 , Value 2 , Value 3 ]
-	[Cell A  , Cell B  , Cell C  ]
+  @row
+    @cell: Header A
+    @cell: Header B
+    @cell: Header C
+  @row
+    @cell: Value 1
+    @cell: Value 2
+    @cell: Value 3
+  @row
+    @cell: Cell A
+    @cell: Cell B
+    @cell: Cell C
 
 Here is a [link](https://example.com) in a paragraph. This has a footnote reference[^1] in the middle.
 

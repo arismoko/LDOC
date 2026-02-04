@@ -305,6 +305,95 @@ export class Lexer {
     }
     const word = this.input.slice(wordStart, this.pos).toLowerCase();
 
+    // Is it a keyword?
+    if (level === 1 && KEYWORDS.has(word)) {
+      // Special handling for @cell with attributes: @cell colspan=2
+      // If it's a keyword that supports attributes (like cell), check for them
+      if (word === "cell" || word === "row" || word === "table") {
+        const attributes: Record<string, string> = {};
+        const savePos = this.pos;
+        const saveCol = this.column;
+        
+        // Try to parse attributes
+        let hasAttributes = false;
+        while (true) {
+          this.skipInlineWhitespace();
+          if (this.peek() === "\n" || this.peek() === ":" || this.pos >= this.input.length) break;
+          
+          // Parse key
+          const keyStart = this.pos;
+          while (this.pos < this.input.length && /[a-zA-Z0-9_-]/.test(this.peek())) {
+            this.advance();
+          }
+          const key = this.input.slice(keyStart, this.pos);
+          if (!key) break;
+          
+          // Expect =
+          if (this.peek() !== "=") {
+            // Not an attribute pair, maybe just text?
+            // For keywords, we usually don't have text on the same line unless it's a shorthand like @cell:
+            // But here we are checking for attributes BEFORE the colon.
+            break; 
+          }
+          this.advance();
+          
+          // Parse value
+          let value: string;
+          if (this.peek() === '"') {
+            this.advance();
+            const valStart = this.pos;
+            while (this.pos < this.input.length && this.peek() !== '"' && this.peek() !== "\n") {
+              this.advance();
+            }
+            value = this.input.slice(valStart, this.pos);
+            if (this.peek() === '"') this.advance();
+          } else {
+            const valStart = this.pos;
+            while (this.pos < this.input.length && !/[\s\n:]/.test(this.peek())) {
+              this.advance();
+            }
+            value = this.input.slice(valStart, this.pos);
+          }
+          
+          if (key && value) {
+            attributes[key] = value;
+            hasAttributes = true;
+          }
+        }
+        
+        if (hasAttributes) {
+          const tokenType = this.keywordToTokenType(word);
+          this.pushToken({
+            type: tokenType,
+            value: word,
+            line: this.line,
+            column: startCol,
+            indent: this.indentation.currentIndent(),
+            level: 1,
+            attributes,
+          });
+          this.lineHasContent = true;
+          return;
+        } else {
+          // No attributes found, reset and emit simple keyword token
+          this.pos = savePos;
+          this.column = saveCol;
+        }
+      }
+
+      const tokenType = this.keywordToTokenType(word);
+      this.pushToken({
+        type: tokenType,
+        value: word,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+        level: 1, // Add level for consistency, though not strictly needed for keywords
+      });
+      this.lineHasContent = true;
+      return;
+    }
+
     // Is it a modifier?
     if (level === 1 && MODIFIERS.has(word)) {
       // Special handling for @style with key=value pairs
@@ -1317,6 +1406,10 @@ export class Lexer {
         return TokenType.USE;
       case "table":
         return TokenType.TABLE;
+      case "row":
+        return TokenType.ROW;
+      case "cell":
+        return TokenType.CELL;
       case "pagebreak":
         return TokenType.PAGEBREAK;
       case "break":

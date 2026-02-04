@@ -18,7 +18,6 @@ import {
 import type { TableNode, ModifierNode, InlineNode, Node, TableCellNode } from "../parser/ast";
 import type { AlignmentType } from "docx";
 import type { TextStyle } from "./styles";
-import { splitInlineNodesByParagraphBreak } from "./text";
 
 /**
  * Context interface for table/box compilation.
@@ -78,44 +77,41 @@ export function compileTable(
 
   let bookmarksForFirstRow = forcedBookmarks;
 
-  const rows = node.rows.map((row, index) => {
-    const isHeader = index === 0;
-    const cells = row.cells.map((cellNode: TableCellNode) => {
-      // Split cell content by newlines to support multi-paragraph cells
-      const contentLines = splitInlineNodesByParagraphBreak(cellNode.content);
+  const rows = node.rows.map((row, rowIndex) => {
+    const isHeader = row.isHeader;
+    const cells = row.cells.map((cellNode: TableCellNode, cellIndex) => {
+      const cellChildren: (Paragraph | Table)[] = [];
 
-      // Create a paragraph for each line
-      const paragraphs: Paragraph[] = contentLines.map((lineNodes, lineIndex) => {
-        let paragraphChildren: any[] = ctx.compileInlineNodes(
-          lineNodes,
-          isHeader ? { bold: true } : {},
-          (node as any).scope
-        );
-
-        // Apply bookmarks only to the first paragraph of the first cell
-        if (
-          bookmarksForFirstRow &&
-          bookmarksForFirstRow.length > 0 &&
-          index === 0 &&
-          lineIndex === 0
-        ) {
-          for (let i = bookmarksForFirstRow.length - 1; i >= 0; i--) {
-            paragraphChildren = [
-              new Bookmark({ id: bookmarksForFirstRow[i]!, children: paragraphChildren }),
-            ];
+      if (cellNode.content.length === 0) {
+        cellChildren.push(new Paragraph({ spacing: { after: 0 } }));
+      } else {
+        cellNode.content.forEach((childNode, childIndex) => {
+          let bookmarks: string[] | undefined = undefined;
+          // Apply bookmarks only to the first paragraph of the first cell
+          if (
+            bookmarksForFirstRow &&
+            bookmarksForFirstRow.length > 0 &&
+            rowIndex === 0 &&
+            cellIndex === 0 &&
+            childIndex === 0
+          ) {
+            bookmarks = bookmarksForFirstRow;
+            bookmarksForFirstRow = undefined;
           }
-          bookmarksForFirstRow = undefined;
-        }
 
-        return new Paragraph({
-          children: paragraphChildren,
-          spacing: { after: 0 },
+          cellChildren.push(...ctx.compileNode(
+            childNode,
+            isHeader ? { bold: true } : {},
+            undefined,
+            undefined,
+            bookmarks
+          ));
         });
-      });
+      }
 
       // Build cell options
       const cellOptions: any = {
-        children: paragraphs.length > 0 ? paragraphs : [new Paragraph({})],
+        children: cellChildren,
         verticalAlign: VerticalAlign.TOP,
         shading: isHeader
           ? { type: ShadingType.CLEAR, fill: "F2F2F2" }

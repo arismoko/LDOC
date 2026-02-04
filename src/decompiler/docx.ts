@@ -351,6 +351,6 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
     })
     .join("\n");
 
-  const source = trimmedTrailing.replace(/\n{3,}/g, "\n\n").trim();
+  const source = trimmedTrailing.trim();
   return { source, assets };
 }

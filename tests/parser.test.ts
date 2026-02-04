@@ -1363,9 +1363,12 @@ describe("Table styling", () => {
       expect(row?.cells.length).toBe(1);
       const cell = row?.cells[0];
       expect(cell?.content.length).toBe(1);
-      expect(cell?.content[0]?.type).toBe("text");
-      if (cell?.content[0]?.type === "text") {
-        expect(cell.content[0].value).toBe(">");
+      // Content is now wrapped in a paragraph
+      expect(cell?.content[0]?.type).toBe("paragraph");
+      const para = cell?.content[0] as any;
+      expect(para.content[0]?.type).toBe("text");
+      if (para.content[0]?.type === "text") {
+        expect(para.content[0].value).toBe(">");
       }
     }
   });
@@ -1384,9 +1387,12 @@ describe("Table styling", () => {
       expect(row?.cells.length).toBe(1);
       const cell = row?.cells[0];
       expect(cell?.content.length).toBe(1);
-      expect(cell?.content[0]?.type).toBe("text");
-      if (cell?.content[0]?.type === "text") {
-        expect(cell.content[0].value).toBe("^");
+      // Content is now wrapped in a paragraph
+      expect(cell?.content[0]?.type).toBe("paragraph");
+      const para = cell?.content[0] as any;
+      expect(para.content[0]?.type).toBe("text");
+      if (para.content[0]?.type === "text") {
+        expect(para.content[0].value).toBe("^");
       }
     }
   });
@@ -1425,8 +1431,12 @@ This is **bold** and *italic* and ***both***.
 
     expect(out).toContain("@table");
     // Table header row is bold by default in our DOCX styling.
-    expect(out).toMatch(/\[(\*\*A\*\*|A), (\*\*B\*\*|B)\]/);
-    expect(out).toMatch(/\[(\*\*1\*\*|1), (\*\*2\*\*|2)\]/);
+    // New syntax output check
+    expect(out).toContain("@row");
+    expect(out).toContain("@cell: A");
+    expect(out).toContain("@cell: B");
+    expect(out).toContain("@cell: 1");
+    expect(out).toContain("@cell: 2");
   });
 
   test("errors on non-docx input", async () => {

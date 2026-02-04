@@ -95,7 +95,7 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
           { ...this.currentStyle, ...style },
           alignment || this.currentAlignment,
           indent || this.currentIndent,
-          this.paragraphOptions
+          { ...this.paragraphOptions, spacing: { after: 0 } }
         );
         return v.visit(node);
       }

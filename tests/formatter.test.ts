@@ -108,39 +108,69 @@ Content after define
   describe("Table alignment", () => {
     test("aligns simple table columns", () => {
       const input = `@table
-  [Name,Age,Role]
-  [Alice,30,Admin]
-  [Bob,25,User]
+  @row
+    @cell: Name
+    @cell: Age
+    @cell: Role
+  @row
+    @cell: Alice
+    @cell: 30
+    @cell: Admin
+  @row
+    @cell: Bob
+    @cell: 25
+    @cell: User
 `;
       const formatted = format(input, { useTabs: false });
       // Check that columns are aligned - all values in each column have same width
       expect(formatted).toContain("@table");
       // Check table structure is preserved
       const lines = formatted.split("\n");
-      const tableLines = lines.filter((l) => l.includes("["));
-      expect(tableLines.length).toBe(3);
+      const rowLines = lines.filter((l) => l.includes("@row"));
+      expect(rowLines.length).toBe(3);
+      
+      expect(formatted).toContain("@cell: Name");
+      expect(formatted).toContain("@cell: Alice");
     });
 
     test("handles varying column widths", () => {
       const input = `@table
-  [Short,VeryLongColumnName]
-  [A,B]
+  @row
+    @cell: Short
+    @cell: A very long value
+  @row
+    @cell: B
+    @cell: C
 `;
       const formatted = format(input, { useTabs: false });
-      const lines = formatted.split("\n");
-      const row1 = lines.find((l) => l.includes("Short"));
-      const row2 = lines.find((l) => l.includes(", B"));
-      expect(row1).toBeDefined();
-      expect(row2).toBeDefined();
+      expect(formatted).toContain("@cell: Short");
+      expect(formatted).toContain("@cell: A very long value");
     });
 
     test("preserves empty cells", () => {
       const input = `@table
-  [A,B,C]
-  [1,,3]
+  @row
+    @cell: A
+    @cell: B
+    @cell: C
+  @row
+    @cell: 1
+    @cell
+    @cell: 3
 `;
       const formatted = format(input, { useTabs: false });
-      expect(formatted).toContain("[1,");
+      expect(formatted).toContain("@cell: 1");
+      expect(formatted).toContain("@cell: 3");
+      // Empty cell should be just @cell or @cell:
+      // The parser/printer might output @cell for empty block
+      // We expect @cell followed by newline (block form) or @cell: (inline form)
+      // Since it's empty, printTable likely outputs "@cell" then empty content lines?
+      // Or maybe we should standardize empty cells to "@cell:"?
+      // Current implementation:
+      // if (cell.content.length === 1 && paragraph...) -> inline
+      // else -> block
+      // Empty content length is 0 -> block form -> "@cell" + indented content (empty)
+      expect(formatted).toMatch(/@cell\s*@cell: 3/); 
     });
   });
 

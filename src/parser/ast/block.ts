@@ -92,16 +92,18 @@ export interface EmptyParagraphNode extends BaseNode {
 
 export interface TableCellNode extends BaseNode {
   type: "table_cell";
-  content: InlineNode[];
+  content: Node[]; // Changed from InlineNode[] to Node[] to support blocks
   colspan: number;
   rowspan: number;
   vMerge?: "restart" | "continue";
+  attributes?: Record<string, string>;
 }
 
 export interface TableRowNode extends BaseNode {
   type: "table_row";
   cells: TableCellNode[];
   isHeader: boolean;
+  attributes?: Record<string, string>;
 }
 
 export interface TableNode extends BaseNode {
@@ -109,6 +111,7 @@ export interface TableNode extends BaseNode {
   rows: TableRowNode[];
   /** Whether the source had an explicit @end */
   hasEnd?: boolean;
+  attributes?: Record<string, string>;
 }
 
 export interface PageBreakNode extends BaseNode {

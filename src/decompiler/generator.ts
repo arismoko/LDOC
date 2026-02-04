@@ -164,7 +164,14 @@ export function processChildren(
           out.push(`${innerIndent}@anchor ${anchor}`);
         }
         let line = subInfo.line;
-        if (subInfo.styleAttrs && !subInfo.isEmpty) {
+        
+        if (subInfo.isEmpty) {
+          // Force empty paragraph by emitting extra blank line
+          // This ensures we get enough newlines to trigger EmptyParagraphNode in parser
+          out.push("");
+          out.push("");
+          out.push(innerIndent + line);
+        } else if (subInfo.styleAttrs && !subInfo.isEmpty) {
           const styleStr = formatStyleAttrs(subInfo.styleAttrs);
           out.push(`${innerIndent}@style ${styleStr}`);
           let alignedLine = line;

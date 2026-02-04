@@ -497,25 +497,40 @@ function printTable(
 ): string[] {
   const prefix = indent.repeat(level);
   const rowPrefix = indent.repeat(level + 1);
+  const cellPrefix = indent.repeat(level + 2);
   const lines: string[] = [`${prefix}@table`];
 
-  // Calculate column widths
-  const columnWidths = calculateColumnWidths(node.rows);
-
-  // Print each row
   for (const row of node.rows) {
-    const cells: string[] = [];
-    for (let i = 0; i < row.cells.length; i++) {
-      const cell = row.cells[i];
-      if (!cell) continue;
+    lines.push(`${rowPrefix}@row`);
+    for (const cell of row.cells) {
+      // Handle attributes
+      let attrs = "";
+      if (cell.colspan > 1) attrs += ` colspan=${cell.colspan}`;
+      if (cell.rowspan > 1) attrs += ` rowspan=${cell.rowspan}`;
+      if (cell.attributes) {
+         for (const [k, v] of Object.entries(cell.attributes)) {
+            if (k !== "colspan" && k !== "rowspan") {
+               attrs += ` ${k}=${v}`;
+            }
+         }
+      }
 
-      const cellContent = printInlineNodes(cell.content);
-      const targetWidth = columnWidths[i] ?? cellContent.length;
-      const paddedContent = cellContent.padEnd(targetWidth);
-      cells.push(paddedContent);
+      // Check for simple inline content
+      // If content has 1 paragraph, no hard breaks, short enough
+      if (cell.content.length === 1 && cell.content[0]!.type === "paragraph") {
+         const para = cell.content[0] as ParagraphNode;
+         const text = printInlineNodes(para.content);
+         if (!text.includes("\n") && text.length < 80) {
+            lines.push(`${cellPrefix}@cell${attrs}: ${text}`);
+            continue;
+         }
+      }
+
+      // Block content
+      lines.push(`${cellPrefix}@cell${attrs}`);
+      const contentLines = printNodes(cell.content, indent, level + 3);
+      lines.push(...contentLines);
     }
-
-    lines.push(`${rowPrefix}[${cells.join(", ")}]`);
   }
 
   if (node.hasEnd) {
@@ -529,20 +544,9 @@ function printTable(
  * Calculate max width for each column
  */
 function calculateColumnWidths(rows: TableRowNode[]): number[] {
-  const widths: number[] = [];
-
-  for (const row of rows) {
-    for (let i = 0; i < row.cells.length; i++) {
-      const cell = row.cells[i];
-      if (!cell) continue;
-
-      const content = printInlineNodes(cell.content);
-      const currentWidth = widths[i] ?? 0;
-      widths[i] = Math.max(currentWidth, content.length);
-    }
-  }
-
-  return widths;
+  // Deprecated for new syntax, but kept if needed for something else?
+  // Not used in new printTable.
+  return [];
 }
 
 /**

@@ -2,17 +2,13 @@ import { getOnlyKey, type XmlNode } from "../xml";
 import { normalizeWs } from "./run";
 import { paragraphText } from "./paragraph";
 
-function escapeTableCell(cell: string): string {
-  const safe = cell.replace(/\"/g, "'").replace(/"/g, "'");
-  // Need quotes if: contains comma, starts/ends with whitespace, or is exactly ">" or "^"
-  const needsQuotes = /,/.test(safe) || /^\s/.test(safe) || /\s$/.test(safe) || safe === ">" || safe === "^";
-  return needsQuotes ? `"${safe}"` : safe;
-}
-
 interface CellInfo {
   text: string;
   colspan: number;
   vMerge: "restart" | "continue" | null;
+  // Computed
+  rowspan: number;
+  isCovered: boolean;
 }
 
 function parseCellProperties(tcChildren: XmlNode[]): { colspan: number; vMerge: "restart" | "continue" | null } {
@@ -26,20 +22,17 @@ function parseCellProperties(tcChildren: XmlNode[]): { colspan: number; vMerge: 
       for (const prop of tcPrChildren ?? []) {
         const pk = getOnlyKey(prop);
         if (pk === "w:gridSpan") {
-          // w:gridSpan has @w:val attribute
           const attrs = prop["@"] as Record<string, string> | undefined;
           if (attrs?.["w:val"]) {
             colspan = parseInt(attrs["w:val"], 10) || 1;
           }
         }
         if (pk === "w:vMerge") {
-          // w:vMerge: if has @w:val="restart" -> restart, else -> continue
           const attrs = prop["@"] as Record<string, string> | undefined;
           if (attrs?.["w:val"] === "restart") {
             vMerge = "restart";
           } else {
-            // No val or val is not "restart" means continue
-            vMerge = "continue";
+            vMerge = "continue"; // No val or val != restart implies continue
           }
         }
       }
@@ -57,24 +50,23 @@ function stripHeaderBold(text: string): string {
 
 export function tableToLdoc(tblNode: XmlNode): string {
   const tblChildren = tblNode["w:tbl"] as XmlNode[];
-  const rows: string[] = [];
+  const grid: CellInfo[][] = [];
   let isFirstRow = true;
 
+  // Pass 1: Build Grid
   for (const tr of tblChildren ?? []) {
     const k = getOnlyKey(tr);
     if (k !== "w:tr") continue;
     const trChildren = tr["w:tr"] as XmlNode[];
-    const cellInfos: CellInfo[] = [];
+    const row: CellInfo[] = [];
 
     for (const tc of trChildren ?? []) {
       const kk = getOnlyKey(tc);
       if (kk !== "w:tc") continue;
       const tcChildren = tc["w:tc"] as XmlNode[];
 
-      // Get cell properties (colspan, vMerge)
       const { colspan, vMerge } = parseCellProperties(tcChildren);
 
-      // Get cell text
       const paras: string[] = [];
       for (const p of tcChildren ?? []) {
         const pk = getOnlyKey(p);
@@ -83,37 +75,99 @@ export function tableToLdoc(tblNode: XmlNode): string {
           paras.push(t);
         }
       }
-      // Join paragraphs with double newline to preserve paragraph structure in LDOC
-      // (Single newline is soft wrap, double newline is new paragraph)
-      const cellText = normalizeWs(paras.join("\n\n"));
+      const cellText = normalizeWs(paras.join("\n\n")); // Double newline for paragraphs
 
       // Strip bold from header row cells (first row)
       const finalText = isFirstRow ? stripHeaderBold(cellText) : cellText;
-      cellInfos.push({ text: finalText, colspan, vMerge });
+
+      const cell: CellInfo = {
+        text: finalText,
+        colspan,
+        vMerge,
+        rowspan: 1,
+        isCovered: false,
+      };
+
+      row.push(cell);
     }
-
-    // Convert cellInfos to LDOC cell strings
-    const cells: string[] = [];
-    for (const info of cellInfos) {
-      if (info.vMerge === "continue") {
-        // This is a rowspan continuation - emit "^"
-        cells.push("^");
-      } else {
-        // Normal cell or vMerge restart
-        cells.push(escapeTableCell(info.text));
-      }
-
-      // If colspan > 1, emit additional ">" markers
-      for (let i = 1; i < info.colspan; i++) {
-        cells.push(">");
-      }
-    }
-
-    rows.push(`[${cells.join(", ")}]`);
+    grid.push(row);
     isFirstRow = false;
   }
 
-  // Emit as an indented @table block (matches parser expectation)
-  const indented = rows.map((r) => `  ${r}`).join("\n");
-  return `@table\n${indented}`;
+  // Pass 1.5: Expand grid for alignment (virtual grid)
+  const expandedGrid: (CellInfo | null)[][] = [];
+  for (const row of grid) {
+    const expandedRow: (CellInfo | null)[] = [];
+    for (const cell of row) {
+      expandedRow.push(cell);
+      for (let i = 1; i < cell.colspan; i++) {
+        expandedRow.push(null); // Covered by colspan
+      }
+    }
+    expandedGrid.push(expandedRow);
+  }
+
+  // Pass 2: Calculate Rowspans
+  for (let r = 0; r < expandedGrid.length; r++) {
+    const row = expandedGrid[r];
+    if (!row) continue;
+
+    for (let c = 0; c < row.length; c++) {
+      const cell = row[c];
+      if (!cell) continue; // Covered by colspan
+
+      if (cell.vMerge === "restart") {
+        let span = 1;
+        // Look down
+        while (r + span < expandedGrid.length) {
+          const nextRow = expandedGrid[r + span];
+          if (!nextRow) break;
+
+          const nextCell = nextRow[c];
+          
+          if (nextCell && nextCell.vMerge === "continue") {
+            nextCell.isCovered = true;
+            span++;
+          } else {
+            break;
+          }
+        }
+        cell.rowspan = span;
+      }
+    }
+  }
+
+  // Pass 3: Emit
+  const output: string[] = ["@table"];
+  
+  for (const row of grid) {
+    output.push("  @row");
+    for (const cell of row) {
+      if (cell.isCovered) continue; // Skip cells merged into a rowspan above
+
+      let attrs = "";
+      if (cell.colspan > 1) attrs += ` colspan=${cell.colspan}`;
+      if (cell.rowspan > 1) attrs += ` rowspan=${cell.rowspan}`;
+      
+      const text = cell.text;
+      const isMultiline = text.includes("\n");
+      
+      // Use shorthand for simple single-line cells
+      if (!isMultiline && text.length < 80) {
+         output.push(`    @cell${attrs}: ${text}`);
+      } else {
+         // Block form
+         output.push(`    @cell${attrs}`);
+         if (text.trim()) {
+           // Indent text
+           const lines = text.split("\n");
+           for (const line of lines) {
+             output.push(`      ${line}`);
+           }
+         }
+      }
+    }
+  }
+
+  return output.join("\n");
 }
