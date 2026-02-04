@@ -4,6 +4,8 @@
 
 This is a plain paragraph with **bold** and *italic* text.
 
+Also test ~~strikethrough~~ and **bold with *nested italic* text**.
+
 @1 First numbered item
 @@a Nested alpha item
 @@b Another alpha item
@@ -15,7 +17,11 @@ This is a plain paragraph with **bold** and *italic* text.
 
 @center Centered paragraph
 
+@right Right-aligned paragraph
+
 @bold This text is bold via modifier
+
+@italic This is styled as italic via modifier
 
 @table
 	[Header A, Header B, Header C]
@@ -23,3 +29,7 @@ This is a plain paragraph with **bold** and *italic* text.
 	[Cell A  , Cell B  , Cell C  ]
 
 Here is a [link](https://example.com) in a paragraph.
+
+This has a footnote reference[^1] in the middle.
+
+[^1]: This is the footnote content.

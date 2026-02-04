@@ -5,7 +5,14 @@ export type RunStyle = {
   italic: boolean;
   strike?: boolean;
   code?: boolean;
+  font?: string;     // Font name from w:rFonts
+  sizePt?: number;   // Font size in points (from w:sz which is in half-points)
 };
+
+export interface DocumentDefaults {
+  font?: string;
+  sizePt?: number;
+}
 
 export type ParagraphStyleInfo = {
   basedOn?: string;
@@ -53,6 +60,81 @@ export function parseSpacingFromStylesXml(stylesXml: string | undefined): { line
   }
 
   return undefined;
+}
+
+/**
+ * Extract font and size defaults from styles.xml.
+ * Looks in w:docDefaults -> w:rPrDefault -> w:rPr first,
+ * then falls back to the Normal style if not found.
+ */
+export function parseDocumentDefaults(stylesXml: string | undefined): DocumentDefaults {
+  if (!stylesXml) return {};
+
+  const tree = xmlParser.parse(stylesXml) as XmlNode[];
+  const styles = findFirst(tree, "w:styles");
+  if (!styles) return {};
+
+  const stylesChildren = styles["w:styles"] as XmlNode[];
+
+  // Helper to extract font and size from an rPr node
+  function extractFromRPr(rPr: XmlNode | undefined): DocumentDefaults {
+    if (!rPr) return {};
+    const rPrChildren = rPr["w:rPr"] as XmlNode[];
+    if (!rPrChildren) return {};
+
+    let font: string | undefined;
+    let sizePt: number | undefined;
+
+    // Look for w:rFonts - prefer w:ascii, fallback to w:hAnsi
+    const rFonts = findFirst(rPrChildren, "w:rFonts");
+    if (rFonts) {
+      font = attrVal(rFonts, "@_w:ascii") || attrVal(rFonts, "@_w:hAnsi");
+    }
+
+    // Look for w:sz - value is in half-points, divide by 2 for points
+    const sz = findFirst(rPrChildren, "w:sz");
+    if (sz) {
+      const szVal = attrVal(sz, "@_w:val");
+      if (szVal) {
+        const halfPoints = parseInt(szVal, 10);
+        if (Number.isFinite(halfPoints)) {
+          sizePt = halfPoints / 2;
+        }
+      }
+    }
+
+    return { font, sizePt };
+  }
+
+  // Try docDefaults -> rPrDefault -> rPr first
+  const docDefaults = findFirst(stylesChildren, "w:docDefaults");
+  if (docDefaults) {
+    const docDefaultsChildren = docDefaults["w:docDefaults"] as XmlNode[];
+    const rPrDefault = findFirst(docDefaultsChildren, "w:rPrDefault");
+    if (rPrDefault) {
+      const rPrDefaultChildren = rPrDefault["w:rPrDefault"] as XmlNode[];
+      const rPr = findFirst(rPrDefaultChildren, "w:rPr");
+      const defaults = extractFromRPr(rPr);
+      if (defaults.font || defaults.sizePt) {
+        return defaults;
+      }
+    }
+  }
+
+  // Fallback: try the Normal style
+  for (const child of stylesChildren ?? []) {
+    const key = getOnlyKey(child);
+    if (key !== "w:style") continue;
+
+    const styleId = attrVal(child, "@_w:styleId");
+    if (styleId === "Normal") {
+      const styleChildren = child["w:style"] as XmlNode[];
+      const rPr = findFirst(styleChildren, "w:rPr");
+      return extractFromRPr(rPr);
+    }
+  }
+
+  return {};
 }
 
 export function parseParagraphStyles(stylesXml: string | undefined): ParagraphStyleMap {

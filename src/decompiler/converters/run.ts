@@ -7,6 +7,14 @@ export type TextSegment = {
   text: string;
 };
 
+/** Style flags relevant for emphasis coalescing (ignoring font/size) */
+type EmphasisStyle = {
+  bold: boolean;
+  italic: boolean;
+  strike?: boolean;
+  code?: boolean;
+};
+
 export function normalizeWs(s: string, preserveTabs = false, trimEnd = true): string {
   // keep internal newlines (from <w:br>), but collapse other whitespace
   let result = s.replace(/\r\n/g, "\n");
@@ -20,7 +28,7 @@ export function normalizeWs(s: string, preserveTabs = false, trimEnd = true): st
   return trimEnd ? result.trimEnd() : result;
 }
 
-export function wrapEmphasis(text: string, style: RunStyle): string {
+export function wrapEmphasis(text: string, style: EmphasisStyle): string {
   if (!text) return text;
   const m = text.match(/^(\s*)([\s\S]*?)(\s*)$/);
   const lead = m?.[1] ?? "";
@@ -42,6 +50,105 @@ export function wrapEmphasis(text: string, style: RunStyle): string {
   else if (style.italic) wrapped = `*${wrapped}*`;
   
   return `${lead}${wrapped}${trail}`;
+}
+
+/**
+ * Check if two runs share at least one emphasis style (for grouping).
+ * Code runs are never grouped (backticks can't nest).
+ */
+function sharesEmphasisStyle(a: EmphasisStyle, b: EmphasisStyle): boolean {
+  if (a.code || b.code) return false; // Code can't nest
+  return (a.bold && b.bold) || (a.italic && b.italic) || (!!a.strike && !!b.strike);
+}
+
+/**
+ * Check if a style has any emphasis flags set.
+ */
+function hasEmphasis(style: EmphasisStyle): boolean {
+  return style.bold || style.italic || !!style.strike || !!style.code;
+}
+
+/**
+ * Group consecutive segments that share at least one common emphasis style.
+ */
+function groupBySharedStyles(segments: TextSegment[]): TextSegment[][] {
+  const groups: TextSegment[][] = [];
+  let currentGroup: TextSegment[] = [];
+
+  for (const seg of segments) {
+    if (currentGroup.length === 0) {
+      currentGroup.push(seg);
+      continue;
+    }
+
+    const last = currentGroup[currentGroup.length - 1]!;
+    if (sharesEmphasisStyle(last.style, seg.style)) {
+      currentGroup.push(seg);
+    } else {
+      groups.push(currentGroup);
+      currentGroup = [seg];
+    }
+  }
+
+  if (currentGroup.length > 0) {
+    groups.push(currentGroup);
+  }
+
+  return groups;
+}
+
+/**
+ * Coalesce a group of runs that share common styles.
+ * Extracts common "outer" styles and wraps once, processing inner variations.
+ */
+function coalesceGroup(group: TextSegment[]): string {
+  if (group.length === 0) return "";
+  if (group.length === 1) {
+    return wrapEmphasis(group[0]!.text, group[0]!.style);
+  }
+
+  // Find styles common to ALL runs in group
+  const commonStyles: EmphasisStyle = {
+    bold: group.every(r => r.style.bold),
+    italic: group.every(r => r.style.italic),
+    strike: group.every(r => !!r.style.strike),
+    code: group.every(r => !!r.style.code),
+  };
+
+  const hasCommon = hasEmphasis(commonStyles);
+
+  if (!hasCommon) {
+    // No common styles - process each independently
+    return group.map(r => wrapEmphasis(r.text, r.style)).join("");
+  }
+
+  // Process inner content with remaining (non-common) styles
+  const innerContent = group.map(r => {
+    const remainingStyles: EmphasisStyle = {
+      bold: r.style.bold && !commonStyles.bold,
+      italic: r.style.italic && !commonStyles.italic,
+      strike: !!r.style.strike && !commonStyles.strike,
+      code: !!r.style.code && !commonStyles.code,
+    };
+    
+    if (hasEmphasis(remainingStyles)) {
+      return wrapEmphasis(r.text, remainingStyles);
+    }
+    return r.text;
+  }).join("");
+
+  // Wrap with common styles
+  return wrapEmphasis(innerContent, commonStyles);
+}
+
+/**
+ * Process text segments with style span coalescing.
+ * Groups adjacent runs with shared styles and wraps them together,
+ * producing cleaner nested emphasis output.
+ */
+export function coalesceStyledSegments(segments: TextSegment[]): string {
+  const groups = groupBySharedStyles(segments);
+  return groups.map(coalesceGroup).join("");
 }
 
 function truthyWordBool(val: string | undefined): boolean {
@@ -90,13 +197,37 @@ export function parseRunStyle(runNode: XmlNode): RunStyle {
   const csFont = attrVal(rFonts, "@_w:cs");
   const code = isMonospaceFont(asciiFont) || isMonospaceFont(hAnsiFont) || isMonospaceFont(csFont);
 
-  return { bold, italic, strike, code };
+  // Extract font name (prefer ascii, fallback to hAnsi, then cs)
+  const fontName = asciiFont || hAnsiFont || csFont;
+
+  // Extract size from w:sz (value is in half-points, so divide by 2)
+  const szNode = findFirst(rPrChildren, "w:sz");
+  const szVal = attrVal(szNode, "@_w:val");
+  const sizePt = szVal ? parseInt(szVal, 10) / 2 : undefined;
+
+  return { 
+    bold, 
+    italic, 
+    strike, 
+    code,
+    font: fontName || undefined,
+    sizePt: Number.isFinite(sizePt) ? sizePt : undefined
+  };
 }
 
 export function collectTextFromNodes(nodes: XmlNode[], segments: TextSegment[], currentStyle: RunStyle, rels?: Map<string, string>): void {
   for (const n of nodes) {
     const key = getOnlyKey(n);
     if (!key) continue;
+
+    // Handle footnote references
+    if (key === "w:footnoteReference") {
+      const fnId = attrVal(n, "@_w:id");
+      if (fnId) {
+        segments.push({ style: { ...currentStyle, bold: false, italic: false }, text: `[^${fnId}]` });
+      }
+      continue;
+    }
 
     if (key === "w:t") {
       const kids = n["w:t"] as XmlNode[];

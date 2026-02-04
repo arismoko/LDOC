@@ -172,16 +172,17 @@ export class Lexer {
         return;
       }
 
-      // If at start of line content, try Table Row first
-      // This allows [^, ...] to be parsed as table row with rowspan marker
-      if (!this.lineHasContent) {
-        this.scanTableRow();
+      // Check for [^ (Footnote) - must check BEFORE table row to handle [^1]: at line start
+      // Footnote: [^label] where label is alphanumeric - NOT [^, ...] which is table row with rowspan
+      if (this.peek(1) === "^" && this.lookaheadIsFootnote()) {
+        this.scanFootnote();
         return;
       }
 
-      // Check for [^ (Footnote) - only if not at start of line (table row takes precedence)
-      if (this.peek(1) === "^") {
-        this.scanFootnote();
+      // If at start of line content, try Table Row first
+      // This allows [cell1, cell2] and [^, ...] to be parsed as table row
+      if (!this.lineHasContent) {
+        this.scanTableRow();
         return;
       }
 
@@ -307,6 +308,61 @@ export class Lexer {
 
     // Is it a modifier?
     if (level === 1 && MODIFIERS.has(word)) {
+      // Special handling for @style with key=value pairs
+      if (word === "style") {
+        const attributes: Record<string, string> = {};
+
+        while (true) {
+          this.skipInlineWhitespace();
+          if (this.peek() === "\n" || this.pos >= this.input.length) break;
+
+          // Parse key
+          const keyStart = this.pos;
+          while (this.pos < this.input.length && /[a-zA-Z0-9_-]/.test(this.peek())) {
+            this.advance();
+          }
+          const key = this.input.slice(keyStart, this.pos);
+          if (!key) break;
+
+          // Expect =
+          if (this.peek() !== "=") break;
+          this.advance();
+
+          // Parse value (may be quoted or unquoted)
+          let value: string;
+          if (this.peek() === '"') {
+            this.advance();
+            const valStart = this.pos;
+            while (this.pos < this.input.length && this.peek() !== '"' && this.peek() !== "\n") {
+              this.advance();
+            }
+            value = this.input.slice(valStart, this.pos);
+            if (this.peek() === '"') this.advance();
+          } else {
+            const valStart = this.pos;
+            while (this.pos < this.input.length && !/[\s\n]/.test(this.peek())) {
+              this.advance();
+            }
+            value = this.input.slice(valStart, this.pos);
+          }
+
+          if (key && value) {
+            attributes[key] = value;
+          }
+        }
+
+        this.pushToken({
+          type: TokenType.MODIFIER,
+          value: word,
+          line: this.line,
+          column: startCol,
+          indent: this.indentation.currentIndent(),
+          attributes,
+        });
+        this.lineHasContent = true;
+        return;
+      }
+
       let count: number | undefined;
       let length: string | undefined;
 
@@ -555,6 +611,25 @@ export class Lexer {
       indent: this.indentation.currentIndent(),
     });
     this.lineHasContent = true;
+  }
+
+  /**
+   * Check if [^ is a footnote (vs table row with rowspan marker).
+   * Footnote: [^label] or [^label]: where label is alphanumeric
+   * Table row: [^, ...] where ^ is immediately followed by , or ]
+   */
+  private lookaheadIsFootnote(): boolean {
+    // We're at '[', peek(1) is '^'
+    // Check what comes after '^' (at pos + 2)
+    const afterCaret = this.input[this.pos + 2];
+    
+    // If immediately followed by , or ] or space, it's a table row marker
+    if (afterCaret === "," || afterCaret === "]" || afterCaret === " ") {
+      return false;
+    }
+    
+    // Otherwise assume it's a footnote label (alphanumeric)
+    return true;
   }
 
   private lookaheadIsLink(): boolean {

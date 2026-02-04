@@ -63,3 +63,264 @@ describe("Round Trip", () => {
     expect(decompiledNoAnchors).toBe(originalNoAnchors);
   });
 });
+
+describe("Feature Round Trips", () => {
+  test("footnotes round-trip", async () => {
+    const input = `This has a footnote[^note] in the text.
+
+[^note]: This is the footnote content.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("[^");
+    expect(result.source).toMatch(/\[\^[^\]]+\]:/); // footnote definition syntax
+  });
+
+  test("blockquote round-trip", async () => {
+    // Note: Blockquotes are currently compiled with italic styling + border,
+    // not Word's Quote style. The decompiler sees italic text and emits @italic.
+    // This is a known limitation - true blockquote round-trip requires using Word's Quote style.
+    const input = `> This is a quoted paragraph.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    // Currently decompiles as @italic due to the italic styling applied
+    expect(result.source).toContain("@italic");
+    expect(result.source).toContain("This is a quoted paragraph");
+  });
+
+  test("cross-reference round-trip", async () => {
+    const input = `@anchor target-section
+
+# Target Section
+
+See [[target-section]] for more details.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("@anchor");
+    expect(result.source).toContain("[[");
+    expect(result.source).toContain("]]");
+  });
+
+  test("nested emphasis round-trip", async () => {
+    const input = `This has **bold with *nested italic* inside** the text.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    // Should contain both bold and italic markers
+    expect(result.source).toContain("**");
+    expect(result.source).toContain("*");
+    // The nested structure should be preserved (bold wrapping italic)
+    expect(result.source).toMatch(/\*\*.*\*[^*]+\*.*\*\*/);
+  });
+
+  test("strikethrough round-trip", async () => {
+    const input = `This has ~~strikethrough~~ text.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("~~");
+  });
+
+  test("alignment modifiers round-trip", async () => {
+    const input = `@center This is centered text.
+
+@right This is right-aligned text.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("@center");
+    expect(result.source).toContain("@right");
+  });
+
+  test("bold modifier round-trip", async () => {
+    const input = `@bold This entire line is bold.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    // Should either have @bold modifier or **text**
+    const hasBoldModifier = result.source.includes("@bold");
+    const hasBoldMarkdown = result.source.includes("**");
+    expect(hasBoldModifier || hasBoldMarkdown).toBe(true);
+  });
+
+  test("table round-trip", async () => {
+    const input = `@table
+	[Col A, Col B]
+	[Val 1, Val 2]
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("@table");
+    expect(result.source).toContain("[");
+    expect(result.source).toContain("]");
+  });
+
+  test("external link round-trip", async () => {
+    const input = `Visit [our website](https://example.com) for more.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("[");
+    expect(result.source).toContain("](");
+    expect(result.source).toContain("https://example.com");
+  });
+
+  test("nested list round-trip", async () => {
+    const input = `@1 First item
+@@a Sub-item alpha
+@@b Sub-item beta
+@2 Second item
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("@1");
+    expect(result.source).toContain("@@");
+    expect(result.source).toContain("@2");
+  });
+
+  test("bullet list round-trip", async () => {
+    const input = `@- First bullet
+@@- Nested bullet
+@- Second bullet
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("@-");
+    expect(result.source).toContain("@@-");
+  });
+
+  test("heading levels round-trip", async () => {
+    const input = `# Heading 1
+
+## Heading 2
+
+### Heading 3
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("# ");
+    expect(result.source).toContain("## ");
+    expect(result.source).toContain("### ");
+  });
+
+  test("inline code round-trip", async () => {
+    const input = `This has \`inline code\` in the text.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("`");
+    expect(result.source).toContain("inline code");
+  });
+
+  test("italic modifier round-trip", async () => {
+    const input = `@italic This entire line is italic.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    // Should either have @italic modifier or *text*
+    const hasItalicModifier = result.source.includes("@italic");
+    const hasItalicMarkdown = /\*[^*]+\*/.test(result.source);
+    expect(hasItalicModifier || hasItalicMarkdown).toBe(true);
+  });
+
+  test("page break round-trip", async () => {
+    const input = `First paragraph.
+
+@pagebreak
+
+Second paragraph after break.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("@pagebreak");
+  });
+
+  test("combined bold and italic round-trip", async () => {
+    const input = `This has ***bold and italic*** text.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    // Should contain both bold and italic markers combined or separate
+    expect(result.source).toMatch(/\*{1,3}.*bold and italic.*\*{1,3}/);
+  });
+
+  test("multiple paragraphs round-trip", async () => {
+    const input = `First paragraph with some text.
+
+Second paragraph with more text.
+
+Third paragraph to conclude.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("First paragraph");
+    expect(result.source).toContain("Second paragraph");
+    expect(result.source).toContain("Third paragraph");
+  });
+
+  test("mixed emphasis in paragraph round-trip", async () => {
+    const input = `Normal text, **bold text**, *italic text*, and ~~strikethrough~~.
+`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("**bold text**");
+    expect(result.source).toContain("*italic text*");
+    expect(result.source).toContain("~~strikethrough~~");
+  });
+});

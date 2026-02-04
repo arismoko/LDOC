@@ -1,7 +1,8 @@
 import { findFirst, attrVal, getOnlyKey, type XmlNode } from "../xml";
 import { type NumberingInfo, listPrefix } from "../parsers/numbering";
 import { type ParagraphStyleMap, resolveStyleIndentLeftTwips } from "../parsers/styles";
-import { type TextSegment, parseRunStyle, collectTextFromNodes, normalizeWs, wrapEmphasis } from "./run";
+import { type TextSegment, parseRunStyle, collectTextFromNodes, normalizeWs, wrapEmphasis, coalesceStyledSegments } from "./run";
+import type { FontSizeStats } from "../statistics";
 
 export type DecompilerOptions = {
   /**
@@ -11,6 +12,11 @@ export type DecompilerOptions = {
    * - 'auto': Same as 'on' (default behavior)
    */
   emitIndent?: 'on' | 'off' | 'auto' | boolean;
+  /**
+   * Dominant style for the document (detected from styles.xml or frequency).
+   * Used to determine when to emit @style block modifiers.
+   */
+  dominantStyle?: FontSizeStats;
 };
 
 export type ParagraphInfo = {
@@ -21,6 +27,9 @@ export type ParagraphInfo = {
   isList: boolean;
   isEmpty: boolean;
   anchors?: string[]; // Bookmark names (from w:bookmarkStart, excluding _ prefix)
+  /** Style attributes that differ from dominant (for @style emission) */
+  styleAttrs?: Record<string, string>;
+  isBlockquote?: boolean;
 };
 
 // Hyperlink info for collecting text within hyperlinks
@@ -36,6 +45,15 @@ function isTocStyle(styleId: string | undefined): boolean {
   if (!styleId) return false;
   // Match TOC1..TOC9 (case-insensitive)
   return /^toc[1-9]$/i.test(styleId);
+}
+
+function isBlockquoteStyle(styleId: string | undefined): boolean {
+  if (!styleId) return false;
+  const lower = styleId.toLowerCase();
+  return lower === "quote" || 
+         lower === "blockquote" || 
+         lower === "intensequote" ||
+         lower.includes("quote");
 }
 
 function paragraphAlignment(pNode: XmlNode): string | undefined {
@@ -122,7 +140,32 @@ function paragraphSegments(pNode: XmlNode, rels?: Map<string, string>): ContentS
     }
 
     if (key === "w:hyperlink") {
-      // Get the relationship ID and look up the URL
+      // Check for internal cross-reference (has w:anchor attribute)
+      const anchor = attrVal(child, "@_w:anchor");
+      if (anchor) {
+        // Internal cross-reference - emit as [[anchor]]
+        // Collect the link text to verify, but emit the anchor syntax
+        const linkChildren = child["w:hyperlink"] as XmlNode[];
+        const linkSegments: TextSegment[] = [];
+        for (const n of linkChildren ?? []) {
+          const k = getOnlyKey(n);
+          if (k === "w:r") {
+            const style = parseRunStyle(n);
+            const runChildren = n["w:r"] as XmlNode[];
+            collectTextFromNodes(runChildren, linkSegments, style, rels);
+          }
+        }
+        // Create a segment with the cross-ref syntax
+        // Use the first segment's style for emphasis wrapping
+        const baseStyle = linkSegments[0]?.style ?? { bold: false, italic: false };
+        segments.push({
+          style: baseStyle,
+          text: `[[${anchor}]]`,
+        });
+        continue;
+      }
+
+      // External hyperlink (existing logic with r:id)
       const rId = attrVal(child, "@_r:id");
       const url = rId && rels ? rels.get(rId) : undefined;
       
@@ -189,6 +232,71 @@ function detectUniformStyle(segments: ContentSegment[]): "bold" | "italic" | und
   return undefined;
 }
 
+/**
+ * Detect uniform font/size across a paragraph.
+ * Returns font and sizePt if all runs share the same values.
+ */
+function detectUniformFontSize(segments: ContentSegment[]): { font?: string; sizePt?: number } {
+  const allTextSegs: TextSegment[] = [];
+  for (const seg of segments) {
+    if ("type" in seg && seg.type === "hyperlink") {
+      allTextSegs.push(...seg.segments);
+    } else {
+      allTextSegs.push(seg as TextSegment);
+    }
+  }
+  
+  const withText = allTextSegs.filter(s => s.text.trim().length > 0);
+  if (withText.length === 0) return {};
+  
+  // Get first segment's font/size
+  const first = withText[0]!;
+  const font = first.style.font;
+  const sizePt = first.style.sizePt;
+  
+  // Check if all segments have the same font/size
+  const allSameFont = font && withText.every(s => s.style.font === font);
+  const allSameSize = sizePt && withText.every(s => s.style.sizePt === sizePt);
+  
+  return {
+    font: allSameFont ? font : undefined,
+    sizePt: allSameSize ? sizePt : undefined,
+  };
+}
+
+/**
+ * Compute style attributes that differ from dominant style.
+ * Returns attributes to use in @style modifier, or undefined if no difference.
+ */
+function computeStyleAttrs(
+  paragraphFontSize: { font?: string; sizePt?: number },
+  dominantStyle?: FontSizeStats
+): Record<string, string> | undefined {
+  if (!dominantStyle) return undefined;
+  
+  const attrs: Record<string, string> = {};
+  
+  // Compare font (case-insensitive)
+  if (paragraphFontSize.font && dominantStyle.font) {
+    if (paragraphFontSize.font.toLowerCase() !== dominantStyle.font.toLowerCase()) {
+      attrs.font = paragraphFontSize.font;
+    }
+  } else if (paragraphFontSize.font && !dominantStyle.font) {
+    attrs.font = paragraphFontSize.font;
+  }
+  
+  // Compare size
+  if (paragraphFontSize.sizePt && dominantStyle.sizePt) {
+    if (paragraphFontSize.sizePt !== dominantStyle.sizePt) {
+      attrs.size = `${paragraphFontSize.sizePt}pt`;
+    }
+  } else if (paragraphFontSize.sizePt && !dominantStyle.sizePt) {
+    attrs.size = `${paragraphFontSize.sizePt}pt`;
+  }
+  
+  return Object.keys(attrs).length > 0 ? attrs : undefined;
+}
+
 // Get paragraph text without emphasis wrapping (for use with @bold/@italic modifiers)
 function paragraphTextPlain(pNode: XmlNode, preserveTabs = false, rels?: Map<string, string>): string {
   const contentSegments = paragraphSegments(pNode, rels);
@@ -244,12 +352,12 @@ export function paragraphText(pNode: XmlNode, preserveTabs = false, rels?: Map<s
       // Flush accumulated text segments - don't trim trailing space before hyperlink
       if (textSegs.length > 0) {
         const merged = mergeTextSegments(textSegs);
-        resultParts.push(normalizeWs(merged.map((s) => wrapEmphasis(s.text, s.style)).join(""), preserveTabs, false));
+        resultParts.push(normalizeWs(coalesceStyledSegments(merged), preserveTabs, false));
         textSegs.length = 0;
       }
       // Add hyperlink
       const mergedLink = mergeTextSegments(seg.segments);
-      const linkText = normalizeWs(mergedLink.map((s) => wrapEmphasis(s.text, s.style)).join(""), preserveTabs);
+      const linkText = normalizeWs(coalesceStyledSegments(mergedLink), preserveTabs);
       resultParts.push(`[${linkText}](${seg.url})`);
     } else {
       textSegs.push(seg as TextSegment);
@@ -259,7 +367,7 @@ export function paragraphText(pNode: XmlNode, preserveTabs = false, rels?: Map<s
   // Flush remaining text segments - trim trailing space at end of paragraph
   if (textSegs.length > 0) {
     const merged = mergeTextSegments(textSegs);
-    resultParts.push(normalizeWs(merged.map((s) => wrapEmphasis(s.text, s.style)).join(""), preserveTabs));
+    resultParts.push(normalizeWs(coalesceStyledSegments(merged), preserveTabs));
   }
   
   return resultParts.join("");
@@ -350,6 +458,10 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
   const contentSegments = paragraphSegments(pNode, rels);
   const uniformStyle = detectUniformStyle(contentSegments);
   
+  // Detect uniform font/size for @style emission
+  const paragraphFontSize = detectUniformFontSize(contentSegments);
+  const styleAttrs = computeStyleAttrs(paragraphFontSize, options?.dominantStyle);
+  
   // For TOC paragraphs, preserve tabs for readable title+page format
   const text = paragraphText(pNode, isToc, rels);
   const isEmpty = !text.trim();
@@ -369,6 +481,20 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
         anchors: anchorsField,
       };
     }
+  }
+
+  // Check for blockquote style
+  if (isBlockquoteStyle(styleId)) {
+    return {
+      line: `> ${text}`.trimEnd(),
+      alignment: alignment === "center" ? "center" : alignment === "right" ? "right" : undefined,
+      indentLeftTwips: 0, // Don't also emit indent for blockquotes
+      isHeading: false,
+      isList: false,
+      isEmpty,
+      anchors: anchorsField,
+      isBlockquote: true,
+    };
   }
 
   // For TOC paragraphs, emit as plain text without list markers
@@ -425,5 +551,6 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
     isList: false,
     isEmpty,
     anchors: anchorsField,
+    styleAttrs,
   };
 }

@@ -65,13 +65,15 @@ export type ModifierType =
   | "h3"
   | "h4"
   | "h5"
-  | "h6";
+  | "h6"
+  | "style";
 
 export interface ModifierNode extends BaseNode {
   type: "modifier";
   modifier: ModifierType;
   count?: number;
   length?: string;
+  attributes?: Record<string, string>; // for @style font=Arial size=14pt
   content: Node[];
   /** Whether the source had an explicit @end (for formatting preservation) */
   hasEnd?: boolean;

@@ -1,8 +1,10 @@
 import JSZip from "jszip";
 import { xmlParser, findFirst, findPath, getOnlyKey, type XmlNode } from "./xml";
 import { parseNumbering, type NumberingInfo } from "./parsers/numbering";
-import { parseSpacingFromStylesXml, parseParagraphStyles, type ParagraphStyleMap } from "./parsers/styles";
+import { parseSpacingFromStylesXml, parseParagraphStyles, parseDocumentDefaults, type ParagraphStyleMap } from "./parsers/styles";
+import { collectFontStatistics, computeDominantStyle, type FontSizeStats } from "./statistics";
 import { parseDocumentRels, parseLayoutFromSectPr, parseHeaderFooterRefs, parseSectionProps, findFinalSectPr, findParagraphSectPr, type LayoutInfo, type HeaderFooterRefs, type SectionProps } from "./parsers/layout";
+import { parseFootnotes, type FootnoteInfo } from "./parsers/footnotes";
 import { paragraphToLdoc, type DecompilerOptions } from "./converters/paragraph";
 import { tableToLdoc } from "./converters/table";
 import { processChildren, shouldEmitIndent, formatTwipsAsPt } from "./generator";
@@ -113,6 +115,10 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
   const relsXml = await zip.file("word/_rels/document.xml.rels")?.async("text");
   const rels = relsXml ? parseDocumentRels(relsXml) : new Map<string, string>();
   
+  // Parse footnotes
+  const footnotesXml = await zip.file("word/footnotes.xml")?.async("text");
+  const footnotes = parseFootnotes(footnotesXml);
+  
   // Extract media assets
   const assets = await extractMediaAssets(zip);
 
@@ -121,6 +127,11 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
   if (!body) throw new Error("Invalid .docx: missing w:body");
 
   const bodyChildren = body["w:body"] as XmlNode[];
+
+  // Collect font/size statistics and compute dominant style
+  const docDefaults = parseDocumentDefaults(stylesXml);
+  const fontStats = collectFontStatistics(bodyChildren);
+  const dominantStyle = computeDominantStyle(fontStats, docDefaults);
 
   // Find final sectPr for layout and header/footer references
   const finalSectPr = findFinalSectPr(bodyChildren);
@@ -143,7 +154,8 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
     Math.abs(twipsToInches(layout.margins.left) - 1) < 0.05
   );
   
-  const hasLayoutSettings = hasNonDefaultMargins || layout.landscape || (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0);
+  const hasDominantStyles = dominantStyle.font || dominantStyle.sizePt;
+  const hasLayoutSettings = hasNonDefaultMargins || layout.landscape || (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0) || hasDominantStyles;
 
   if (hasLayoutSettings) {
     output.push("@document");
@@ -164,6 +176,18 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
     if (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0) {
       output.push(`  spacing:`);
       output.push(`    line: ${spacingInfo.lineMultiplier}`);
+    }
+    
+    // Emit dominant styles
+    if (hasDominantStyles) {
+      output.push("  styles:");
+      output.push("    body:");
+      if (dominantStyle.font) {
+        output.push(`      font: ${dominantStyle.font}`);
+      }
+      if (dominantStyle.sizePt) {
+        output.push(`      size: ${dominantStyle.sizePt}pt`);
+      }
     }
     
     output.push("");
@@ -230,6 +254,12 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
 
   // Convert sections to LDOC
   const blocks: string[] = [];
+  
+  // Merge dominant style into options for paragraph processing
+  const enhancedOptions: DecompilerOptions = {
+    ...options,
+    dominantStyle,
+  };
 
   for (let i = 0; i < sections.length; i++) {
     const section = sections[i]!;
@@ -250,20 +280,28 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
       }
 
       // Collect content lines for columns block
-      const contentLines = processChildren(section.children, numInfo, paragraphStyles, options, "  ", rels);
+      const contentLines = processChildren(section.children, numInfo, paragraphStyles, enhancedOptions, "  ", rels);
       const nonEmptyLines = contentLines.filter((l) => l.trim());
 
       // Emit as a single block
       blocks.push(columnsLine + "\n" + nonEmptyLines.join("\n") + "\n@end");
     } else {
       // Normal section - emit blocks with alignment grouping
-      const lines = processChildren(section.children, numInfo, paragraphStyles, options, "", rels);
+      const lines = processChildren(section.children, numInfo, paragraphStyles, enhancedOptions, "", rels);
       blocks.push(...lines);
     }
   }
 
   // Combine output
   const finalOutput = [...output, ...blocks];
+
+  // Emit footnote definitions at the end
+  if (footnotes.size > 0) {
+    finalOutput.push(""); // blank line before footnotes
+    for (const [id, fn] of footnotes) {
+      finalOutput.push(`[^${id}]: ${fn.content}`);
+    }
+  }
 
   // Join, preserve at most one blank line between blocks, clean up trailing whitespace
   const joined = finalOutput.join("\n");

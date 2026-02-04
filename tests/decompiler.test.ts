@@ -100,4 +100,117 @@ describe("Decompiler", () => {
     expect(result.source).not.toContain("@anchor _GoBack");
     expect(result.source).not.toContain("@anchor");
   });
+
+  test("decompiles footnotes with references and definitions", async () => {
+    // Create a DOCX with footnotes by injecting XML
+    const ldoc = "Some text with a note.";
+    const docx = await compile(await parse(ldoc));
+    
+    const zip = await JSZip.loadAsync(docx);
+    const documentXml = await zip.file("word/document.xml")?.async("text");
+    expect(documentXml).toBeDefined();
+    
+    // Inject a footnote reference in the document
+    // The structure is: <w:r><w:footnoteReference w:id="1"/></w:r>
+    const modifiedXml = documentXml!.replace(
+      /(<w:t[^>]*>Some text with a note\.<\/w:t>)/,
+      `$1</w:r><w:r><w:footnoteReference w:id="1"/>`
+    );
+    
+    zip.file("word/document.xml", modifiedXml);
+    
+    // Create word/footnotes.xml with the footnote definition
+    const footnotesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:footnote w:id="0" w:type="separator"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>
+  <w:footnote w:id="-1" w:type="continuationSeparator"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>
+  <w:footnote w:id="1">
+    <w:p>
+      <w:r>
+        <w:t>This is the footnote content.</w:t>
+      </w:r>
+    </w:p>
+  </w:footnote>
+</w:footnotes>`;
+    
+    zip.file("word/footnotes.xml", footnotesXml);
+    const modifiedDocx = await zip.generateAsync({ type: "uint8array" });
+    
+    const result = await decompile(modifiedDocx);
+    
+    // Should contain the inline reference
+    expect(result.source).toContain("[^1]");
+    // Should contain the footnote definition at the end
+    expect(result.source).toContain("[^1]: This is the footnote content.");
+  });
+
+  test("decompiles multiple footnotes in order", async () => {
+    // Create a DOCX with multiple footnotes
+    const ldoc = "First note. Second note.";
+    const docx = await compile(await parse(ldoc));
+    
+    const zip = await JSZip.loadAsync(docx);
+    const documentXml = await zip.file("word/document.xml")?.async("text");
+    expect(documentXml).toBeDefined();
+    
+    // Inject footnote references
+    let modifiedXml = documentXml!.replace(
+      /(<w:t[^>]*>First note\.<\/w:t>)/,
+      `$1</w:r><w:r><w:footnoteReference w:id="1"/>`
+    );
+    modifiedXml = modifiedXml.replace(
+      /(<w:t[^>]*>Second note\.<\/w:t>)/,
+      `$1</w:r><w:r><w:footnoteReference w:id="2"/>`
+    );
+    
+    zip.file("word/document.xml", modifiedXml);
+    
+    // Create footnotes.xml with multiple footnotes
+    const footnotesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:footnote w:id="0" w:type="separator"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>
+  <w:footnote w:id="-1" w:type="continuationSeparator"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>
+  <w:footnote w:id="1">
+    <w:p><w:r><w:t>First footnote content.</w:t></w:r></w:p>
+  </w:footnote>
+  <w:footnote w:id="2">
+    <w:p><w:r><w:t>Second footnote content.</w:t></w:r></w:p>
+  </w:footnote>
+</w:footnotes>`;
+    
+    zip.file("word/footnotes.xml", footnotesXml);
+    const modifiedDocx = await zip.generateAsync({ type: "uint8array" });
+    
+    const result = await decompile(modifiedDocx);
+    
+    // Should contain both inline references
+    expect(result.source).toContain("[^1]");
+    expect(result.source).toContain("[^2]");
+    // Should contain both definitions
+    expect(result.source).toContain("[^1]: First footnote content.");
+    expect(result.source).toContain("[^2]: Second footnote content.");
+  });
+
+  test("skips separator footnotes (id 0 and -1)", async () => {
+    const ldoc = "Text with footnote.";
+    const docx = await compile(await parse(ldoc));
+    
+    const zip = await JSZip.loadAsync(docx);
+    
+    // Create footnotes.xml with separator footnotes only (no actual footnotes)
+    const footnotesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:footnote w:id="0" w:type="separator"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>
+  <w:footnote w:id="-1" w:type="continuationSeparator"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>
+</w:footnotes>`;
+    
+    zip.file("word/footnotes.xml", footnotesXml);
+    const modifiedDocx = await zip.generateAsync({ type: "uint8array" });
+    
+    const result = await decompile(modifiedDocx);
+    
+    // Should not contain any footnote definitions for separator footnotes
+    expect(result.source).not.toContain("[^0]:");
+    expect(result.source).not.toContain("[^-1]:");
+  });
 });

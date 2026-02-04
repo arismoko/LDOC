@@ -310,6 +310,31 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       nextStyle.heading = parseInt(headingMatch[1]!, 10) as 1 | 2 | 3 | 4 | 5 | 6;
     }
 
+    // Handle @style modifier with attributes
+    if (node.modifier === "style" && node.attributes) {
+      // Apply font
+      if (node.attributes.font) {
+        nextStyle.font = node.attributes.font;
+      }
+      
+      // Apply size (parse pt value to half-points for docx)
+      if (node.attributes.size) {
+        const sizeMatch = node.attributes.size.match(/^(\d+(?:\.\d+)?)(pt)?$/i);
+        if (sizeMatch) {
+          const pt = parseFloat(sizeMatch[1]!);
+          nextStyle.size = Math.round(pt * 2); // docx uses half-points
+        }
+      }
+      
+      // Apply color (hex without #)
+      if (node.attributes.color) {
+        const colorMatch = node.attributes.color.match(/^#?([0-9A-Fa-f]{6})$/);
+        if (colorMatch) {
+          nextStyle.color = colorMatch[1]!.toUpperCase();
+        }
+      }
+    }
+
     const results: (Paragraph | Table)[] = [];
     
     // If we have forced bookmarks on the modifier itself, we pass them to the first child?

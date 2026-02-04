@@ -86,6 +86,8 @@ export interface Token {
   level?: number; // Number of @ symbols
   style?: string; // '1', 'a', 'i', 'A', 'I', '1.1', etc.
   marker?: string; // The full marker like '@@a'
+  // For @style modifier with key=value pairs
+  attributes?: Record<string, string>;
 }
 
 export interface LexerState {
@@ -112,6 +114,7 @@ export const MODIFIERS = new Set([
   "h5",
   "h6",
   "slot",
+  "style",
 ]);
 
 // Legacy directives that are now errors (must use @document block)

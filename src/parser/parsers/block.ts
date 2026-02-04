@@ -261,6 +261,7 @@ export function parseModifier(ctx: ParserContext): ModifierNode {
     modifier,
     count: token.count,
     length: token.length,
+    attributes: token.attributes,
     content,
     hasEnd,
   };

@@ -12,6 +12,19 @@ export function formatTwipsAsPt(twips: number): string {
     .replace(/(\.\d)0$/, "$1")}pt`;
 }
 
+/**
+ * Format style attributes as key=value pairs for @style directive.
+ */
+function formatStyleAttrs(attrs: Record<string, string>): string {
+  return Object.entries(attrs)
+    .map(([k, v]) => {
+      // Quote values with spaces
+      const quotedVal = v.includes(" ") ? `"${v}"` : v;
+      return `${k}=${quotedVal}`;
+    })
+    .join(" ");
+}
+
 export function shouldEmitIndent(options: DecompilerOptions | undefined): boolean {
   const val = options?.emitIndent;
   if (val === 'on' || val === true) return true;
@@ -97,9 +110,20 @@ export function processChildren(
         out.push(`${baseIndent}@anchor ${anchor}`);
       }
       let line = info.line;
-      if (info.alignment === "center" && !info.isEmpty) line = `@center ${line}`;
-      else if (info.alignment === "right" && !info.isEmpty) line = `@right ${line}`;
-      out.push(baseIndent + line);
+      // Emit @style block if paragraph has different font/size
+      if (info.styleAttrs && !info.isEmpty) {
+        const styleStr = formatStyleAttrs(info.styleAttrs);
+        out.push(`${baseIndent}@style ${styleStr}`);
+        // Alignment handled inside style block
+        let alignedLine = line;
+        if (info.alignment === "center") alignedLine = `@center ${line}`;
+        else if (info.alignment === "right") alignedLine = `@right ${line}`;
+        out.push(`${baseIndent}  ${alignedLine}`);
+      } else {
+        if (info.alignment === "center" && !info.isEmpty) line = `@center ${line}`;
+        else if (info.alignment === "right" && !info.isEmpty) line = `@right ${line}`;
+        out.push(baseIndent + line);
+      }
       i++;
     }
     return out;
