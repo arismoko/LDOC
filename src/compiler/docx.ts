@@ -331,24 +331,25 @@ export class DocxCompiler {
       const id = this.ctx.footnoteMap.get(label);
       if (id === undefined) continue;
 
-      const paragraphs: Paragraph[] = [];
+      const children: (Paragraph | Table)[] = [];
       const visitor = new DocxNodeVisitor(this.ctx, undefined, bodyStyle);
 
       for (const child of node.content) {
         const results = visitor.visit(child);
         for (const res of results) {
-          if (res instanceof Paragraph) {
-            paragraphs.push(res);
+          if (res instanceof Paragraph || res instanceof Table) {
+            children.push(res);
           }
         }
       }
-      
-      // Ensure at least one paragraph
-      if (paragraphs.length === 0) {
-        paragraphs.push(new Paragraph({}));
+
+      // The docx library requires the first child of a footnote to be a Paragraph
+      // (to insert the reference mark). If it's a Table, prepend an empty Paragraph.
+      if (children.length === 0 || !(children[0] instanceof Paragraph)) {
+        children.unshift(new Paragraph({}));
       }
 
-      footnotes[id.toString()] = { children: paragraphs };
+      footnotes[id.toString()] = { children: children as any };
     }
 
     return footnotes;
