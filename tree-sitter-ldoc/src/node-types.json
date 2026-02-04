@@ -1,0 +1,2462 @@
+[
+  {
+    "type": "anchor",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "argument",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "named_argument",
+          "named": true
+        },
+        {
+          "type": "positional_argument",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "argument_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "argument",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "argument_value",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "integer",
+          "named": true
+        },
+        {
+          "type": "string_literal",
+          "named": true
+        },
+        {
+          "type": "variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "block_comment",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "blockquote",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "bullet_item",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "bullet_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "columns_args",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "columns_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_args",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "comment",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "block_comment",
+          "named": true
+        },
+        {
+          "type": "line_comment",
+          "named": true
+        },
+        {
+          "type": "todo_comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "condition_expression",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "cross_reference",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "default_value",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "integer",
+          "named": true
+        },
+        {
+          "type": "string_literal",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "define_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "parameter_list",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "defined_term",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "document_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "indented_line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "else_clause",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "elseif_clause",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "condition_expression",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "emphasis",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "end_directive",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "evenpage_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "firstpage_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "footer_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "footnote_def",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "footnote_label",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "footnote_ref",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "footnote_label",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "foreach_binding",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "iterable_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "foreach_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_binding",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "header",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "header_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "header_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "if_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "else_clause",
+          "named": true
+        },
+        {
+          "type": "elseif_clause",
+          "named": true
+        },
+        {
+          "type": "if_clause",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "if_clause",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "condition_expression",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "image",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "image_alt",
+          "named": true
+        },
+        {
+          "type": "image_src",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "image_src",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "import_directive",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "indented_line",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "inline_code",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "iterable_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "line_comment",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "link",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "link_text",
+          "named": true
+        },
+        {
+          "type": "link_url",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "link_text",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "link_url",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "meta_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "indented_line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "modifier",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "integer",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "modifier_line",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "modifier",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "named_argument",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "argument_value",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "numbered_item",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "numbered_marker",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "numbered_marker",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "paragraph",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "blank",
+          "named": true
+        },
+        {
+          "type": "cross_reference",
+          "named": true
+        },
+        {
+          "type": "defined_term",
+          "named": true
+        },
+        {
+          "type": "emphasis",
+          "named": true
+        },
+        {
+          "type": "footnote_ref",
+          "named": true
+        },
+        {
+          "type": "hard_break",
+          "named": true
+        },
+        {
+          "type": "image",
+          "named": true
+        },
+        {
+          "type": "inline_code",
+          "named": true
+        },
+        {
+          "type": "link",
+          "named": true
+        },
+        {
+          "type": "strikethrough",
+          "named": true
+        },
+        {
+          "type": "text",
+          "named": true
+        },
+        {
+          "type": "variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parameter",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "default_value",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "parameter_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "parameter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "positional_argument",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "argument_value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "repeat_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "repeat_count",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "repeat_count",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "integer",
+          "named": true
+        },
+        {
+          "type": "variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "set_directive",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "set_value",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "set_value",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "integer",
+          "named": true
+        },
+        {
+          "type": "string_literal",
+          "named": true
+        },
+        {
+          "type": "variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "source_file",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "anchor",
+          "named": true
+        },
+        {
+          "type": "blockquote",
+          "named": true
+        },
+        {
+          "type": "bullet_item",
+          "named": true
+        },
+        {
+          "type": "column_break",
+          "named": true
+        },
+        {
+          "type": "columns_block",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "define_block",
+          "named": true
+        },
+        {
+          "type": "document_block",
+          "named": true
+        },
+        {
+          "type": "end_directive",
+          "named": true
+        },
+        {
+          "type": "evenpage_block",
+          "named": true
+        },
+        {
+          "type": "firstpage_block",
+          "named": true
+        },
+        {
+          "type": "footer_block",
+          "named": true
+        },
+        {
+          "type": "footnote_def",
+          "named": true
+        },
+        {
+          "type": "foreach_block",
+          "named": true
+        },
+        {
+          "type": "header",
+          "named": true
+        },
+        {
+          "type": "header_block",
+          "named": true
+        },
+        {
+          "type": "horizontal_rule",
+          "named": true
+        },
+        {
+          "type": "if_block",
+          "named": true
+        },
+        {
+          "type": "import_directive",
+          "named": true
+        },
+        {
+          "type": "meta_block",
+          "named": true
+        },
+        {
+          "type": "modifier_line",
+          "named": true
+        },
+        {
+          "type": "numbered_item",
+          "named": true
+        },
+        {
+          "type": "pagebreak",
+          "named": true
+        },
+        {
+          "type": "paragraph",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "set_directive",
+          "named": true
+        },
+        {
+          "type": "table_block",
+          "named": true
+        },
+        {
+          "type": "use_directive",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "strikethrough",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "string_literal",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "table_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "table_row",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "table_row",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "todo_comment",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "use_directive",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "argument_list",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "variable",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "variable_content",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "![",
+    "named": false
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "'",
+    "named": false
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": "*",
+    "named": false
+  },
+  {
+    "type": "**",
+    "named": false
+  },
+  {
+    "type": "***",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "/",
+    "named": false
+  },
+  {
+    "type": "/*",
+    "named": false
+  },
+  {
+    "type": "//",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": ">",
+    "named": false
+  },
+  {
+    "type": "@anchor",
+    "named": false
+  },
+  {
+    "type": "@bold",
+    "named": false
+  },
+  {
+    "type": "@box",
+    "named": false
+  },
+  {
+    "type": "@caps",
+    "named": false
+  },
+  {
+    "type": "@center",
+    "named": false
+  },
+  {
+    "type": "@columns",
+    "named": false
+  },
+  {
+    "type": "@define",
+    "named": false
+  },
+  {
+    "type": "@document",
+    "named": false
+  },
+  {
+    "type": "@else",
+    "named": false
+  },
+  {
+    "type": "@elseif",
+    "named": false
+  },
+  {
+    "type": "@end",
+    "named": false
+  },
+  {
+    "type": "@evenpage",
+    "named": false
+  },
+  {
+    "type": "@firstpage",
+    "named": false
+  },
+  {
+    "type": "@footer",
+    "named": false
+  },
+  {
+    "type": "@foreach",
+    "named": false
+  },
+  {
+    "type": "@h1",
+    "named": false
+  },
+  {
+    "type": "@h2",
+    "named": false
+  },
+  {
+    "type": "@h3",
+    "named": false
+  },
+  {
+    "type": "@h4",
+    "named": false
+  },
+  {
+    "type": "@h5",
+    "named": false
+  },
+  {
+    "type": "@h6",
+    "named": false
+  },
+  {
+    "type": "@header",
+    "named": false
+  },
+  {
+    "type": "@if",
+    "named": false
+  },
+  {
+    "type": "@import",
+    "named": false
+  },
+  {
+    "type": "@indent",
+    "named": false
+  },
+  {
+    "type": "@italic",
+    "named": false
+  },
+  {
+    "type": "@meta",
+    "named": false
+  },
+  {
+    "type": "@outdent",
+    "named": false
+  },
+  {
+    "type": "@repeat",
+    "named": false
+  },
+  {
+    "type": "@right",
+    "named": false
+  },
+  {
+    "type": "@set",
+    "named": false
+  },
+  {
+    "type": "@slot",
+    "named": false
+  },
+  {
+    "type": "@small",
+    "named": false
+  },
+  {
+    "type": "@table",
+    "named": false
+  },
+  {
+    "type": "@todo",
+    "named": false
+  },
+  {
+    "type": "@use",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "[[",
+    "named": false
+  },
+  {
+    "type": "[^",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "](",
+    "named": false
+  },
+  {
+    "type": "]:",
+    "named": false
+  },
+  {
+    "type": "]]",
+    "named": false
+  },
+  {
+    "type": "`",
+    "named": false
+  },
+  {
+    "type": "blank",
+    "named": true
+  },
+  {
+    "type": "bullet_marker",
+    "named": true
+  },
+  {
+    "type": "column_break",
+    "named": true
+  },
+  {
+    "type": "footnote_label",
+    "named": true
+  },
+  {
+    "type": "hard_break",
+    "named": true
+  },
+  {
+    "type": "header_marker",
+    "named": true
+  },
+  {
+    "type": "horizontal_rule",
+    "named": true
+  },
+  {
+    "type": "identifier",
+    "named": true
+  },
+  {
+    "type": "image_alt",
+    "named": true
+  },
+  {
+    "type": "in",
+    "named": false
+  },
+  {
+    "type": "integer",
+    "named": true
+  },
+  {
+    "type": "pagebreak",
+    "named": true
+  },
+  {
+    "type": "text",
+    "named": true
+  },
+  {
+    "type": "variable_content",
+    "named": true
+  },
+  {
+    "type": "{{",
+    "named": false
+  },
+  {
+    "type": "}}",
+    "named": false
+  },
+  {
+    "type": "~~",
+    "named": false
+  }
+]

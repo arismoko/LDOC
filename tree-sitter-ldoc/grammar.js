@@ -1,5 +1,11 @@
 // Tree-sitter grammar for Legal Document DSL (.ldoc)
-// This grammar provides Neovim syntax highlighting
+// Provides Neovim/Helix syntax highlighting
+//
+// Design decisions:
+// 1. @document/@meta use "opaque block" pattern - indented content isn't parsed
+//    internally, just captured as indented_line nodes for highlighting via queries
+// 2. Control flow blocks (@if, @define, @foreach, etc.) require @end terminator
+// 3. No external scanner - avoids maintenance burden of tracking indentation state
 
 module.exports = grammar({
   name: "ldoc",
@@ -17,7 +23,7 @@ module.exports = grammar({
 
     _statement: ($) =>
       choice(
-        $.document_directive,
+        $.document_block,
         $.meta_block,
         $.import_directive,
         $.define_block,
@@ -35,22 +41,23 @@ module.exports = grammar({
         $.horizontal_rule,
         $.pagebreak,
         $.column_break,
-        $.doc_header,
-        $.doc_footer,
-        $.firstpage,
-        $.evenpage,
-        $.columns,
+        $.header_block,
+        $.footer_block,
+        $.firstpage_block,
+        $.evenpage_block,
+        $.columns_block,
         $.anchor,
         $.footnote_def,
+        $.end_directive,
         $.comment,
         $.paragraph,
         $._newline
       ),
 
-    // Block content excludes end_directive, elseif, else (they're block terminators)
+    // Block content - excludes end_directive, elseif, else (they're terminators)
     _block_content: ($) =>
       choice(
-        $.document_directive,
+        $.document_block,
         $.meta_block,
         $.import_directive,
         $.define_block,
@@ -68,11 +75,11 @@ module.exports = grammar({
         $.horizontal_rule,
         $.pagebreak,
         $.column_break,
-        $.doc_header,
-        $.doc_footer,
-        $.firstpage,
-        $.evenpage,
-        $.columns,
+        $.header_block,
+        $.footer_block,
+        $.firstpage_block,
+        $.evenpage_block,
+        $.columns_block,
         $.anchor,
         $.footnote_def,
         $.comment,
@@ -80,32 +87,45 @@ module.exports = grammar({
         $._newline
       ),
 
-    // @document Title
-    document_directive: ($) =>
-      seq("@document", /[^\n]+/),
+    // =========================================================================
+    // @document block - opaque YAML-style content
+    // =========================================================================
+    document_block: ($) =>
+      seq(
+        "@document",
+        $._newline,
+        repeat($.indented_line)
+      ),
 
-    // @meta block
+    // =========================================================================
+    // @meta block - opaque YAML-style content, requires @end
+    // =========================================================================
     meta_block: ($) =>
       seq(
         "@meta",
         $._newline,
-        repeat($.meta_entry)
+        repeat($.indented_line),
+        "@end"
       ),
 
-    meta_entry: ($) =>
+    // Opaque indented line - matches any indented content
+    // Used for YAML-style blocks where we don't need to parse structure
+    indented_line: ($) =>
       seq(
-        $._indent,
-        $.identifier,
-        ":",
-        optional(/[^\n]*/),
+        /[ \t]+/,   // must start with whitespace
+        /[^\n]*/,   // any content
         $._newline
       ),
 
-    // @import path
+    // =========================================================================
+    // @import directive
+    // =========================================================================
     import_directive: ($) =>
       seq("@import", /[^\n]+/),
 
-    // @define name(params) ... @end
+    // =========================================================================
+    // @define block - requires @end
+    // =========================================================================
     define_block: ($) =>
       seq(
         "@define",
@@ -113,10 +133,12 @@ module.exports = grammar({
         optional(seq("(", optional($.parameter_list), ")")),
         $._newline,
         repeat($._block_content),
-        $.end_directive
+        "@end"
       ),
 
-    // @use name or @use name(args)
+    // =========================================================================
+    // @use directive
+    // =========================================================================
     use_directive: ($) =>
       seq(
         "@use",
@@ -127,7 +149,6 @@ module.exports = grammar({
     parameter_list: ($) =>
       seq($.parameter, repeat(seq(",", $.parameter))),
 
-    // Parameter with optional default value
     parameter: ($) =>
       seq(
         $.identifier,
@@ -141,7 +162,6 @@ module.exports = grammar({
         $.identifier
       ),
 
-    // Argument list for @use (supports named params)
     argument_list: ($) =>
       seq($.argument, repeat(seq(",", $.argument))),
 
@@ -171,13 +191,15 @@ module.exports = grammar({
         seq("'", /[^']*/, "'")
       ),
 
+    // =========================================================================
     // Control flow: @if ... @elseif ... @else ... @end
+    // =========================================================================
     if_block: ($) =>
       seq(
         $.if_clause,
         repeat($.elseif_clause),
         optional($.else_clause),
-        $.end_directive
+        "@end"
       ),
 
     if_clause: ($) =>
@@ -206,27 +228,31 @@ module.exports = grammar({
     condition_expression: ($) =>
       /[^\n]+/,
 
+    // =========================================================================
     // Control flow: @repeat count ... @end
+    // =========================================================================
     repeat_block: ($) =>
       seq(
         "@repeat",
         $.repeat_count,
         $._newline,
         repeat($._block_content),
-        $.end_directive
+        "@end"
       ),
 
     repeat_count: ($) =>
       choice($.integer, $.variable),
 
+    // =========================================================================
     // Control flow: @foreach item in collection ... @end
+    // =========================================================================
     foreach_block: ($) =>
       seq(
         "@foreach",
         $.foreach_binding,
         $._newline,
         repeat($._block_content),
-        $.end_directive
+        "@end"
       ),
 
     foreach_binding: ($) =>
@@ -235,7 +261,9 @@ module.exports = grammar({
     iterable_expression: ($) =>
       choice($.variable, $.identifier),
 
+    // =========================================================================
     // @set variable = value
+    // =========================================================================
     set_directive: ($) =>
       seq(
         "@set",
@@ -252,7 +280,9 @@ module.exports = grammar({
         $.identifier
       ),
 
-    // # Header
+    // =========================================================================
+    // Headers: # through ######
+    // =========================================================================
     header: ($) =>
       seq(
         $.header_marker,
@@ -261,7 +291,9 @@ module.exports = grammar({
 
     header_marker: ($) => /#{1,6}/,
 
-    // @1, @@a, @@@i numbered items
+    // =========================================================================
+    // Numbered items: @1, @@a, @@@i, etc.
+    // =========================================================================
     numbered_item: ($) =>
       seq(
         $.numbered_marker,
@@ -279,7 +311,9 @@ module.exports = grammar({
         ))
       ),
 
-    // @- bullet items
+    // =========================================================================
+    // Bullet items: @- or @@- or @@@-
+    // =========================================================================
     bullet_item: ($) =>
       seq(
         $.bullet_marker,
@@ -288,7 +322,9 @@ module.exports = grammar({
 
     bullet_marker: ($) => /@+-/,
 
-    // @modifier content
+    // =========================================================================
+    // Modifiers: @center, @right, @indent, @bold, etc.
+    // =========================================================================
     modifier_line: ($) =>
       seq(
         $.modifier,
@@ -303,8 +339,8 @@ module.exports = grammar({
       choice(
         "@center",
         "@right",
-        seq("@indent", optional(seq(":", $.integer))),
-        seq("@outdent", optional(seq(":", $.integer))),
+        seq("@indent", optional(choice(seq(":", $.integer), seq("=", /[^\s\n]+/)))),
+        seq("@outdent", optional(choice(seq(":", $.integer), seq("=", /[^\s\n]+/)))),
         "@box",
         "@bold",
         "@italic",
@@ -319,7 +355,9 @@ module.exports = grammar({
         "@h6"
       ),
 
+    // =========================================================================
     // @table block
+    // =========================================================================
     table_block: ($) =>
       seq(
         "@table",
@@ -329,49 +367,116 @@ module.exports = grammar({
 
     table_row: ($) =>
       seq(
-        optional($._indent),
+        optional(/[ \t]+/),
         "[",
         /[^\]]+/,
         "]",
         $._newline
       ),
 
-    // > blockquote content
+    // =========================================================================
+    // Blockquote: > content
+    // =========================================================================
     blockquote: ($) =>
       seq(">", /[^\n]*/),
 
-    // --- horizontal rule
+    // =========================================================================
+    // Horizontal rule: ---+
+    // =========================================================================
     horizontal_rule: ($) =>
       /---+/,
 
-    // @pagebreak
+    // =========================================================================
+    // Page and column breaks
+    // =========================================================================
     pagebreak: ($) => "@pagebreak",
 
-    // @break (column break)
     column_break: ($) => "@break",
 
-    // Document header/footer directives
-    doc_header: ($) => seq("@header", optional(/[^\n]+/)),
-    doc_footer: ($) => seq("@footer", optional(/[^\n]+/)),
-    firstpage: ($) => seq("@firstpage", optional(/[^\n]+/)),
-    evenpage: ($) => seq("@evenpage", optional(/[^\n]+/)),
+    // =========================================================================
+    // @columns block - requires @end
+    // =========================================================================
+    columns_block: ($) =>
+      seq(
+        "@columns",
+        optional($.columns_args),
+        $._newline,
+        repeat($._block_content),
+        "@end"
+      ),
 
-    // Document layout directives
-    columns: ($) => seq("@columns", optional(/[^\n]+/)),
+    columns_args: ($) => /[^\n]+/,
 
-    // @anchor
+    // =========================================================================
+    // Header/Footer blocks
+    // =========================================================================
+    // Block form: @header\n  content\n@end
+    // Single-line form: @header content (no @end)
+    header_block: ($) =>
+      choice(
+        seq("@header", $._newline, repeat($._block_content), "@end"),
+        seq("@header", /[^\n]+/)
+      ),
+
+    footer_block: ($) =>
+      choice(
+        seq("@footer", $._newline, repeat($._block_content), "@end"),
+        seq("@footer", /[^\n]+/)
+      ),
+
+    // First page variants: @firstpage @header or @firstpage @footer
+    firstpage_block: ($) =>
+      seq(
+        "@firstpage",
+        choice(
+          seq("@header", choice(
+            seq($._newline, repeat($._block_content), "@end"),
+            /[^\n]+/
+          )),
+          seq("@footer", choice(
+            seq($._newline, repeat($._block_content), "@end"),
+            /[^\n]+/
+          ))
+        )
+      ),
+
+    // Even page variants
+    evenpage_block: ($) =>
+      seq(
+        "@evenpage",
+        choice(
+          seq("@header", choice(
+            seq($._newline, repeat($._block_content), "@end"),
+            /[^\n]+/
+          )),
+          seq("@footer", choice(
+            seq($._newline, repeat($._block_content), "@end"),
+            /[^\n]+/
+          ))
+        )
+      ),
+
+    // =========================================================================
+    // @anchor directive
+    // =========================================================================
     anchor: ($) => seq("@anchor", optional(/[^\n]+/)),
 
-    // [^label]: footnote definition (block level)
+    // =========================================================================
+    // Footnotes
+    // =========================================================================
     footnote_def: ($) =>
       seq("[^", $.footnote_label, "]:", /[^\n]*/),
 
     footnote_label: ($) => /[a-zA-Z0-9_-]+/,
 
-    // @end directive
+    // =========================================================================
+    // @end directive (standalone, for block termination)
+    // =========================================================================
     end_directive: ($) => "@end",
 
+    // =========================================================================
     // Comments
+    // =========================================================================
     comment: ($) =>
       choice(
         $.line_comment,
@@ -386,7 +491,9 @@ module.exports = grammar({
 
     todo_comment: ($) => seq("@todo", /[^\n]*/),
 
+    // =========================================================================
     // Paragraph with inline content
+    // =========================================================================
     paragraph: ($) =>
       repeat1($._inline),
 
@@ -406,21 +513,29 @@ module.exports = grammar({
         $.text
       ),
 
-    // {{variable}}
+    // =========================================================================
+    // Variables: {{variable}} or {{path.to.value}}
+    // =========================================================================
     variable: ($) =>
       seq("{{", $.variable_content, "}}"),
 
     variable_content: ($) => /[^}]+/,
 
-    // [[reference]]
+    // =========================================================================
+    // Cross references: [[reference]]
+    // =========================================================================
     cross_reference: ($) =>
       seq("[[", /[^\]]+/, "]]"),
 
-    // "Defined Term"
+    // =========================================================================
+    // Defined terms: "Term"
+    // =========================================================================
     defined_term: ($) =>
       seq('"', /[^"]+/, '"'),
 
-    // **bold**, *italic*, ***both***
+    // =========================================================================
+    // Emphasis: *italic*, **bold**, ***bold_italic***
+    // =========================================================================
     emphasis: ($) =>
       choice(
         seq("***", /[^*]+/, "***"),
@@ -428,19 +543,27 @@ module.exports = grammar({
         seq("*", /[^*]+/, "*")
       ),
 
-    // ~~strikethrough~~
+    // =========================================================================
+    // Strikethrough: ~~text~~
+    // =========================================================================
     strikethrough: ($) =>
       seq("~~", /[^~]+/, "~~"),
 
-    // `inline code`
+    // =========================================================================
+    // Inline code: `code`
+    // =========================================================================
     inline_code: ($) =>
       seq("`", /[^`]+/, "`"),
 
-    // [^label] footnote reference
+    // =========================================================================
+    // Footnote reference: [^label]
+    // =========================================================================
     footnote_ref: ($) =>
       seq("[^", $.footnote_label, "]"),
 
-    // ![alt](src) image
+    // =========================================================================
+    // Image: ![alt](src)
+    // =========================================================================
     image: ($) =>
       seq("![", $.image_alt, "](", $.image_src, ")"),
 
@@ -448,7 +571,9 @@ module.exports = grammar({
 
     image_src: ($) => /[^)]*/,
 
-    // [text](url) link
+    // =========================================================================
+    // Link: [text](url)
+    // =========================================================================
     link: ($) =>
       seq("[", $.link_text, "](", $.link_url, ")"),
 
@@ -456,22 +581,28 @@ module.exports = grammar({
 
     link_url: ($) => /[^)]*/,
 
+    // =========================================================================
     // Hard break: two or more trailing spaces at end of line
+    // =========================================================================
     hard_break: ($) => /  +\n/,
 
-    // _____
+    // =========================================================================
+    // Blank: ___+ (underscores for fill-in-the-blank)
+    // =========================================================================
     blank: ($) => /_{3,}/,
 
-    // Regular text - excludes special characters  
-    // Note: ( and ! are allowed within text - only special at token start
-    text: ($) => /[^\n@#>{}\[\]"*_\/~`]+/,
+    // =========================================================================
+    // Regular text - excludes special characters at start positions
+    // Underscores are allowed since blanks require 3+ consecutive underscores
+    // =========================================================================
+    text: ($) => /[^\n@#>{}\[\]"*\/~`]+/,
 
+    // =========================================================================
     // Helpers
+    // =========================================================================
     identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
 
     integer: ($) => /[0-9]+/,
-
-    _indent: ($) => /[ \t]+/,
 
     _newline: ($) => /\n/,
   },

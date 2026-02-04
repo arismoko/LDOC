@@ -1,102 +1,150 @@
-; Highlight queries for Legal Document DSL
+; Highlight queries for Legal Document DSL (.ldoc)
+; Works with the tree-sitter-ldoc grammar
 
-; Keywords and directives
-(document_directive) @keyword
+; =============================================================================
+; Keywords and Directives
+; =============================================================================
 
-; Directive keywords (matched as part of their containing nodes)
-(define_block) @keyword
-(use_directive) @keyword
-(import_directive) @keyword
-(meta_block) @keyword
-(table_block) @keyword
-(pagebreak) @keyword
-(column_break) @keyword
-(columns) @keyword
-(anchor) @keyword
-
-(doc_header) @keyword
-(doc_footer) @keyword
-(firstpage) @keyword
-(evenpage) @keyword
+; Structure directives
+"@document" @keyword
+"@meta" @keyword
+"@import" @keyword.import
+"@define" @keyword.function
+"@use" @keyword
+"@end" @keyword
 
 ; Control flow keywords
-(if_clause) @keyword.conditional
-(elseif_clause) @keyword.conditional
-(else_clause) @keyword.conditional
-(end_directive) @keyword
-(repeat_block) @keyword.repeat
-(foreach_block) @keyword.repeat
-(set_directive) @keyword
+"@if" @keyword.conditional
+"@elseif" @keyword.conditional
+"@else" @keyword.conditional
+"@foreach" @keyword.repeat
+"@repeat" @keyword.repeat
+"@set" @keyword
 
-; Control flow content
+; Layout keywords
+(columns_block) @keyword
+(column_break) @keyword
+(pagebreak) @keyword
+(header_block) @keyword
+(footer_block) @keyword
+(firstpage_block) @keyword
+(evenpage_block) @keyword
+(anchor) @keyword
+(table_block) @keyword
+
+; =============================================================================
+; Control Flow Content
+; =============================================================================
+
 (condition_expression) @string.special
 (foreach_binding (identifier) @variable)
-(iterable_expression) @variable
-(repeat_count) @number
+(iterable_expression (identifier) @variable)
+(repeat_count (integer) @number)
 (set_directive (identifier) @variable)
 
-; Parameters and arguments
+; =============================================================================
+; Macros and Parameters
+; =============================================================================
+
+(define_block (identifier) @function)
+(use_directive (identifier) @function)
 (parameter (identifier) @variable.parameter)
-(default_value) @string
-(argument_value) @string
+(default_value (string_literal) @string)
+(default_value (integer) @number)
+(argument (named_argument (identifier) @variable.parameter))
 (string_literal) @string
 
+; =============================================================================
 ; Modifiers
-(modifier) @function
+; =============================================================================
 
-; Numbered items
-(numbered_marker) @number
+(modifier) @function.builtin
+
+; =============================================================================
+; Lists and Numbered Items
+; =============================================================================
+
+(numbered_marker) @punctuation.special
 (bullet_marker) @punctuation.special
 
+; =============================================================================
 ; Headers
+; =============================================================================
+
 (header_marker) @punctuation.special
 (header) @markup.heading
 
-; Variables
-(variable) @variable
-(variable_content) @variable
+; =============================================================================
+; Variables and Cross References
+; =============================================================================
 
-; Cross references
-(cross_reference) @markup.link
+(variable
+  "{{" @punctuation.bracket
+  (variable_content) @variable
+  "}}" @punctuation.bracket)
 
-; Defined terms
+(cross_reference
+  "[[" @punctuation.bracket
+  "]]" @punctuation.bracket) @markup.link
+
+; =============================================================================
+; Inline Formatting
+; =============================================================================
+
 (defined_term) @string.special
-
-; Emphasis
 (emphasis) @markup.italic
-
-; Inline formatting
 (strikethrough) @markup.strikethrough
 (inline_code) @markup.raw
 (footnote_ref) @markup.link
 (footnote_def) @markup.link
 (footnote_label) @label
-(image) @markup.link
-(image_alt) @string
-(image_src) @string.special.url
-(link) @markup.link
-(link_text) @string
-(link_url) @string.special.url
-(hard_break) @punctuation.special
 
-; Block elements
+; =============================================================================
+; Links and Images
+; =============================================================================
+
+(image
+  (image_alt) @string
+  (image_src) @string.special.url)
+
+(link
+  (link_text) @string
+  (link_url) @string.special.url)
+
+; =============================================================================
+; Block Elements
+; =============================================================================
+
 (blockquote) @markup.quote
 (horizontal_rule) @punctuation.special
+(table_row) @markup.list
 
-; Blanks
-(blank) @punctuation.special
-
+; =============================================================================
 ; Comments
+; =============================================================================
+
 (line_comment) @comment
 (block_comment) @comment
 (todo_comment) @comment.todo
 
-; Table
-(table_row) @markup.list
+; =============================================================================
+; Blanks and Special Punctuation
+; =============================================================================
 
-; Meta entries
-(meta_entry) @property
-(identifier) @property
+(blank) @punctuation.special
+(hard_break) @punctuation.special
 
-; Strings and text
-(text) @string
+; =============================================================================
+; Opaque Blocks (YAML-style content in @document/@meta)
+; =============================================================================
+
+; Match keys in indented lines (word followed by colon)
+((indented_line) @property
+  (#match? @property "^[ \\t]*[a-z_-]+:"))
+
+; =============================================================================
+; Identifiers (fallback)
+; =============================================================================
+
+(identifier) @variable
+(integer) @number
