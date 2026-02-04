@@ -7,6 +7,7 @@ export type RunStyle = {
   code?: boolean;
   font?: string;     // Font name from w:rFonts
   sizePt?: number;   // Font size in points (from w:sz which is in half-points)
+  color?: string;    // Text color (uppercase hex, e.g. "FF0000")
 };
 
 export interface DocumentDefaults {

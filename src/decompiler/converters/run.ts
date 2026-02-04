@@ -151,6 +151,102 @@ export function coalesceStyledSegments(segments: TextSegment[]): string {
   return groups.map(coalesceGroup).join("");
 }
 
+/** Style attributes for inline @style emission */
+type InlineStyleAttrs = {
+  font?: string;
+  size?: string;  // e.g. "14pt"
+  color?: string; // e.g. "FF0000"
+};
+
+/**
+ * Check if a segment has style attributes that differ from dominant.
+ */
+function getInlineStyleAttrs(
+  style: RunStyle, 
+  dominant: { font?: string; sizePt?: number }
+): InlineStyleAttrs | null {
+  const attrs: InlineStyleAttrs = {};
+  
+  // Font differs from dominant (or segment has font but dominant doesn't)
+  if (style.font && (!dominant.font || 
+      style.font.toLowerCase() !== dominant.font.toLowerCase())) {
+    attrs.font = style.font;
+  }
+  
+  // Size differs from dominant (or segment has size but dominant doesn't)
+  if (style.sizePt && (!dominant.sizePt || style.sizePt !== dominant.sizePt)) {
+    attrs.size = `${style.sizePt}pt`;
+  }
+  
+  // Color present (no "dominant color" concept - any color is notable)
+  if (style.color) {
+    attrs.color = style.color;
+  }
+  
+  return Object.keys(attrs).length > 0 ? attrs : null;
+}
+
+/**
+ * Format inline style attributes as string: font=X size=Ypt color=Z
+ */
+function formatInlineStyleAttrs(attrs: InlineStyleAttrs): string {
+  const parts: string[] = [];
+  if (attrs.font) {
+    // Quote if contains spaces
+    parts.push(attrs.font.includes(" ") ? `font="${attrs.font}"` : `font=${attrs.font}`);
+  }
+  if (attrs.size) parts.push(`size=${attrs.size}`);
+  if (attrs.color) parts.push(`color=${attrs.color}`);
+  return parts.join(" ");
+}
+
+/**
+ * Check if two segments have the same inline style attrs.
+ */
+function sameInlineStyle(a: InlineStyleAttrs | null, b: InlineStyleAttrs | null): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a.font === b.font && a.size === b.size && a.color === b.color;
+}
+
+/**
+ * Coalesce segments, wrapping those with non-dominant styles in @style().
+ * Call order: this wraps emphasis coalescing.
+ */
+export function coalesceInlineStyles(
+  segments: TextSegment[], 
+  dominant: { font?: string; sizePt?: number }
+): string {
+  if (segments.length === 0) return "";
+  
+  // Group adjacent segments with same inline style attrs
+  const groups: { attrs: InlineStyleAttrs | null; segments: TextSegment[] }[] = [];
+  
+  for (const seg of segments) {
+    const attrs = getInlineStyleAttrs(seg.style, dominant);
+    const lastGroup = groups[groups.length - 1];
+    
+    if (lastGroup && sameInlineStyle(lastGroup.attrs, attrs)) {
+      lastGroup.segments.push(seg);
+    } else {
+      groups.push({ attrs, segments: [seg] });
+    }
+  }
+  
+  // Process each group
+  return groups.map(group => {
+    // First coalesce emphasis within the group
+    const emphasisText = coalesceStyledSegments(group.segments);
+    
+    // Then wrap with @style if needed
+    if (group.attrs) {
+      const attrStr = formatInlineStyleAttrs(group.attrs);
+      return `@style(${attrStr})[${emphasisText}]`;
+    }
+    return emphasisText;
+  }).join("");
+}
+
 function truthyWordBool(val: string | undefined): boolean {
   if (val === undefined) return true;
   const v = val.toLowerCase();
@@ -205,13 +301,22 @@ export function parseRunStyle(runNode: XmlNode): RunStyle {
   const szVal = attrVal(szNode, "@_w:val");
   const sizePt = szVal ? parseInt(szVal, 10) / 2 : undefined;
 
+  // Extract color from w:color
+  const colorNode = findFirst(rPrChildren, "w:color");
+  const colorVal = attrVal(colorNode, "@_w:val");
+  // Normalize: uppercase hex, ignore "auto"
+  const color = colorVal && colorVal.toLowerCase() !== "auto" 
+    ? colorVal.toUpperCase() 
+    : undefined;
+
   return { 
     bold, 
     italic, 
     strike, 
     code,
     font: fontName || undefined,
-    sizePt: Number.isFinite(sizePt) ? sizePt : undefined
+    sizePt: Number.isFinite(sizePt) ? sizePt : undefined,
+    color,
   };
 }
 

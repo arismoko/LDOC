@@ -1,7 +1,7 @@
 import { findFirst, attrVal, getOnlyKey, type XmlNode } from "../xml";
 import { type NumberingInfo, listPrefix } from "../parsers/numbering";
 import { type ParagraphStyleMap, resolveStyleIndentLeftTwips } from "../parsers/styles";
-import { type TextSegment, parseRunStyle, collectTextFromNodes, normalizeWs, wrapEmphasis, coalesceStyledSegments } from "./run";
+import { type TextSegment, parseRunStyle, collectTextFromNodes, normalizeWs, wrapEmphasis, coalesceStyledSegments, coalesceInlineStyles } from "./run";
 import type { FontSizeStats } from "../statistics";
 
 export type DecompilerOptions = {
@@ -340,8 +340,12 @@ function mergeTextSegments(segments: TextSegment[]): TextSegment[] {
   return merged;
 }
 
-export function paragraphText(pNode: XmlNode, preserveTabs = false, rels?: Map<string, string>): string {
+export function paragraphText(pNode: XmlNode, preserveTabs = false, rels?: Map<string, string>, dominantStyle?: FontSizeStats): string {
   const contentSegments = paragraphSegments(pNode, rels);
+  
+  // Choose the coalescing function based on whether we have a dominant style
+  const coalesce = (segments: TextSegment[]) => 
+    dominantStyle ? coalesceInlineStyles(segments, dominantStyle) : coalesceStyledSegments(segments);
   
   // Process non-hyperlink segments with merging
   const textSegs: TextSegment[] = [];
@@ -352,10 +356,10 @@ export function paragraphText(pNode: XmlNode, preserveTabs = false, rels?: Map<s
       // Flush accumulated text segments - don't trim trailing space before hyperlink
       if (textSegs.length > 0) {
         const merged = mergeTextSegments(textSegs);
-        resultParts.push(normalizeWs(coalesceStyledSegments(merged), preserveTabs, false));
+        resultParts.push(normalizeWs(coalesce(merged), preserveTabs, false));
         textSegs.length = 0;
       }
-      // Add hyperlink
+      // Add hyperlink - use standard coalescing for link text
       const mergedLink = mergeTextSegments(seg.segments);
       const linkText = normalizeWs(coalesceStyledSegments(mergedLink), preserveTabs);
       resultParts.push(`[${linkText}](${seg.url})`);
@@ -367,7 +371,7 @@ export function paragraphText(pNode: XmlNode, preserveTabs = false, rels?: Map<s
   // Flush remaining text segments - trim trailing space at end of paragraph
   if (textSegs.length > 0) {
     const merged = mergeTextSegments(textSegs);
-    resultParts.push(normalizeWs(coalesceStyledSegments(merged), preserveTabs));
+    resultParts.push(normalizeWs(coalesce(merged), preserveTabs));
   }
   
   return resultParts.join("");
@@ -463,7 +467,7 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
   const styleAttrs = computeStyleAttrs(paragraphFontSize, options?.dominantStyle);
   
   // For TOC paragraphs, preserve tabs for readable title+page format
-  const text = paragraphText(pNode, isToc, rels);
+  const text = paragraphText(pNode, isToc, rels, options?.dominantStyle);
   const isEmpty = !text.trim();
 
   // Check for heading style first

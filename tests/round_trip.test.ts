@@ -323,4 +323,38 @@ Third paragraph to conclude.
     expect(result.source).toContain("*italic text*");
     expect(result.source).toContain("~~strikethrough~~");
   });
+
+  test("inline @style round-trip with color", async () => {
+    const input = `Normal text @style(color=FF0000)[red text] more normal.`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("@style(color=FF0000)[red text]");
+  });
+
+  test("inline @style round-trip with size and color", async () => {
+    const input = `Text @style(size=24pt color=00FF00)[big green] here.`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("@style(");
+    expect(result.source).toContain("size=24pt");
+    expect(result.source).toContain("color=00FF00");
+    expect(result.source).toContain("[big green]");
+  });
+
+  test("inline @style round-trip with nested emphasis", async () => {
+    const input = `Text @style(color=0000FF)[**bold blue**] here.`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    expect(result.source).toContain("@style(color=0000FF)");
+    expect(result.source).toContain("**bold blue**");
+  });
 });
