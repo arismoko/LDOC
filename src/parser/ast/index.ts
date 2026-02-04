@@ -46,6 +46,7 @@ import type {
   StrikethroughNode,
   InlineCodeNode,
   FootnoteReferenceNode,
+  InlineStyleNode,
 } from "./inline";
 
 export * from "./base";
@@ -94,6 +95,7 @@ export type Node =
   | PageBreakNode
   | CommentNode
   | ColumnBreakNode
+  | InlineStyleNode
   | ImportNode;
 
 // Visitor pattern for AST traversal
@@ -137,6 +139,7 @@ export interface NodeVisitor<T = void> {
   visitPageBreak?(node: PageBreakNode): T;
   visitColumnBreak?(node: ColumnBreakNode): T;
   visitComment?(node: CommentNode): T;
+  visitInlineStyle?(node: InlineStyleNode): T;
 }
 
 export function visit<T>(node: Node, visitor: NodeVisitor<T>): T | undefined {
@@ -220,6 +223,8 @@ export function visit<T>(node: Node, visitor: NodeVisitor<T>): T | undefined {
       return visitor.visitColumnBreak?.(node);
     case "comment":
       return visitor.visitComment?.(node);
+    case "inline_style":
+      return visitor.visitInlineStyle?.(node);
   }
 }
 

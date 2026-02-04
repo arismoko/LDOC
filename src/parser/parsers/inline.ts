@@ -1,5 +1,5 @@
 import { TokenType, type Token } from "../lexer";
-import type { InlineNode, Node, StrikethroughNode, InlineCodeNode, FootnoteReferenceNode, ImageNode } from "../ast";
+import type { InlineNode, Node, StrikethroughNode, InlineCodeNode, FootnoteReferenceNode, ImageNode, InlineStyleNode } from "../ast";
 import type { TokenStream } from "../token-stream";
 
 export interface ParserContext {
@@ -192,6 +192,15 @@ export function parseInlineContent(text: string, allowEmphasis = true): InlineNo
       }
     }
 
+    // Inline style: @style(attrs)[content]
+    if (text.slice(i, i + 7) === "@style(") {
+      flushText();
+      const result = parseInlineStyleFromString(text, i);
+      nodes.push(result.node);
+      i = result.endIndex;
+      continue;
+    }
+
     current += text[i];
     i++;
   }
@@ -201,6 +210,67 @@ export function parseInlineContent(text: string, allowEmphasis = true): InlineNo
   }
 
   return nodes;
+}
+
+function parseAttributeString(str: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const regex = /(\w[\w-]*)=(?:"([^"]*)"|(\S+))/g;
+  let match;
+  while ((match = regex.exec(str)) !== null) {
+    const key = match[1];
+    const value = match[2] ?? match[3];
+    if (key !== undefined && value !== undefined) {
+      attrs[key] = value;
+    }
+  }
+  return attrs;
+}
+
+function parseInlineStyleFromString(
+  text: string, 
+  start: number
+): { node: InlineStyleNode; endIndex: number } {
+  let i = start + 7; // Skip "@style("
+  
+  // Parse attributes until )
+  const attrStart = i;
+  let parenDepth = 1;
+  while (i < text.length && parenDepth > 0) {
+    if (text[i] === "(") parenDepth++;
+    else if (text[i] === ")") parenDepth--;
+    if (parenDepth > 0) i++;
+  }
+  const attrStr = text.slice(attrStart, i);
+  i++; // Skip )
+  
+  // Expect [
+  if (text[i] !== "[") {
+    throw new Error(`Expected '[' after @style() at position ${i}`);
+  }
+  i++; // Skip [
+  
+  // Find matching ] with balanced counting
+  const contentStart = i;
+  let depth = 1;
+  while (depth > 0 && i < text.length) {
+    if (text[i] === "[") depth++;
+    else if (text[i] === "]") depth--;
+    if (depth > 0) i++;
+  }
+  
+  const rawContent = text.slice(contentStart, i);
+  i++; // Skip closing ]
+  
+  return {
+    node: {
+      type: "inline_style",
+      line: 0, column: 0,
+      endLine: 0, endColumn: 0,
+      attributes: parseAttributeString(attrStr),
+      content: parseInlineContent(rawContent),  // Recursive!
+    } as InlineStyleNode,
+    endIndex: i,
+  };
 }
 
 export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>): InlineNode[] {
@@ -384,6 +454,20 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           endColumn: token.endColumn,
           label: token.value,
         });
+        break;
+
+      case TokenType.INLINE_STYLE:
+        // Parse the rawContent as inline nodes (recursive)
+        const innerContent = parseInlineContent(token.rawContent ?? "");
+        nodes.push({
+          type: "inline_style",
+          line: token.line,
+          column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
+          attributes: token.attributes ?? {},
+          content: innerContent,
+        } as InlineStyleNode);
         break;
     }
   }

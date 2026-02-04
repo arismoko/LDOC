@@ -65,6 +65,12 @@ export interface ImageNode extends BaseNode {
   src: string;
 }
 
+export interface InlineStyleNode extends BaseNode {
+  type: "inline_style";
+  attributes: Record<string, string>;
+  content: InlineNode[];  // Parsed children
+}
+
 // Inline nodes (can appear inside text)
 export type InlineNode =
   | TextNode
@@ -78,4 +84,5 @@ export type InlineNode =
   | ImageNode
   | StrikethroughNode
   | InlineCodeNode
-  | FootnoteReferenceNode;
+  | FootnoteReferenceNode
+  | InlineStyleNode;

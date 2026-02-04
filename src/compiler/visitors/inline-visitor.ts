@@ -1,5 +1,5 @@
 import { TextRun, InternalHyperlink, ExternalHyperlink, PageNumber, Tab, FootnoteReferenceRun, ImageRun } from "docx";
-import type { InlineNode, NodeVisitor, TextNode, VariableNode, CrossRefNode, DefinedTermNode, BlankNode, EmphasisNode, LinkNode, StrikethroughNode, InlineCodeNode, FootnoteReferenceNode, ImageNode } from "../../parser/ast";
+import type { InlineNode, NodeVisitor, TextNode, VariableNode, CrossRefNode, DefinedTermNode, BlankNode, EmphasisNode, LinkNode, StrikethroughNode, InlineCodeNode, FootnoteReferenceNode, ImageNode, InlineStyleNode } from "../../parser/ast";
 import sizeOf from "image-size";
 import fs from "node:fs";
 import type { CompilationContext } from "../context";
@@ -187,6 +187,46 @@ export class InlineNodeVisitor implements NodeVisitor<any[]> {
     ];
   }
 
+  visitInlineStyle(node: InlineStyleNode): any[] {
+    // Build style from attributes
+    const styleOverrides = { ...this.baseStyle };
+
+    // Font
+    if (node.attributes.font) {
+      styleOverrides.font = node.attributes.font;
+    }
+
+    // Size (convert pt to half-points)
+    if (node.attributes.size) {
+      const sizeMatch = node.attributes.size.match(/^(\d+(?:\.\d+)?)(pt)?$/i);
+      if (sizeMatch && sizeMatch[1]) {
+        styleOverrides.size = Math.round(parseFloat(sizeMatch[1]) * 2);
+      }
+    }
+
+    // Color (strip # if present)
+    if (node.attributes.color) {
+      const colorMatch = node.attributes.color.match(/^#?([0-9A-Fa-f]{6})$/);
+      if (colorMatch && colorMatch[1]) {
+        styleOverrides.color = colorMatch[1].toUpperCase();
+      }
+    }
+
+    // Bold
+    if (node.attributes.bold === "true") {
+      styleOverrides.bold = true;
+    }
+
+    // Italic
+    if (node.attributes.italic === "true") {
+      styleOverrides.italics = true;
+    }
+
+    // Create new visitor with merged style
+    const visitor = new InlineNodeVisitor(this.ctx, styleOverrides, this.scope);
+    return node.content.flatMap(child => visitor.visit(child));
+  }
+
   visit(node: InlineNode): any[] {
     switch (node.type) {
       case "text": return this.visitText(node);
@@ -201,6 +241,7 @@ export class InlineNodeVisitor implements NodeVisitor<any[]> {
       case "inline_code": return this.visitInlineCode(node);
       case "footnote_ref": return this.visitFootnoteReference(node);
       case "cross_ref": return this.visitCrossRef(node);
+      case "inline_style": return this.visitInlineStyle(node);
       default: return [];
     }
   }

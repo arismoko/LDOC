@@ -41,6 +41,7 @@ export enum TokenType {
   BOLD_ITALIC = "BOLD_ITALIC",
   STRIKETHROUGH = "STRIKETHROUGH",
   INLINE_CODE = "INLINE_CODE",
+  INLINE_STYLE = "INLINE_STYLE",  // @style(attrs)[content]
   FOOTNOTE_REF = "FOOTNOTE_REF",
   FOOTNOTE_DEF = "FOOTNOTE_DEF",
   IMAGE = "IMAGE",
@@ -88,6 +89,8 @@ export interface Token {
   marker?: string; // The full marker like '@@a'
   // For @style modifier with key=value pairs
   attributes?: Record<string, string>;
+  // For INLINE_STYLE: unparsed content between [ ]
+  rawContent?: string;
 }
 
 export interface LexerState {
