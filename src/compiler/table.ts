@@ -18,6 +18,7 @@ import {
 import type { TableNode, ModifierNode, InlineNode, Node, TableCellNode } from "../parser/ast";
 import type { AlignmentType } from "docx";
 import type { TextStyle } from "./styles";
+import { splitInlineNodesByNewline } from "./text";
 
 /**
  * Context interface for table/box compilation.
@@ -80,25 +81,40 @@ export function compileTable(
   const rows = node.rows.map((row, index) => {
     const isHeader = index === 0;
     const cells = row.cells.map((cellNode: TableCellNode) => {
-      let paragraphChildren: any[] = ctx.compileInlineNodes(
-        cellNode.content,
-        isHeader ? { bold: true } : {},
-        (node as any).scope
-      );
-      if (bookmarksForFirstRow && bookmarksForFirstRow.length > 0 && index === 0) {
-        for (let i = bookmarksForFirstRow.length - 1; i >= 0; i--) {
-          paragraphChildren = [new Bookmark({ id: bookmarksForFirstRow[i]!, children: paragraphChildren })];
+      // Split cell content by newlines to support multi-paragraph cells
+      const contentLines = splitInlineNodesByNewline(cellNode.content);
+
+      // Create a paragraph for each line
+      const paragraphs: Paragraph[] = contentLines.map((lineNodes, lineIndex) => {
+        let paragraphChildren: any[] = ctx.compileInlineNodes(
+          lineNodes,
+          isHeader ? { bold: true } : {},
+          (node as any).scope
+        );
+
+        // Apply bookmarks only to the first paragraph of the first cell
+        if (
+          bookmarksForFirstRow &&
+          bookmarksForFirstRow.length > 0 &&
+          index === 0 &&
+          lineIndex === 0
+        ) {
+          for (let i = bookmarksForFirstRow.length - 1; i >= 0; i--) {
+            paragraphChildren = [
+              new Bookmark({ id: bookmarksForFirstRow[i]!, children: paragraphChildren }),
+            ];
+          }
+          bookmarksForFirstRow = undefined;
         }
-        bookmarksForFirstRow = undefined;
-      }
+
+        return new Paragraph({
+          children: paragraphChildren,
+        });
+      });
 
       // Build cell options
       const cellOptions: any = {
-        children: [
-          new Paragraph({
-            children: paragraphChildren,
-          }),
-        ],
+        children: paragraphs.length > 0 ? paragraphs : [new Paragraph({})],
         verticalAlign: VerticalAlign.TOP,
         shading: isHeader
           ? { type: ShadingType.CLEAR, fill: "F2F2F2" }

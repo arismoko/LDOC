@@ -83,7 +83,7 @@ export function tableToLdoc(tblNode: XmlNode): string {
           if (t) paras.push(t);
         }
       }
-      const cellText = normalizeWs(paras.join(" "));
+      const cellText = normalizeWs(paras.join("\n"));
 
       // Strip bold from header row cells (first row)
       const finalText = isFirstRow ? stripHeaderBold(cellText) : cellText;
