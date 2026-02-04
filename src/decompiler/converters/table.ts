@@ -83,7 +83,9 @@ export function tableToLdoc(tblNode: XmlNode): string {
           if (t) paras.push(t);
         }
       }
-      const cellText = normalizeWs(paras.join("\n"));
+      // Join paragraphs with double newline to preserve paragraph structure in LDOC
+      // (Single newline is soft wrap, double newline is new paragraph)
+      const cellText = normalizeWs(paras.join("\n\n"));
 
       // Strip bold from header row cells (first row)
       const finalText = isFirstRow ? stripHeaderBold(cellText) : cellText;

@@ -18,7 +18,7 @@ import {
 import type { TableNode, ModifierNode, InlineNode, Node, TableCellNode } from "../parser/ast";
 import type { AlignmentType } from "docx";
 import type { TextStyle } from "./styles";
-import { splitInlineNodesByNewline } from "./text";
+import { splitInlineNodesByParagraphBreak } from "./text";
 
 /**
  * Context interface for table/box compilation.
@@ -82,7 +82,7 @@ export function compileTable(
     const isHeader = index === 0;
     const cells = row.cells.map((cellNode: TableCellNode) => {
       // Split cell content by newlines to support multi-paragraph cells
-      const contentLines = splitInlineNodesByNewline(cellNode.content);
+      const contentLines = splitInlineNodesByParagraphBreak(cellNode.content);
 
       // Create a paragraph for each line
       const paragraphs: Paragraph[] = contentLines.map((lineNodes, lineIndex) => {

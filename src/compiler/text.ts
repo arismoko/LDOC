@@ -129,23 +129,24 @@ export function createSingleTextRun(text: string, style: TextStyle): TextRun {
 }
 
 /**
- * Split an array of InlineNodes by newline characters.
+ * Split an array of InlineNodes by paragraph breaks (double newlines).
  * Returns an array of InlineNode arrays, where each inner array represents
- * content for a single line/paragraph.
+ * content for a single paragraph.
+ *
+ * Single newlines are converted to spaces (soft wrap behavior).
  *
  * Handles:
- * - TextNode: splits on \n, preserves empty parts for consecutive newlines
+ * - TextNode: splits on \n\n+, converts single \n to space
  * - EmphasisNode, StrikethroughNode, InlineStyleNode: recursively splits content
- * - Other nodes: passed through to the current line
+ * - Other nodes: passed through to the current paragraph
  *
  * Examples:
- * - "A\nB" -> [[Text("A")], [Text("B")]]
- * - "A\n" -> [[Text("A")], []]
- * - "\nA" -> [[], [Text("A")]]
- * - "\n" -> [[], []]
- * - "A\n\nB" -> [[Text("A")], [], [Text("B")]]
+ * - "A\nB" -> [[Text("A B")]] (single newline becomes space)
+ * - "A\n\nB" -> [[Text("A")], [Text("B")]] (double newline is paragraph break)
+ * - "A\n\n\nB" -> [[Text("A")], [Text("B")]] (triple+ newline is paragraph break)
+ * - "A\nB\n\nC\nD" -> [[Text("A B")], [Text("C D")]]
  */
-export function splitInlineNodesByNewline(nodes: InlineNode[]): InlineNode[][] {
+export function splitInlineNodesByParagraphBreak(nodes: InlineNode[]): InlineNode[][] {
   // Start with a single empty line
   let lines: InlineNode[][] = [[]];
 
@@ -189,7 +190,8 @@ function splitSingleNode(node: InlineNode): InlineNode[][] {
 }
 
 /**
- * Split a TextNode by newlines.
+ * Split a TextNode by paragraph breaks (double newlines).
+ * Single newlines are converted to spaces.
  */
 function splitTextNode(node: TextNode): InlineNode[][] {
   const value = node.value;
@@ -199,17 +201,19 @@ function splitTextNode(node: TextNode): InlineNode[][] {
     return [[node]];
   }
 
-  // Split by newline - this preserves empty strings for consecutive newlines
-  const parts = value.split("\n");
+  // Split by paragraph breaks (2+ consecutive newlines)
+  const parts = value.split(/\n{2,}/);
 
   return parts.map((part): InlineNode[] => {
-    if (part === "") {
+    // Convert single newlines to spaces within each paragraph
+    const normalized = part.replace(/\n/g, " ");
+    if (normalized === "") {
       return [];
     }
     return [
       {
         ...node,
-        value: part,
+        value: normalized,
       } as TextNode,
     ];
   });
@@ -220,7 +224,7 @@ function splitTextNode(node: TextNode): InlineNode[][] {
  * Each resulting segment preserves the emphasis style.
  */
 function splitEmphasisNode(node: EmphasisNode): InlineNode[][] {
-  const contentLines = splitInlineNodesByNewline(node.content);
+  const contentLines = splitInlineNodesByParagraphBreak(node.content);
 
   return contentLines.map((lineNodes): InlineNode[] => {
     if (lineNodes.length === 0) {
@@ -239,7 +243,7 @@ function splitEmphasisNode(node: EmphasisNode): InlineNode[][] {
  * Split a StrikethroughNode by newlines in its content.
  */
 function splitStrikethroughNode(node: StrikethroughNode): InlineNode[][] {
-  const contentLines = splitInlineNodesByNewline(node.content);
+  const contentLines = splitInlineNodesByParagraphBreak(node.content);
 
   return contentLines.map((lineNodes): InlineNode[] => {
     if (lineNodes.length === 0) {
@@ -259,7 +263,7 @@ function splitStrikethroughNode(node: StrikethroughNode): InlineNode[][] {
  * Each resulting segment preserves the style attributes.
  */
 function splitInlineStyleNode(node: InlineStyleNode): InlineNode[][] {
-  const contentLines = splitInlineNodesByNewline(node.content);
+  const contentLines = splitInlineNodesByParagraphBreak(node.content);
 
   return contentLines.map((lineNodes): InlineNode[] => {
     if (lineNodes.length === 0) {
