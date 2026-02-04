@@ -482,9 +482,10 @@ Hello world`);
     expect(r.body.length).toBeGreaterThan(0);
   });
 
-  test("rejects @repeat without @end", () => {
+  test("accepts @repeat without @end (optional)", () => {
     const parser = new Parser();
-    expect(() => parser.parse("@repeat 2\n  x\n")).toThrow(/@repeat missing @end/);
+    const ast = parser.parse("@repeat 2\n  x\n");
+    expect(must(ast.body[0]).type).toBe("repeat");
   });
 
   test("rejects @repeat above max", () => {
@@ -492,9 +493,10 @@ Hello world`);
     expect(() => parser.parse("@repeat 101\n  x\n@end\n")).toThrow(/exceeds maximum/);
   });
 
-  test("rejects @repeat closed with wrong token", () => {
+  test("accepts @repeat closed without @end (optional)", () => {
     const parser = new Parser();
-    expect(() => parser.parse("@repeat 1\n  x\n")).toThrow(/@repeat missing @end/);
+    const ast = parser.parse("@repeat 1\n  x\n");
+    expect(must(ast.body[0]).type).toBe("repeat");
   });
 
   test("parses @foreach", () => {
@@ -511,9 +513,10 @@ Hello world`);
     expect(f.body.length).toBeGreaterThan(0);
   });
 
-  test("rejects @foreach without @end", () => {
+  test("accepts @foreach without @end (optional)", () => {
     const parser = new Parser();
-    expect(() => parser.parse("@foreach x in items\n  y\n")).toThrow(/@foreach missing @end/);
+    const ast = parser.parse("@foreach x in items\n  y\n");
+    expect(must(ast.body[0]).type).toBe("foreach");
   });
 
   test("rejects @else without @if", () => {
@@ -582,9 +585,10 @@ After columns.`);
     expect(() => parser.parse("@columns 11\n  x\n@end\n")).toThrow();
   });
 
-  test("rejects @if without @end", () => {
+  test("accepts @if without @end (optional)", () => {
     const parser = new Parser();
-    expect(() => parser.parse("@if true\n  x\n")).toThrow(/missing @end/i);
+    const ast = parser.parse("@if true\n  x\n");
+    expect(must(ast.body[0]).type).toBe("if");
   });
 });
 

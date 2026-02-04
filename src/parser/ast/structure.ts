@@ -6,6 +6,10 @@ export type NumberingScheme = "default" | "decimal";
 export interface MetaNode extends BaseNode {
   type: "meta";
   data: Record<string, any>;
+  /** Whether the source had an explicit @end */
+  hasEnd?: boolean;
+  /** Number of blank lines after content (before @end or block end) */
+  trailingBlanks?: number;
 }
 
 export interface ImportNode extends BaseNode {
@@ -31,6 +35,8 @@ export interface DocHeaderFooterNode extends BaseNode {
   type: "doc_header" | "doc_footer";
   scope: DocHeaderFooterScope;
   content: Node[];
+  /** Whether the source had an explicit @end */
+  hasEnd?: boolean;
 }
 
 export type DocLayoutKind = "columns"; // margins, spacing, landscape now in @document block
@@ -58,6 +64,8 @@ export interface ColumnsRegionNode extends BaseNode {
   /** Whether to show separator line between columns */
   separator: boolean;
   children: Node[];
+  /** Whether the source had an explicit @end */
+  hasEnd?: boolean;
 }
 
 export interface AnchorNode extends BaseNode {

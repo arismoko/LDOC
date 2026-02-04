@@ -3,6 +3,7 @@ import type { DocumentNode, MetaNode, ImportNode, Node, ColumnsRegionNode, Numbe
 import { type ParserContext, parseTextUntilNewline, parseRestOfLineRaw } from "./inline";
 import { pushBlankLines, parseLengthToTwip, parseLiteral } from "../utils";
 import { parseParagraph } from "./block";
+import { parseIndentedBlock } from "./helpers";
 
 function parseMetaBlock(ctx: ParserContext): Record<string, any> {
   const data: Record<string, any> = {};
@@ -60,13 +61,23 @@ export function parseMeta(ctx: ParserContext): MetaNode {
   ctx.stream.skipNewlines();
 
   const data: Record<string, any> = {};
+  let trailingBlanks = 0;
 
   if (ctx.stream.check(TokenType.INDENT)) {
     ctx.stream.advance();
 
     while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-      ctx.stream.skipNewlines();
-      if (ctx.stream.check(TokenType.DEDENT)) break;
+      // Count newlines - first one is line terminator, rest are blank lines
+      let nlCount = 0;
+      while (ctx.stream.check(TokenType.NEWLINE)) {
+        ctx.stream.advance();
+        nlCount++;
+      }
+      if (ctx.stream.check(TokenType.DEDENT)) {
+        // These newlines were trailing - record as blank lines (minus the line terminator)
+        trailingBlanks = Math.max(0, nlCount - 1);
+        break;
+      }
       if (ctx.stream.isAtEnd()) break;
 
       // Parse key: value pairs
@@ -102,13 +113,37 @@ export function parseMeta(ctx: ParserContext): MetaNode {
           data[key] = parseLiteral(value);
         }
       }
-
-      ctx.stream.skipNewlines();
     }
 
     if (ctx.stream.check(TokenType.DEDENT)) {
       ctx.stream.advance();
     }
+
+    // Optional @end after indented block
+    // Only consume newlines if @end follows, otherwise leave them for body
+    let hasEnd = false;
+    const savedPos = ctx.stream.getPosition();
+    let nlCount = 0;
+    while (ctx.stream.check(TokenType.NEWLINE)) {
+      ctx.stream.advance();
+      nlCount++;
+    }
+    if (ctx.stream.check(TokenType.END)) {
+      ctx.stream.advance();
+      hasEnd = true;
+    } else {
+      // No @end found, restore position to preserve blank lines
+      ctx.stream.setPosition(savedPos);
+    }
+
+    return {
+      type: "meta",
+      line: token.line,
+      column: token.column,
+      data,
+      hasEnd,
+      trailingBlanks,
+    };
   }
 
   return {
@@ -116,6 +151,8 @@ export function parseMeta(ctx: ParserContext): MetaNode {
     line: token.line,
     column: token.column,
     data,
+    hasEnd: false,
+    trailingBlanks: 0,
   };
 }
 
@@ -175,10 +212,26 @@ export function parseDocument(ctx: ParserContext, sourcePath?: string): Document
   }
 
   // Parse preamble directives (allow comments/blank lines before them)
+  // But stop consuming newlines once we hit non-preamble content
   while (!ctx.stream.isAtEnd()) {
+    // Skip newlines between preamble items, but peek ahead to see if more preamble follows
     if (ctx.stream.check(TokenType.NEWLINE)) {
-      ctx.stream.advance();
-      continue;
+      // Look ahead past newlines to see what's next
+      let offset = 0;
+      const basePos = ctx.stream.getPosition();
+      while (ctx.stream.getTokenAt(basePos + offset)?.type === TokenType.NEWLINE) {
+        offset++;
+      }
+      const nextType = ctx.stream.getTokenAt(basePos + offset)?.type;
+      
+      // Only consume newlines if more preamble items follow
+      if (nextType === TokenType.IMPORT || nextType === TokenType.META || 
+          nextType === TokenType.COMMENT || nextType === TokenType.TODO) {
+        ctx.stream.advance();
+        continue;
+      }
+      // Otherwise, leave newlines for body to preserve as blank lines
+      break;
     }
 
     if (ctx.stream.check(TokenType.COMMENT) || ctx.stream.check(TokenType.TODO)) {
@@ -245,10 +298,10 @@ function parseDocHeaderFooter(
   scope: "default" | "first" | "even"
 ): Node {
   const token = ctx.stream.advance();
-  const content: Node[] = [];
 
   // Same-line content
   if (!ctx.stream.check(TokenType.NEWLINE) && !ctx.stream.check(TokenType.EOF)) {
+    const content: Node[] = [];
     const para = parseParagraph(ctx);
     if (para) content.push(para);
     // leave trailing newlines to outer loop
@@ -258,32 +311,12 @@ function parseDocHeaderFooter(
       line: token.line,
       column: token.column,
       content,
+      hasEnd: false,
     } as any;
   }
 
   // Indented block content
-  const la = ctx.stream.lookaheadNewlinesThenIndent();
-  if (la.indentAfter) {
-    // consume newline(s) up to indent
-    const start = ctx.stream.peek();
-    const n = ctx.stream.consumeNewlines();
-    pushBlankLines(content, start.line, start.column, n);
-
-    ctx.stream.advance(); // INDENT
-    while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-      if (ctx.stream.check(TokenType.NEWLINE)) {
-        const start2 = ctx.stream.peek();
-        const n2 = ctx.stream.consumeNewlines();
-        pushBlankLines(content, start2.line, start2.column, n2);
-        continue;
-      }
-      if (ctx.stream.check(TokenType.DEDENT)) break;
-
-      const child = ctx.parseNode();
-      if (child) content.push(child);
-    }
-    if (ctx.stream.check(TokenType.DEDENT)) ctx.stream.advance();
-  }
+  const { content, hasEnd } = parseIndentedBlock(ctx, { required: false });
 
   return {
     type,
@@ -291,6 +324,7 @@ function parseDocHeaderFooter(
     line: token.line,
     column: token.column,
     content,
+    hasEnd,
   } as any;
 }
 
@@ -361,7 +395,8 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
   // Parse args: @columns <N> [gap=<len>] [separator]
   const parsed = parseColumnsArgs(args, token.line, token.column);
 
-  const children: Node[] = [];
+  let children: Node[] = [];
+  let hasEnd = false;
 
   // Mark that we're inside a columns region
   const wasInside = ctx.insideColumnsRegion;
@@ -371,37 +406,10 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
     // Look ahead to see if there's an indented block
     const la = ctx.stream.lookaheadNewlinesThenIndent();
     if (la.indentAfter) {
-      // Consume newline(s) up to indent
-      const start = ctx.stream.peek();
-      const n = ctx.stream.consumeNewlines();
-      pushBlankLines(children, start.line, start.column, n);
-
-      // Consume INDENT
-      ctx.stream.advance();
-
-      // Parse children until DEDENT
-      while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-        if (ctx.stream.check(TokenType.NEWLINE)) {
-          const start2 = ctx.stream.peek();
-          const n2 = ctx.stream.consumeNewlines();
-          pushBlankLines(children, start2.line, start2.column, n2);
-          continue;
-        }
-
-        if (ctx.stream.check(TokenType.DEDENT)) break;
-
-        const child = ctx.parseNode();
-        if (child) children.push(child);
-      }
-
-      if (ctx.stream.check(TokenType.DEDENT)) ctx.stream.advance();
-
-      // After indented block, require @end
-      ctx.stream.skipNewlines();
-      if (!ctx.stream.check(TokenType.END)) {
-        throw new Error(`@columns region must end with @end (line ${token.line})`);
-      }
-      ctx.stream.advance();
+      // Use helper for indented block
+      const result = parseIndentedBlock(ctx, { required: false, directiveName: "@columns" });
+      children = result.content;
+      hasEnd = result.hasEnd;
     } else {
       // No indented block; parse until @end
       // Consume any newlines first
@@ -419,10 +427,11 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
         if (child) children.push(child);
       }
 
-      if (!ctx.stream.check(TokenType.END)) {
-        throw new Error(`@columns region must end with @end (line ${token.line})`);
+      // Optional @end
+      if (ctx.stream.check(TokenType.END)) {
+        ctx.stream.advance();
+        hasEnd = true;
       }
-      ctx.stream.advance();
     }
   } finally {
     ctx.insideColumnsRegion = wasInside;
@@ -436,5 +445,6 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
     children,
     line: token.line,
     column: token.column,
+    hasEnd,
   };
 }

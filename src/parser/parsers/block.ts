@@ -2,6 +2,7 @@ import { TokenType, type Token } from "../lexer";
 import type { HeaderNode, ParagraphNode, ModifierNode, PageBreakNode, CommentNode, Node, ModifierType, HorizontalRuleNode, BlockquoteNode, FootnoteDefinitionNode, ColumnBreakNode } from "../ast";
 import { type ParserContext, parseInlineContent, tokensToInlineNodes, parseRestOfLineRaw } from "./inline";
 import { pushBlankLines, parseLengthToTwip } from "../utils";
+import { parseIndentedBlock } from "./helpers";
 
 export function parseHorizontalRule(ctx: ParserContext): HorizontalRuleNode {
   const token = ctx.stream.advance();
@@ -82,45 +83,33 @@ export function parseBlockquote(ctx: ParserContext): BlockquoteNode {
 
 export function parseFootnoteDefinition(ctx: ParserContext): FootnoteDefinitionNode {
   const token = ctx.stream.advance(); // FOOTNOTE_DEF
-  const content: Node[] = [];
 
   // Parse content (similar to blockquote or list item)
   // Content can be on the same line or indented
   if (ctx.stream.check(TokenType.NEWLINE)) {
-    const la = ctx.stream.lookaheadNewlinesThenIndent();
-    if (la.indentAfter) {
-      const start = ctx.stream.peek();
-      const n = ctx.stream.consumeNewlines();
-      pushBlankLines(content, start.line, start.column, n);
-      
-      ctx.stream.advance(); // INDENT
-      while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-        if (ctx.stream.check(TokenType.NEWLINE)) {
-          const start2 = ctx.stream.peek();
-          const n2 = ctx.stream.consumeNewlines();
-          pushBlankLines(content, start2.line, start2.column, n2);
-          continue;
-        }
-        if (ctx.stream.check(TokenType.DEDENT)) break;
-        
-        const child = ctx.parseNode();
-        if (child) content.push(child);
-      }
-      if (ctx.stream.check(TokenType.DEDENT)) ctx.stream.advance();
-    }
+    const { content, hasEnd } = parseIndentedBlock(ctx, { required: false });
+    return {
+      type: "footnote_def",
+      line: token.line,
+      column: token.column,
+      label: token.value,
+      content,
+      hasEnd,
+    };
   } else {
     // Same line content
+    const content: Node[] = [];
     const para = parseParagraph(ctx);
     if (para) content.push(para);
+    return {
+      type: "footnote_def",
+      line: token.line,
+      column: token.column,
+      label: token.value,
+      content,
+      hasEnd: false,
+    };
   }
-
-  return {
-    type: "footnote_def",
-    line: token.line,
-    column: token.column,
-    label: token.value,
-    content,
-  };
 }
 
 export function parseHeader(ctx: ParserContext): HeaderNode {
@@ -210,48 +199,14 @@ export function parseModifier(ctx: ParserContext): ModifierNode {
   const token = ctx.stream.advance();
   const modifier = token.value as ModifierType;
 
-  const content: Node[] = [];
+  let content: Node[] = [];
+  let hasEnd = false;
 
   // Check if content is on same line or indented block
   if (ctx.stream.check(TokenType.NEWLINE)) {
-    // Only consume newlines if an indented block follows.
-    // Otherwise leave them for the outer loop to preserve blank lines between nodes.
-    const la = ctx.stream.lookaheadNewlinesThenIndent();
-    if (la.indentAfter) {
-      const start = ctx.stream.peek();
-      const n = ctx.stream.consumeNewlines();
-      pushBlankLines(content, start.line, start.column, n);
-
-      // Now we're positioned at INDENT
-      ctx.stream.advance();
-      while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-        if (ctx.stream.check(TokenType.NEWLINE)) {
-          const start = ctx.stream.peek();
-          const n = ctx.stream.consumeNewlines();
-          pushBlankLines(content, start.line, start.column, n);
-          continue;
-        }
-        if (ctx.stream.check(TokenType.DEDENT)) break;
-
-        const child = ctx.parseNode();
-        if (child) {
-          content.push(child);
-        }
-      }
-      if (ctx.stream.check(TokenType.DEDENT)) {
-        ctx.stream.advance();
-      }
-
-      // Optional @end after indented block
-      // Skip any newlines first
-      while (ctx.stream.check(TokenType.NEWLINE)) {
-        ctx.stream.advance();
-      }
-      // Consume @end if present (optional)
-      if (ctx.stream.check(TokenType.END)) {
-        ctx.stream.advance();
-      }
-    }
+    const { content: blockContent, hasEnd: blockHasEnd } = parseIndentedBlock(ctx, { required: false });
+    content = blockContent;
+    hasEnd = blockHasEnd;
   } else {
     // Same line content - could be another modifier, header, or text
     if (ctx.stream.check(TokenType.MODIFIER)) {
@@ -274,6 +229,7 @@ export function parseModifier(ctx: ParserContext): ModifierNode {
     count: token.count,
     length: token.length,
     content,
+    hasEnd,
   };
 }
 

@@ -1,7 +1,7 @@
 import { TokenType } from "../lexer";
 import type { Node } from "../ast";
 import { type ParserContext, parseRestOfLineRaw } from "./inline";
-import { pushBlankLines } from "../utils";
+import { parseIndentedBlock } from "./helpers";
 
 export function parseIf(ctx: ParserContext): Node {
   const token = ctx.stream.advance();
@@ -10,44 +10,26 @@ export function parseIf(ctx: ParserContext): Node {
     throw new Error(`@if requires a condition at line ${token.line}, column ${token.column}`);
   }
 
-  const thenBranch: Node[] = [];
-  const rootElseBranch: Node[] = [];
-
-  const parseBlock = (target: Node[], blockName: string) => {
-    const la = ctx.stream.lookaheadNewlinesThenIndent();
-    if (!la.indentAfter) {
-      throw new Error(`${blockName} must be followed by an indented block (line ${ctx.stream.peek().line})`);
-    }
-    ctx.stream.consumeNewlines();
-    if (!ctx.stream.check(TokenType.INDENT)) {
-      throw new Error(`${blockName} expected an indented block (line ${ctx.stream.peek().line})`);
-    }
-    ctx.stream.advance();
-
-    while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-      if (ctx.stream.check(TokenType.NEWLINE)) {
-        const start = ctx.stream.peek();
-        const n = ctx.stream.consumeNewlines();
-        pushBlankLines(target, start.line, start.column, n);
-        continue;
-      }
-
-      if (ctx.stream.check(TokenType.DEDENT)) break;
-      const child = ctx.parseNode();
-      if (child) target.push(child);
-    }
-
-    if (!ctx.stream.check(TokenType.DEDENT)) {
-      throw new Error(`${blockName} missing block end`);
-    }
-    ctx.stream.advance();
-  };
-
   // Parse @if block
-  parseBlock(thenBranch, "@if");
+  const { content: thenBranch, hasEnd: ifHasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@if" });
+
+  // If @end was consumed, we're done
+  if (ifHasEnd) {
+    return {
+      type: "if",
+      line: token.line,
+      column: token.column,
+      condition,
+      thenBranch,
+      elseBranch: [],
+      hasEnd: true,
+    } as any;
+  }
 
   ctx.stream.skipNewlines();
+  const rootElseBranch: Node[] = [];
   let currentElseBranch = rootElseBranch;
+  let hasEnd = false;
 
   // Parse @elseif blocks (transform to nested @if)
   while (ctx.stream.check(TokenType.ELSEIF)) {
@@ -57,8 +39,7 @@ export function parseIf(ctx: ParserContext): Node {
       throw new Error(`@elseif requires a condition at line ${elseifToken.line}, column ${elseifToken.column}`);
     }
 
-    const elseifThen: Node[] = [];
-    parseBlock(elseifThen, "@elseif");
+    const { content: elseifThen, hasEnd: elseifHasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@elseif" });
 
     const nestedIf: any = {
       type: "if",
@@ -71,27 +52,20 @@ export function parseIf(ctx: ParserContext): Node {
 
     currentElseBranch.push(nestedIf);
     currentElseBranch = nestedIf.elseBranch;
+
+    if (elseifHasEnd) {
+      hasEnd = true;
+      break;
+    }
     ctx.stream.skipNewlines();
   }
 
-  // Parse @else block
-  if (ctx.stream.check(TokenType.ELSE)) {
+  // Parse @else block (only if we haven't hit @end)
+  if (!hasEnd && ctx.stream.check(TokenType.ELSE)) {
     ctx.stream.advance();
-    parseBlock(currentElseBranch, "@else");
-  }
-
-  ctx.stream.skipNewlines();
-  if (!ctx.stream.check(TokenType.END)) {
-    const t = ctx.stream.peek();
-    throw new Error(`@if missing @end (line ${t.line}, column ${t.column})`);
-  }
-  ctx.stream.advance();
-  
-  if (!ctx.stream.check(TokenType.NEWLINE) && !ctx.stream.check(TokenType.EOF)) {
-    const rest = parseRestOfLineRaw(ctx);
-    if (rest) {
-      throw new Error(`@end does not take arguments (line ${token.line}). Got: ${rest}`);
-    }
+    const { content: elseBranchContent, hasEnd: elseHasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@else" });
+    currentElseBranch.push(...elseBranchContent);
+    hasEnd = elseHasEnd;
   }
 
   return {
@@ -101,6 +75,7 @@ export function parseIf(ctx: ParserContext): Node {
     condition,
     thenBranch,
     elseBranch: rootElseBranch,
+    hasEnd,
   } as any;
 }
 
@@ -119,49 +94,7 @@ export function parseRepeat(ctx: ParserContext): Node {
     throw new Error(`@repeat count exceeds maximum (100) (line ${token.line}). Got: ${n}`);
   }
 
-  const body: Node[] = [];
-
-  const la = ctx.stream.lookaheadNewlinesThenIndent();
-  if (!la.indentAfter) {
-    throw new Error(`@repeat must be followed by an indented block (line ${token.line})`);
-  }
-
-  ctx.stream.consumeNewlines();
-  if (!ctx.stream.check(TokenType.INDENT)) {
-    throw new Error(`@repeat expected an indented block (line ${token.line})`);
-  }
-  ctx.stream.advance();
-
-  while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-    if (ctx.stream.check(TokenType.NEWLINE)) {
-      const start = ctx.stream.peek();
-      const nn = ctx.stream.consumeNewlines();
-      pushBlankLines(body, start.line, start.column, nn);
-      continue;
-    }
-
-    if (ctx.stream.check(TokenType.DEDENT)) break;
-    const child = ctx.parseNode();
-    if (child) body.push(child);
-  }
-
-  if (!ctx.stream.check(TokenType.DEDENT)) {
-    throw new Error(`@repeat missing block end (line ${token.line})`);
-  }
-  ctx.stream.advance();
-
-  ctx.stream.skipNewlines();
-  if (!ctx.stream.check(TokenType.END)) {
-    const t = ctx.stream.peek();
-    throw new Error(`@repeat missing @end (line ${t.line}, column ${t.column})`);
-  }
-  ctx.stream.advance();
-  if (!ctx.stream.check(TokenType.NEWLINE) && !ctx.stream.check(TokenType.EOF)) {
-    const rest = parseRestOfLineRaw(ctx);
-    if (rest) {
-      throw new Error(`@end does not take arguments (line ${token.line}). Got: ${rest}`);
-    }
-  }
+  const { content: body, hasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@repeat" });
 
   return {
     type: "repeat",
@@ -169,6 +102,7 @@ export function parseRepeat(ctx: ParserContext): Node {
     column: token.column,
     count: n,
     body,
+    hasEnd,
   } as any;
 }
 
@@ -190,49 +124,7 @@ export function parseForeach(ctx: ParserContext): Node {
     throw new Error(`@foreach missing iterable at line ${token.line}`);
   }
 
-  const body: Node[] = [];
-
-  const la = ctx.stream.lookaheadNewlinesThenIndent();
-  if (!la.indentAfter) {
-    throw new Error(`@foreach must be followed by an indented block (line ${token.line})`);
-  }
-
-  ctx.stream.consumeNewlines();
-  if (!ctx.stream.check(TokenType.INDENT)) {
-    throw new Error(`@foreach expected an indented block (line ${token.line})`);
-  }
-  ctx.stream.advance();
-
-  while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-    if (ctx.stream.check(TokenType.NEWLINE)) {
-      const start = ctx.stream.peek();
-      const nn = ctx.stream.consumeNewlines();
-      pushBlankLines(body, start.line, start.column, nn);
-      continue;
-    }
-
-    if (ctx.stream.check(TokenType.DEDENT)) break;
-    const child = ctx.parseNode();
-    if (child) body.push(child);
-  }
-
-  if (!ctx.stream.check(TokenType.DEDENT)) {
-    throw new Error(`@foreach missing block end (line ${token.line})`);
-  }
-  ctx.stream.advance();
-
-  ctx.stream.skipNewlines();
-  if (!ctx.stream.check(TokenType.END)) {
-    const t = ctx.stream.peek();
-    throw new Error(`@foreach missing @end (line ${t.line}, column ${t.column})`);
-  }
-  ctx.stream.advance();
-  if (!ctx.stream.check(TokenType.NEWLINE) && !ctx.stream.check(TokenType.EOF)) {
-    const rest = parseRestOfLineRaw(ctx);
-    if (rest) {
-      throw new Error(`@end does not take arguments (line ${token.line}). Got: ${rest}`);
-    }
-  }
+  const { content: body, hasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@foreach" });
 
   return {
     type: "foreach",
@@ -241,6 +133,7 @@ export function parseForeach(ctx: ParserContext): Node {
     item,
     iterable,
     body,
+    hasEnd,
   } as any;
 }
 

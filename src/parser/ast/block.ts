@@ -21,6 +21,8 @@ export interface FootnoteDefinitionNode extends BaseNode {
   type: "footnote_def";
   label: string;
   content: Node[];
+  /** Whether the source had an explicit @end */
+  hasEnd?: boolean;
 }
 
 export type NumberingStyle =
@@ -71,6 +73,8 @@ export interface ModifierNode extends BaseNode {
   count?: number;
   length?: string;
   content: Node[];
+  /** Whether the source had an explicit @end (for formatting preservation) */
+  hasEnd?: boolean;
 }
 
 export interface ParagraphNode extends BaseNode {
@@ -101,6 +105,8 @@ export interface TableRowNode extends BaseNode {
 export interface TableNode extends BaseNode {
   type: "table";
   rows: TableRowNode[];
+  /** Whether the source had an explicit @end */
+  hasEnd?: boolean;
 }
 
 export interface PageBreakNode extends BaseNode {

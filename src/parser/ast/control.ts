@@ -8,6 +8,8 @@ export interface DefineNode extends BaseNode {
   params: string[];
   optionalParams: Record<string, any>;
   template: Node[];
+  /** Whether the source had an explicit @end (for formatting preservation) */
+  hasEnd?: boolean;
 }
 
 export interface UseNode extends BaseNode {
@@ -16,6 +18,8 @@ export interface UseNode extends BaseNode {
   label?: string;
   args: Record<string, string>;
   children?: Node[];
+  /** Whether the source had an explicit @end */
+  hasEnd?: boolean;
 }
 
 export interface IfNode extends BaseNode {
@@ -23,12 +27,16 @@ export interface IfNode extends BaseNode {
   condition: string;
   thenBranch: Node[];
   elseBranch: Node[];
+  /** Whether the source had an explicit @end */
+  hasEnd?: boolean;
 }
 
 export interface RepeatNode extends BaseNode {
   type: "repeat";
   count: number;
   body: Node[];
+  /** Whether the source had an explicit @end */
+  hasEnd?: boolean;
 }
 
 export interface ForeachNode extends BaseNode {
@@ -37,6 +45,8 @@ export interface ForeachNode extends BaseNode {
   // Path or identifier to iterate over (e.g. items, parties.signatories)
   iterable: string;
   body: Node[];
+  /** Whether the source had an explicit @end */
+  hasEnd?: boolean;
 }
 
 export interface SetNode extends BaseNode {

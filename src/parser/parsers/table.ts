@@ -85,6 +85,32 @@ export function parseTable(ctx: ParserContext): TableNode {
     if (ctx.stream.check(TokenType.DEDENT)) {
       ctx.stream.advance();
     }
+
+    // Optional @end after indented block
+    // Only consume newlines if @end follows, otherwise leave them for body
+    let hasEnd = false;
+    const savedPos = ctx.stream.getPosition();
+    while (ctx.stream.check(TokenType.NEWLINE)) {
+      ctx.stream.advance();
+    }
+    if (ctx.stream.check(TokenType.END)) {
+      ctx.stream.advance();
+      hasEnd = true;
+    } else {
+      // No @end found, restore position to preserve blank lines
+      ctx.stream.setPosition(savedPos);
+    }
+
+    // Post-process to set vMerge: "restart" on cells that have cells below with vMerge: "continue"
+    resolveRowspans(rows);
+
+    return {
+      type: "table",
+      line: token.line,
+      column: token.column,
+      rows,
+      hasEnd,
+    };
   }
 
   // Post-process to set vMerge: "restart" on cells that have cells below with vMerge: "continue"
@@ -95,6 +121,7 @@ export function parseTable(ctx: ParserContext): TableNode {
     line: token.line,
     column: token.column,
     rows,
+    hasEnd: false,
   };
 }
 

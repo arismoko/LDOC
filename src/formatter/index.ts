@@ -83,22 +83,24 @@ function printDocument(doc: DocumentNode, options: FormatOptions): string {
   if (doc.document && Object.keys(doc.document).length > 0) {
     lines.push("@document");
     lines.push(...printYamlBlock(doc.document, indent, 1));
-    lines.push("");
   }
 
   // Print @meta block if present
   if (doc.meta) {
     lines.push("@meta");
     lines.push(...printYamlBlock(doc.meta.data, indent, 1));
-    lines.push("");
+    if (doc.meta.hasEnd) {
+      lines.push("@end");
+    }
+    // Preserve trailing blank lines after @meta
+    for (let i = 0; i < (doc.meta.trailingBlanks ?? 0); i++) {
+      lines.push("");
+    }
   }
 
   // Print imports
   for (const imp of doc.imports) {
     lines.push(`@import ${imp.path}`);
-  }
-  if (doc.imports.length > 0) {
-    lines.push("");
   }
 
   // Print body
@@ -267,6 +269,12 @@ function printInlineNodesToLines(nodes: InlineNode[]): string[] {
       continue;
     }
     lines[lines.length - 1] = (lines[lines.length - 1] ?? "") + printInlineNode(node);
+  }
+
+  // Remove trailing empty line if last thing was a hard break with no content after
+  if (lines.length > 1 && lines[lines.length - 1] === "") {
+    lines.pop();
+    endsWithHardBreak.pop();
   }
 
   // Trim trailing whitespace on each line, except when it's meaningful hard-break spaces.
@@ -454,15 +462,14 @@ function printModifier(
   }
 
   // Check if content is a single paragraph (inline modifier)
+  // Only use inline form if there's no @end and no hard breaks
   if (
+    !node.hasEnd &&
     node.content.length === 1 &&
     node.content[0]?.type === "paragraph"
   ) {
     const para = node.content[0] as ParagraphNode;
-    if (inlineHasHardBreak(para.content)) {
-      // Inline form can't safely represent hard breaks.
-      // Fall through to the block form.
-    } else {
+    if (!inlineHasHardBreak(para.content)) {
       return [`${prefix}${modifierStr} ${printInlineNodes(para.content)}`];
     }
   }
@@ -471,6 +478,11 @@ function printModifier(
   const lines: string[] = [`${prefix}${modifierStr}`];
   const contentLines = printNodes(node.content, indent, level + 1);
   lines.push(...contentLines);
+
+  // Preserve @end if it was in the original source
+  if (node.hasEnd) {
+    lines.push(`${prefix}@end`);
+  }
 
   return lines;
 }
@@ -504,6 +516,10 @@ function printTable(
     }
 
     lines.push(`${rowPrefix}[${cells.join(", ")}]`);
+  }
+
+  if (node.hasEnd) {
+    lines.push(`${prefix}@end`);
   }
 
   return lines;
@@ -547,7 +563,9 @@ function printIf(node: IfNode, indent: string, level: number): string[] {
     lines.push(...elseLines);
   }
 
-  lines.push(`${prefix}@end`);
+  if (node.hasEnd) {
+    lines.push(`${prefix}@end`);
+  }
   return lines;
 }
 
@@ -561,7 +579,9 @@ function printRepeat(node: RepeatNode, indent: string, level: number): string[] 
   const bodyLines = printNodes(node.body, indent, level + 1);
   lines.push(...bodyLines);
 
-  lines.push(`${prefix}@end`);
+  if (node.hasEnd) {
+    lines.push(`${prefix}@end`);
+  }
   return lines;
 }
 
@@ -575,7 +595,9 @@ function printForeach(node: ForeachNode, indent: string, level: number): string[
   const bodyLines = printNodes(node.body, indent, level + 1);
   lines.push(...bodyLines);
 
-  lines.push(`${prefix}@end`);
+  if (node.hasEnd) {
+    lines.push(`${prefix}@end`);
+  }
   return lines;
 }
 
@@ -600,8 +622,11 @@ function printDefine(node: DefineNode, indent: string, level: number): string[] 
   const templateLines = printNodes(node.template, indent, level + 1);
   lines.push(...templateLines);
 
-  // Empty line after define block
-  lines.push("");
+  // Preserve @end if it was in the original source
+  if (node.hasEnd) {
+    lines.push(`${prefix}@end`);
+  }
+
   return lines;
 }
 
@@ -657,7 +682,10 @@ function printDocHeaderFooter(
   const contentLines = printNodes(node.content, indent, level + 1);
   lines.push(...contentLines);
 
-  lines.push("");
+  if (node.hasEnd) {
+    lines.push(`${prefix}@end`);
+  }
+
   return lines;
 }
 
@@ -688,7 +716,9 @@ function printColumnsRegion(
   const childLines = printNodes(node.children, indent, level + 1);
   lines.push(...childLines);
 
-  lines.push(`${prefix}@end`);
+  if (node.hasEnd) {
+    lines.push(`${prefix}@end`);
+  }
   return lines;
 }
 
@@ -726,6 +756,10 @@ function printFootnoteDefinition(
 
   const contentLines = printNodes(node.content, indent, level + 1);
   lines.push(...contentLines);
+
+  if (node.hasEnd) {
+    lines.push(`${prefix}@end`);
+  }
 
   return lines;
 }

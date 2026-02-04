@@ -1,7 +1,6 @@
-import { TokenType } from "../lexer";
 import type { Node } from "../ast";
 import { type ParserContext, parseRestOfLineRaw } from "./inline";
-import { pushBlankLines } from "../utils";
+import { parseIndentedBlock } from "./helpers";
 
 function parseDefineSignature(
   raw: string,
@@ -198,37 +197,7 @@ export function parseDefine(ctx: ParserContext): Node {
 
   const { name, params, optionalParams } = parseDefineSignature(sig, token.line, token.column);
 
-  const template: Node[] = [];
-
-  const la = ctx.stream.lookaheadNewlinesThenIndent();
-  if (!la.indentAfter) {
-    throw new Error(`@define ${name} must be followed by an indented block`);
-  }
-
-  // consume newline(s) up to indent
-  ctx.stream.consumeNewlines();
-
-  // parseMetaBlock() expects INDENT at current pos, so we should be positioned at INDENT
-  if (!ctx.stream.check(TokenType.INDENT)) {
-    throw new Error(`@define ${name} expected an indented block`);
-  }
-  ctx.stream.advance(); // INDENT
-
-  while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-    if (ctx.stream.check(TokenType.NEWLINE)) {
-      const start = ctx.stream.peek();
-      const n = ctx.stream.consumeNewlines();
-      pushBlankLines(template, start.line, start.column, n);
-      continue;
-    }
-
-    if (ctx.stream.check(TokenType.DEDENT)) break;
-
-    const child = ctx.parseNode();
-    if (child) template.push(child);
-  }
-
-  if (ctx.stream.check(TokenType.DEDENT)) ctx.stream.advance();
+  const { content: template, hasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@define" });
 
   return {
     type: "define",
@@ -238,6 +207,7 @@ export function parseDefine(ctx: ParserContext): Node {
     params,
     optionalParams,
     template,
+    hasEnd,
   } as any;
 }
 
@@ -248,47 +218,8 @@ export function parseUse(ctx: ParserContext): Node {
     throw new Error(`@use requires a name at line ${token.line}, column ${token.column}`);
   }
   const { name, args, label } = parseUseSignature(sig, token.line, token.column);
-  
-  const children: Node[] = [];
 
-  // Check for optional indented block
-  const la = ctx.stream.lookaheadNewlinesThenIndent();
-  if (la.indentAfter) {
-    ctx.stream.consumeNewlines();
-    if (ctx.stream.check(TokenType.INDENT)) {
-      ctx.stream.advance();
-      
-      while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-        if (ctx.stream.check(TokenType.NEWLINE)) {
-          const start = ctx.stream.peek();
-          const n = ctx.stream.consumeNewlines();
-          pushBlankLines(children, start.line, start.column, n);
-          continue;
-        }
-
-        if (ctx.stream.check(TokenType.DEDENT)) break;
-
-        const child = ctx.parseNode();
-        if (child) children.push(child);
-      }
-
-      if (ctx.stream.check(TokenType.DEDENT)) ctx.stream.advance();
-
-      // Require @end for @use with block
-      ctx.stream.skipNewlines();
-      if (!ctx.stream.check(TokenType.END)) {
-        const t = ctx.stream.peek();
-        throw new Error(`@use with block content must be closed with @end (line ${t.line}, column ${t.column})`);
-      }
-      ctx.stream.advance();
-      if (!ctx.stream.check(TokenType.NEWLINE) && !ctx.stream.check(TokenType.EOF)) {
-        const rest = parseRestOfLineRaw(ctx);
-        if (rest) {
-          throw new Error(`@end does not take arguments (line ${token.line}). Got: ${rest}`);
-        }
-      }
-    }
-  }
+  const { content: children, hasEnd } = parseIndentedBlock(ctx, { required: false });
 
   return {
     type: "use",
@@ -298,5 +229,6 @@ export function parseUse(ctx: ParserContext): Node {
     label,
     args,
     children: children.length > 0 ? children : undefined,
+    hasEnd,
   } as any;
 }
