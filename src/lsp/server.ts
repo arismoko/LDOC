@@ -15,6 +15,7 @@ import {
   type Location,
   type Range,
   type DocumentFormattingParams,
+  type ReferenceParams,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { parse } from "../parser/parser";
@@ -23,11 +24,13 @@ import type { Node } from "../parser/ast";
 
 import { completeForContext, detectCompletionContext, type CompletionOptions } from "./completion";
 import { buildDocumentIndex, nodeToLocation, type DocumentIndex } from "./indexer";
+import { buildSymbolUsages, type SymbolUsages } from "./references";
 
 // Cache for document ASTs and symbol tables
 interface DocumentInfo {
   ast: Node;
   index: DocumentIndex;
+  usages: SymbolUsages;
 }
 const documentCache = new Map<string, DocumentInfo>();
 
@@ -77,6 +80,8 @@ export function startServer() {
         },
         // Support Go to Definition
         definitionProvider: true,
+        // Support Find References
+        referencesProvider: true,
         documentFormattingProvider: true,
       },
     };
@@ -228,6 +233,72 @@ export function startServer() {
     })();
   });
 
+  // Find References handler
+  connection.onReferences((params: ReferenceParams): Location[] => {
+    const uri = params.textDocument.uri;
+    const info = documentCache.get(uri);
+    if (!info) return [];
+
+    const doc = documents.get(uri);
+    if (!doc) return [];
+
+    const text = doc.getText();
+    const lines = text.split("\n");
+    const line = lines[params.position.line] ?? "";
+    const results: Location[] = [];
+
+    // 1) Cross references: [[...]] - find all usages of this anchor
+    const cross = extractEnclosed(line, params.position.character, "[[", "]]");
+    if (cross) {
+      const key = normalizeRefKey(cross);
+      // Include definition
+      const def = info.index.anchorsByKey.get(key);
+      if (def && params.context.includeDeclaration) results.push(def);
+      // Include usages
+      const refs = info.usages.anchorRefs.get(key) ?? [];
+      results.push(...refs);
+      return results;
+    }
+
+    // 2) Anchor definition: @anchor name - find all usages
+    const anchorDef = extractAnchorDefAt(line, params.position.character);
+    if (anchorDef) {
+      const key = normalizeRefKey(anchorDef);
+      const def = info.index.anchorsByKey.get(key);
+      if (def && params.context.includeDeclaration) results.push(def);
+      const refs = info.usages.anchorRefs.get(key) ?? [];
+      results.push(...refs);
+      return results;
+    }
+
+    // 3) Macro: @use or @define - find all usages
+    const macroName = extractMacroNameAt(line, params.position.character);
+    if (macroName) {
+      const sig = info.index.macros.get(macroName);
+      if (sig && params.context.includeDeclaration) results.push(sig.location);
+      const refs = info.usages.macroRefs.get(macroName) ?? [];
+      results.push(...refs);
+      return results;
+    }
+
+    // 4) Variables: {{...}} - find all usages
+    const variable = extractEnclosed(line, params.position.character, "{{", "}}");
+    if (variable) {
+      const name = variable.split("|")[0]?.trim() ?? "";
+      if (name) {
+        // Include definition if exists
+        const def = info.index.setVariables.get(name) ?? info.index.foreachItems.get(name);
+        if (def && params.context.includeDeclaration) results.push(def);
+        // Include usages
+        const refs = info.usages.variableRefs.get(name) ?? [];
+        results.push(...refs);
+        return results;
+      }
+    }
+
+    return results;
+  });
+
   // Make the text document manager listen on the connection
   // for open, change and close text document events
   documents.listen(connection);
@@ -268,9 +339,13 @@ async function validateTextDocument(textDocument: TextDocument, connection: any)
     const ast = parse(text, { sourcePath: textDocument.uri });
 
     const index = buildDocumentIndex(textDocument.uri, ast);
+    const usages = buildSymbolUsages(textDocument.uri, ast);
 
     // Update cache only on successful parse
-    documentCache.set(textDocument.uri, { ast, index });
+    documentCache.set(textDocument.uri, { ast, index, usages });
+
+    // Add semantic diagnostics (warnings for undefined references)
+    addSemanticDiagnostics(index, usages, diagnostics);
 
   } catch (error: any) {
     // If parsing fails, report the error
@@ -332,4 +407,55 @@ function extractMacroNameAt(line: string, cursor: number): string | null {
     if (cursor >= nameStart && cursor <= nameEnd) return name;
   }
   return null;
+}
+
+function extractAnchorDefAt(line: string, cursor: number): string | null {
+  const re = /@anchor\s+(.+)/;
+  const m = line.match(re);
+  if (!m) return null;
+  const name = m[1]?.trim() ?? "";
+  const nameStart = line.indexOf(name, line.indexOf("@anchor") + 7);
+  const nameEnd = nameStart + name.length;
+  if (cursor >= nameStart && cursor <= nameEnd) return name;
+  return null;
+}
+
+function addSemanticDiagnostics(
+  index: DocumentIndex,
+  usages: SymbolUsages,
+  diagnostics: Diagnostic[]
+): void {
+  // Warn on unknown anchor references
+  for (const [key, locs] of usages.anchorRefs) {
+    if (!index.anchorsByKey.has(key)) {
+      for (const loc of locs) {
+        diagnostics.push({
+          severity: DiagnosticSeverity.Warning,
+          range: loc.range,
+          message: `Unknown anchor: "${key}"`,
+          source: "ldoc",
+        });
+      }
+    }
+  }
+
+  // Warn on unknown macro usages
+  for (const [name, locs] of usages.macroRefs) {
+    if (!index.macros.has(name)) {
+      for (const loc of locs) {
+        diagnostics.push({
+          severity: DiagnosticSeverity.Warning,
+          range: loc.range,
+          message: `Unknown macro: @${name}`,
+          source: "ldoc",
+        });
+      }
+    }
+  }
+
+  // Note: We don't warn on unknown variables because:
+  // 1. Variables can come from @meta (already tracked)
+  // 2. Variables can come from runtime data (not known at parse time)
+  // 3. Too many false positives for a legal DSL
+  // TODO: Consider adding a strict mode that warns on unknown variables
 }
