@@ -1,54 +1,27 @@
 import { xmlParser, findFirst, getOnlyKey, attrVal, type XmlNode } from "../xml";
+import { processChildren } from "../generator";
+import type { NumberingInfo } from "./numbering";
+import type { ParagraphStyleMap } from "./styles";
+import type { DecompilerOptions } from "../converters/paragraph";
 
 export interface FootnoteInfo {
   id: string;
-  content: string; // The footnote text
-}
-
-/**
- * Collect text content from footnote child nodes (w:p elements).
- * This is a simplified version that extracts plain text from paragraphs.
- */
-function collectFootnoteText(children: XmlNode[]): string {
-  const parts: string[] = [];
-
-  for (const child of children ?? []) {
-    const key = getOnlyKey(child);
-    if (key === "w:p") {
-      const pChildren = child["w:p"] as XmlNode[];
-      for (const pChild of pChildren ?? []) {
-        const pKey = getOnlyKey(pChild);
-        if (pKey === "w:r") {
-          const runChildren = pChild["w:r"] as XmlNode[];
-          for (const rChild of runChildren ?? []) {
-            const rKey = getOnlyKey(rChild);
-            if (rKey === "w:t") {
-              const tChildren = rChild["w:t"] as XmlNode[];
-              for (const t of tChildren ?? []) {
-                if (typeof t === "string" || typeof t === "number" || typeof t === "boolean") {
-                  parts.push(String(t));
-                  continue;
-                }
-                const text = t?.["#text"];
-                if (typeof text === "string" || typeof text === "number" || typeof text === "boolean") {
-                  parts.push(String(text));
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  return parts.join("").trim();
+  contentLines: string[]; // LDOC lines for the footnote content
 }
 
 /**
  * Parse footnotes from word/footnotes.xml content.
  * Returns a map of footnote ID to FootnoteInfo.
+ * 
+ * Delegates to processChildren for full rich text support (tables, alignment, styles).
  */
-export function parseFootnotes(footnotesXml: string | undefined): Map<string, FootnoteInfo> {
+export function parseFootnotes(
+  footnotesXml: string | undefined,
+  numInfo: NumberingInfo,
+  styles: ParagraphStyleMap,
+  options?: DecompilerOptions,
+  rels?: Map<string, string>
+): Map<string, FootnoteInfo> {
   const map = new Map<string, FootnoteInfo>();
   if (!footnotesXml) return map;
 
@@ -64,12 +37,15 @@ export function parseFootnotes(footnotesXml: string | undefined): Map<string, Fo
       // Skip separator footnotes (id 0, -1)
       if (!id || id === "0" || id === "-1") continue;
 
-      // Extract text from footnote paragraphs
+      // Use unified processChildren pipeline for rich text support
       const fnChildren = child["w:footnote"] as XmlNode[];
-      const content = collectFootnoteText(fnChildren);
+      const contentLines = processChildren(fnChildren ?? [], numInfo, styles, options, "", rels);
       
-      if (content) {
-        map.set(id, { id, content });
+      // Filter out empty lines and trim
+      const nonEmptyLines = contentLines.filter(line => line.trim());
+      
+      if (nonEmptyLines.length > 0) {
+        map.set(id, { id, contentLines: nonEmptyLines });
       }
     }
   }

@@ -5,9 +5,8 @@ import { parseSpacingFromStylesXml, parseParagraphStyles, parseDocumentDefaults,
 import { collectFontStatistics, computeDominantStyle, type FontSizeStats } from "./statistics";
 import { parseDocumentRels, parseLayoutFromSectPr, parseHeaderFooterRefs, parseSectionProps, findFinalSectPr, findParagraphSectPr, type LayoutInfo, type HeaderFooterRefs, type SectionProps } from "./parsers/layout";
 import { parseFootnotes, type FootnoteInfo } from "./parsers/footnotes";
-import { paragraphToLdoc, type DecompilerOptions } from "./converters/paragraph";
-import { tableToLdoc } from "./converters/table";
-import { processChildren, shouldEmitIndent, formatTwipsAsPt } from "./generator";
+import { type DecompilerOptions } from "./converters/paragraph";
+import { processChildren } from "./generator";
 
 export type { DecompilerOptions };
 
@@ -52,28 +51,9 @@ async function parseHeaderFooterContent(
   if (!root) return [];
 
   const rootChildren = (hdr ? root["w:hdr"] : root["w:ftr"]) as XmlNode[];
-  const lines: string[] = [];
-
-  for (const child of rootChildren ?? []) {
-    const key = getOnlyKey(child);
-    if (key === "w:p") {
-      const info = paragraphToLdoc(child, numInfo, styles, options, docRels);
-      let line = info.line;
-      if (info.alignment === "center" && !info.isEmpty) line = `@center ${line}`;
-      else if (info.alignment === "right" && !info.isEmpty) line = `@right ${line}`;
-
-      const indentTwips = info.isList ? 0 : (info.indentLeftTwips ?? 0);
-      if (indentTwips > 0 && !info.isEmpty && shouldEmitIndent(options)) {
-        line = `@indent=${formatTwipsAsPt(indentTwips)} ${line}`;
-      }
-
-      if (line) lines.push(line);
-    } else if (key === "w:tbl") {
-      lines.push(tableToLdoc(child));
-    }
-  }
-
-  return lines;
+  
+  // Use unified processChildren pipeline for proper alignment/spacing/anchor support
+  return processChildren(rootChildren ?? [], numInfo, styles, options, "", docRels);
 }
 
 async function extractMediaAssets(zip: JSZip): Promise<Map<string, Uint8Array>> {
@@ -117,7 +97,7 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
   
   // Parse footnotes
   const footnotesXml = await zip.file("word/footnotes.xml")?.async("text");
-  const footnotes = parseFootnotes(footnotesXml);
+  const footnotes = parseFootnotes(footnotesXml, numInfo, paragraphStyles, options, rels);
   
   // Extract media assets
   const assets = await extractMediaAssets(zip);
@@ -333,7 +313,19 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
   if (footnotes.size > 0) {
     finalOutput.push(""); // blank line before footnotes
     for (const [id, fn] of footnotes) {
-      finalOutput.push(`[^${id}]: ${fn.content}`);
+      if (fn.contentLines.length === 1) {
+        // Single line: [^id]: line
+        finalOutput.push(`[^${id}]: ${fn.contentLines[0]}`);
+      } else {
+        // Multi-line:
+        // [^id]:
+        //   Line 1
+        //   Line 2
+        finalOutput.push(`[^${id}]:`);
+        for (const line of fn.contentLines) {
+          finalOutput.push(`  ${line}`);
+        }
+      }
     }
   }
 
