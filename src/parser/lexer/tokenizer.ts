@@ -1,154 +1,13 @@
-// Lexer for Legal Document DSL (.ldoc)
-
-export enum TokenType {
-  // Structure
-  DOCUMENT = "DOCUMENT",
-  META = "META",
-  IMPORT = "IMPORT",
-  DEFINE = "DEFINE",
-  USE = "USE",
-
-  // Control flow
-  IF = "IF",
-  ELSE = "ELSE",
-  END = "END",
-  REPEAT = "REPEAT",
-  FOREACH = "FOREACH",
-
-  // Numbered items: @, @@, @@@, @@@@
-  NUMBERED_ITEM = "NUMBERED_ITEM",
-
-  // Modifiers
-  MODIFIER = "MODIFIER",
-
-  // Bullets
-  BULLET = "BULLET",
-
-  // Content
-  HEADER = "HEADER",
-  TEXT = "TEXT",
-  VARIABLE = "VARIABLE",
-  DEFINED_TERM = "DEFINED_TERM",
-  CROSS_REF = "CROSS_REF",
-  BLANK = "BLANK",
-
-  // Formatting
-  BOLD = "BOLD",
-  ITALIC = "ITALIC",
-  BOLD_ITALIC = "BOLD_ITALIC",
-
-  // Table
-  TABLE = "TABLE",
-  TABLE_ROW = "TABLE_ROW",
-
-  // Numbering scheme - now handled in @document block
-  // NUMBERING = "NUMBERING", // REMOVED - legacy
-
-  // Control
-  PAGEBREAK = "PAGEBREAK",
-  DOC_HEADER = "DOC_HEADER",
-  DOC_FOOTER = "DOC_FOOTER",
-  DOC_FIRSTPAGE = "DOC_FIRSTPAGE",
-  DOC_EVENPAGE = "DOC_EVENPAGE",
-  // DOC_MARGINS = "DOC_MARGINS", // REMOVED - legacy
-  // DOC_SPACING = "DOC_SPACING", // REMOVED - legacy
-  // DOC_LANDSCAPE = "DOC_LANDSCAPE", // REMOVED - legacy
-  DOC_COLUMNS = "DOC_COLUMNS",
-  DOC_ANCHOR = "DOC_ANCHOR",
-  // DOC_STYLES = "DOC_STYLES", // REMOVED - legacy
-  END_BLOCK = "END_BLOCK",
-  COMMENT = "COMMENT",
-  TODO = "TODO",
-
-  // Structure
-  INDENT = "INDENT",
-  DEDENT = "DEDENT",
-  NEWLINE = "NEWLINE",
-  EOF = "EOF",
-}
-
-export interface Token {
-  type: TokenType;
-  value: string;
-  line: number;
-  column: number;
-  indent: number;
-  // For modifiers
-  count?: number; // e.g. @indent:2
-  length?: string; // e.g. @indent=36pt
-  // For numbered items
-  level?: number; // Number of @ symbols
-  style?: string; // '1', 'a', 'i', 'A', 'I', '1.1', etc.
-  marker?: string; // The full marker like '@@a'
-}
-
-export interface LexerState {
-  pos: number;
-  line: number;
-  column: number;
-  indentStack: number[];
-}
-
-const MODIFIERS = new Set([
-  "center",
-  "right",
-  "indent",
-  "outdent",
-  "box",
-  "bold",
-  "italic",
-  "small",
-  "caps",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-]);
-
-// Legacy directives that are now errors (must use @document block)
-const LEGACY_DOCUMENT_DIRECTIVES = new Set([
-  "margins",
-  "spacing",
-  "landscape",
-  "numbering",
-  "styles",
-]);
-
-const KEYWORDS = new Set([
-  "document",
-  "meta",
-  "import",
-  "define",
-  "use",
-  "table",
-  "pagebreak",
-  "todo",
-  "header",
-  "footer",
-  "firstpage",
-  "evenpage",
-  "columns",
-  "anchor",
-  "if",
-  "else",
-  "end",
-  "repeat",
-  "foreach",
-  "params",
-  "template",
-]);
+import { IndentationManager } from "../indentation-manager";
+import { TokenType, type Token, MODIFIERS, LEGACY_DOCUMENT_DIRECTIVES, KEYWORDS } from "./patterns";
 
 export class Lexer {
   private input: string;
   private pos: number = 0;
   private line: number = 1;
   private column: number = 1;
-  private indentStack: number[] = [0];
+  private indentation = new IndentationManager();
   private tokens: Token[] = [];
-  private pendingDedents: number = 0;
-  private pendingDedentTargetIndent: number | null = null;
 
   private debug: boolean = false;
   private maxIterations: number = 100000;
@@ -191,8 +50,8 @@ export class Lexer {
     }
 
     // Emit remaining dedents
-    while (this.indentStack.length > 1) {
-      this.indentStack.pop();
+    while (this.indentation.remainingLevels() > 0) {
+      this.indentation.popIndent();
       this.tokens.push(this.makeToken(TokenType.DEDENT, ""));
     }
 
@@ -240,20 +99,17 @@ export class Lexer {
         value: "@;",
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+        indent: this.indentation.currentIndent(),
       });
 
       // Flush any deferred dedents for this terminator line
-      if (this.pendingDedents > 0 && this.pendingDedentTargetIndent !== null) {
-        const target = this.pendingDedentTargetIndent;
-        for (let i = 0; i < this.pendingDedents; i++) {
-          if (this.indentStack.length > 1) {
-            this.indentStack.pop();
-          }
+      if (this.indentation.hasPendingDedents()) {
+        let target = this.indentation.popPendingDedent();
+        while (target !== null) {
+          this.indentation.popIndent();
           this.tokens.push(this.makeToken(TokenType.DEDENT, "", target));
+          target = this.indentation.popPendingDedent();
         }
-        this.pendingDedents = 0;
-        this.pendingDedentTargetIndent = null;
       }
       return;
     }
@@ -350,29 +206,23 @@ export class Lexer {
       return;
     }
 
-    const currentIndent = this.indentStack[this.indentStack.length - 1] ?? 0;
+    const currentIndent = this.indentation.currentIndent();
 
     if (indent > currentIndent) {
-      this.indentStack.push(indent);
+      this.indentation.pushIndent(indent);
       this.tokens.push(this.makeToken(TokenType.INDENT, "", indent));
     } else if (indent < currentIndent) {
       // If this line is an explicit end-block terminator, emit the END_BLOCK token
       // before any DEDENT tokens. We do that by deferring DEDENT emission until after
       // scanToken() consumes the @;.
       if (isEndBlockLine) {
-        this.pendingDedentTargetIndent = indent;
-        // Count how many dedents will be needed.
-        let count = 0;
-        for (let i = this.indentStack.length - 1; i > 0; i--) {
-          if ((this.indentStack[i] ?? 0) > indent) count++;
-          else break;
-        }
-        this.pendingDedents = count;
+        const count = this.indentation.calculateDedents(indent);
+        this.indentation.setPendingDedents(count, indent);
         return;
       }
 
-      while (this.indentStack.length > 1 && (this.indentStack[this.indentStack.length - 1] ?? 0) > indent) {
-        this.indentStack.pop();
+      while (this.indentation.shouldDedent(indent)) {
+        this.indentation.popIndent();
         this.tokens.push(this.makeToken(TokenType.DEDENT, "", indent));
       }
     }
@@ -397,7 +247,7 @@ export class Lexer {
         value: "@".repeat(level) + "-",
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+        indent: this.indentation.currentIndent(),
         level,
       });
       this.lineHasContent = true;
@@ -483,7 +333,7 @@ export class Lexer {
         value: word,
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+        indent: this.indentation.currentIndent(),
         count,
         length,
       });
@@ -508,7 +358,8 @@ export class Lexer {
         value: word,
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+        indent: this.indentation.currentIndent(),
+        level: 1, // Add level for consistency, though not strictly needed for keywords
       });
       this.lineHasContent = true;
       return;
@@ -552,7 +403,7 @@ export class Lexer {
         value: text,
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+        indent: this.indentation.currentIndent(),
       });
       this.lineHasContent = true;
       return;
@@ -565,7 +416,7 @@ export class Lexer {
       value: marker,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+      indent: this.indentation.currentIndent(),
       level,
       style,
       marker,
@@ -633,7 +484,7 @@ export class Lexer {
       value: text,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+      indent: this.indentation.currentIndent(),
       level,
     });
     this.lineHasContent = true;
@@ -658,7 +509,7 @@ export class Lexer {
       value: name,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+      indent: this.indentation.currentIndent(),
     });
     this.lineHasContent = true;
   }
@@ -682,7 +533,7 @@ export class Lexer {
       value: ref,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+      indent: this.indentation.currentIndent(),
     });
     this.lineHasContent = true;
   }
@@ -704,7 +555,7 @@ export class Lexer {
       value: term,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+      indent: this.indentation.currentIndent(),
     });
     this.lineHasContent = true;
   }
@@ -749,7 +600,7 @@ export class Lexer {
         value: "*".repeat(stars) + this.input.slice(textStart, this.pos),
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+        indent: this.indentation.currentIndent(),
       });
       this.lineHasContent = true;
       return;
@@ -764,7 +615,7 @@ export class Lexer {
       value: text,
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+      indent: this.indentation.currentIndent(),
     });
     this.lineHasContent = true;
   }
@@ -783,7 +634,7 @@ export class Lexer {
       value: "_".repeat(count),
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+      indent: this.indentation.currentIndent(),
     });
     this.lineHasContent = true;
   }
@@ -820,7 +671,7 @@ export class Lexer {
       value: JSON.stringify(content),
       line: this.line,
       column: startCol,
-      indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+      indent: this.indentation.currentIndent(),
     });
     this.lineHasContent = true;
   }
@@ -851,7 +702,7 @@ export class Lexer {
         value: text,
         line: this.line,
         column: startCol,
-        indent: this.indentStack[this.indentStack.length - 1] ?? 0,
+        indent: this.indentation.currentIndent(),
       });
       this.lineHasContent = true;
     }
@@ -972,7 +823,7 @@ export class Lexer {
       value,
       line: this.line,
       column: this.column,
-      indent: indent ?? (this.indentStack[this.indentStack.length - 1] ?? 0),
+      indent: indent ?? (this.indentation.currentIndent()),
     };
   }
 }

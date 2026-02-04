@@ -1,4 +1,5 @@
 {
+  "exclude": ["tree-sitter-ldoc/**"],
   "compilerOptions": {
     // Environment setup & latest features
     "lib": ["ESNext"],

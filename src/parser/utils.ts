@@ -1,0 +1,46 @@
+import { TokenType } from "./lexer";
+import type { Node } from "./ast";
+import type { ParserContext } from "./parsers/inline";
+
+export function pushBlankLines(target: Node[], line: number, column: number, newlineCount: number): void {
+  // 2+ newlines => 1+ blank lines (N newlines = N-1 blank lines)
+  if (newlineCount >= 2) {
+    target.push({
+      type: "empty_paragraph",
+      line,
+      column,
+      count: newlineCount - 1,
+    } as any);
+  }
+}
+
+export function consumeEndBlockOrThrow(ctx: ParserContext, context: string): boolean {
+  if (!ctx.stream.check(TokenType.END_BLOCK)) return false;
+
+  ctx.stream.advance();
+  // Eat the rest of the terminator line
+  if (ctx.stream.check(TokenType.NEWLINE)) ctx.stream.advance();
+  // Leave additional newlines for normal blank-line handling
+  return true;
+}
+
+export function parseLengthToTwip(raw: string, line: number): number {
+  const m = raw.trim().match(/^([0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt)$/i);
+  if (!m) {
+    throw new Error(`Invalid length: ${raw} at line ${line}. Use units like 1in, 2cm, 12pt.`);
+  }
+  const value = parseFloat(m[1]!);
+  const unit = m[2]!.toLowerCase();
+  switch (unit) {
+    case "in":
+      return Math.round(value * 1440);
+    case "cm":
+      return Math.round((value * 1440) / 2.54);
+    case "mm":
+      return Math.round((value * 1440) / 25.4);
+    case "pt":
+      return Math.round(value * 20);
+    default:
+      throw new Error(`Unsupported unit: ${unit}`);
+  }
+}
