@@ -15,7 +15,6 @@ export const getPathValue = (root: any, path: string[]): any => {
 
 /**
  * Parse a literal string into its appropriate JavaScript value.
- * Handles booleans, null, numbers, and quoted strings.
  */
 export const parseLiteral = (raw: string): any => {
   const s = raw.trim();
@@ -44,114 +43,128 @@ export const truthy = (v: any): boolean => {
 
 /**
  * Tokenize a condition expression into tokens.
- * Handles quoted strings, operators (==, !=, !), and identifiers.
  */
 export const tokenizeCond = (raw: string): string[] => {
   const s = raw.trim();
   const out: string[] = [];
   let i = 0;
+
   while (i < s.length) {
     const ch = s.charAt(i);
+
+    // Skip whitespace
     if (/\s/.test(ch)) {
       i++;
       continue;
     }
+
+    // Strings
     if (ch === '"' || ch === "'") {
       const quote = ch;
+      let buf = quote;
       i++;
-      let buf = "";
       while (i < s.length) {
         const c = s.charAt(i);
         if (c === "\\") {
           if (i + 1 >= s.length) break;
-          buf += s.charAt(i + 1);
+          buf += c + s.charAt(i + 1);
           i += 2;
           continue;
         }
-        if (c === quote) {
-          i++;
-          break;
-        }
         buf += c;
         i++;
+        if (c === quote) break;
       }
-      out.push(`"${buf}"`);
+      out.push(buf);
       continue;
     }
-    if (s.startsWith("==", i) || s.startsWith("!=", i)) {
-      out.push(s.slice(i, i + 2));
-      i += 2;
-      continue;
-    }
-    if (ch === "!") {
-      out.push("!");
+
+    // Multi-char operators
+    if (s.startsWith("==", i)) { out.push("=="); i += 2; continue; }
+    if (s.startsWith("!=", i)) { out.push("!="); i += 2; continue; }
+    if (s.startsWith("<=", i)) { out.push("<="); i += 2; continue; }
+    if (s.startsWith(">=", i)) { out.push(">="); i += 2; continue; }
+    if (s.startsWith("&&", i)) { out.push("&&"); i += 2; continue; }
+    if (s.startsWith("||", i)) { out.push("||"); i += 2; continue; }
+
+    // Single-char operators/punctuation
+    if (["(", ")", "!", "<", ">", "+", "-", "*", "/"].includes(ch)) {
+      out.push(ch);
       i++;
       continue;
     }
+
+    // Identifiers / Numbers
+    // Consume until we hit a special char or whitespace
     const start = i;
     while (
       i < s.length &&
       !/\s/.test(s.charAt(i)) &&
-      !["!", "=", "(", ")"].includes(s.charAt(i))
+      !["(", ")", "!", "<", ">", "+", "-", "*", "/", "=", "&", "|"].includes(s.charAt(i))
     ) {
-      if (s.startsWith("==", i) || s.startsWith("!=", i)) break;
       i++;
     }
-    out.push(s.slice(start, i));
+    
+    // If we didn't advance, it's an unknown char (like a single & or | without pair), consume it to avoid loop
+    if (i === start) {
+      out.push(s.charAt(i));
+      i++;
+    } else {
+      out.push(s.slice(start, i));
+    }
   }
-  return out.filter(Boolean);
+  return out;
 };
 
 /**
  * Evaluate a condition expression given local and global variable scopes.
- * Supports:
- * - Truthy checks: `variable`
- * - Negation: `not variable` or `!variable`
- * - Equality: `a == b` or `a != b`
- * - Literals: true, false, null, numbers, quoted strings
+ * Implements a recursive descent parser for:
+ * - Logical OR (||)
+ * - Logical AND (&&)
+ * - Equality (==, !=)
+ * - Relational (<, <=, >, >=)
+ * - Additive (+, -)
+ * - Multiplicative (*, /)
+ * - Unary (!, -)
+ * - Primary (literals, variables, parens)
  */
 export const evalCond = (
   raw: string,
   locals: Record<string, any>,
   globals: Record<string, any>
-): boolean => {
+): any => {
   const tokens = tokenizeCond(raw);
-  let i = 0;
-  const peek = () => tokens[i];
-  const next = () => tokens[i++];
+  let pos = 0;
 
-  let negate = false;
-  const first = peek();
-  if (first === "not" || first === "!") {
-    negate = true;
-    next();
-  }
-
-  const leftTok = next();
-  if (!leftTok) throw new Error(`Invalid condition: ${raw}`);
-  const op = peek() === "==" || peek() === "!=" ? next() : undefined;
-  const rightTok = op ? next() : undefined;
-  if (op && !rightTok) throw new Error(`Invalid condition: ${raw}`);
+  const peek = () => tokens[pos];
+  const consume = () => tokens[pos++];
+  const match = (op: string) => {
+    if (peek() === op) {
+      pos++;
+      return true;
+    }
+    return false;
+  };
 
   const readValue = (tok: string): any => {
-    // literal
-    if (
-      tok === "true" ||
-      tok === "false" ||
-      tok === "null" ||
-      /^-?\d+(?:\.\d+)?$/.test(tok) ||
-      (tok.startsWith('"') && tok.endsWith('"')) ||
-      (tok.startsWith("'") && tok.endsWith("'"))
-    ) {
-      return parseLiteral(tok);
+    // Quoted string
+    if ((tok.startsWith('"') && tok.endsWith('"')) || (tok.startsWith("'") && tok.endsWith("'"))) {
+      return tok.slice(1, -1);
     }
+    // Number literal
+    if (/^-?\d+(?:\.\d+)?$/.test(tok)) {
+      return Number(tok);
+    }
+    // Boolean/Null literals
+    if (tok === "true") return true;
+    if (tok === "false") return false;
+    if (tok === "null") return null;
 
+    // Variable path
     const path = tok.split(".").filter(Boolean);
     if (path.length === 0) return undefined;
 
     const head = path[0]!;
-
-    // locals first
     if (head in locals) {
       if (path.length === 1) return locals[head];
       return getPathValue(locals[head], path.slice(1));
@@ -159,23 +172,117 @@ export const evalCond = (
     return getPathValue(globals, path);
   };
 
-  const left = readValue(leftTok);
-  let result: boolean;
-  if (!op) {
-    result = truthy(left);
-  } else {
-    const right = readValue(rightTok!);
-    // Compare numbers if both are numbers; else compare strings
-    if (typeof left === "number" && typeof right === "number") {
-      result = op === "==" ? left === right : left !== right;
-    } else if (typeof left === "boolean" && typeof right === "boolean") {
-      result = op === "==" ? left === right : left !== right;
-    } else {
-      const ls = left === undefined || left === null ? "" : String(left);
-      const rs = right === undefined || right === null ? "" : String(right);
-      result = op === "==" ? ls === rs : ls !== rs;
-    }
-  }
+  const parsePrimary = (): any => {
+    const tok = consume();
+    if (!tok) throw new Error("Unexpected end of expression");
 
-  return negate ? !result : result;
+    if (tok === "(") {
+      const val = parseExpression();
+      if (!match(")")) throw new Error("Expected ')'");
+      return val;
+    }
+
+    return readValue(tok);
+  };
+
+  const parseUnary = (): any => {
+    if (match("!")) {
+      return !truthy(parseUnary());
+    }
+    if (match("-")) {
+      const val = parseUnary();
+      return -Number(val);
+    }
+    return parsePrimary();
+  };
+
+  const parseMultiplicative = (): any => {
+    let left = parseUnary();
+    while (true) {
+      if (match("*")) {
+        left = Number(left) * Number(parseUnary());
+      } else if (match("/")) {
+        left = Number(left) / Number(parseUnary());
+      } else {
+        break;
+      }
+    }
+    return left;
+  };
+
+  const parseAdditive = (): any => {
+    let left = parseMultiplicative();
+    while (true) {
+      if (match("+")) {
+        const right = parseMultiplicative();
+        // If either is string, concat
+        if (typeof left === "string" || typeof right === "string") {
+          left = String(left) + String(right);
+        } else {
+          left = Number(left) + Number(right);
+        }
+      } else if (match("-")) {
+        left = Number(left) - Number(parseMultiplicative());
+      } else {
+        break;
+      }
+    }
+    return left;
+  };
+
+  const parseRelational = (): any => {
+    let left = parseAdditive();
+    while (true) {
+      if (match("<")) {
+        left = left < parseAdditive();
+      } else if (match("<=")) {
+        left = left <= parseAdditive();
+      } else if (match(">")) {
+        left = left > parseAdditive();
+      } else if (match(">=")) {
+        left = left >= parseAdditive();
+      } else {
+        break;
+      }
+    }
+    return left;
+  };
+
+  const parseEquality = (): any => {
+    let left = parseRelational();
+    while (true) {
+      if (match("==")) {
+        left = left == parseRelational();
+      } else if (match("!=")) {
+        left = left != parseRelational();
+      } else {
+        break;
+      }
+    }
+    return left;
+  };
+
+  const parseAnd = (): any => {
+    let left = parseEquality();
+    while (match("&&")) {
+      const right = parseEquality();
+      left = truthy(left) && truthy(right);
+    }
+    return left;
+  };
+
+  const parseExpression = (): any => {
+    let left = parseAnd();
+    while (match("||")) {
+      const right = parseAnd();
+      left = truthy(left) || truthy(right);
+    }
+    return left;
+  };
+
+  const result = parseExpression();
+  if (pos < tokens.length) {
+    // console.warn(`Expression has unconsumed tokens: ${tokens.slice(pos).join(" ")}`);
+  }
+  return result;
 };

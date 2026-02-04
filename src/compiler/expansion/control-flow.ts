@@ -1,4 +1,4 @@
-import { evalCond, getPathValue } from "../conditions";
+import { evalCond, getPathValue, truthy } from "../conditions";
 import { clone, applyScope } from "./utils";
 import { applyFilters } from "./substitutor";
 
@@ -14,7 +14,7 @@ export const pruneControls = (
     if (!n || typeof n !== "object") continue;
     if (n.type === "if") {
       const cond = String(n.condition ?? "");
-      const ok = evalCond(cond, locals, globals);
+      const ok = truthy(evalCond(cond, locals, globals));
       const branch = ok ? (n.thenBranch ?? []) : (n.elseBranch ?? []);
       out.push(...pruneControls(branch, locals, globals, depth + 1, scopePrefix));
       continue;
