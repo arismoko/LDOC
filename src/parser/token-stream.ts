@@ -9,7 +9,7 @@ export class TokenStream {
   }
 
   peek(): Token {
-    return this.tokens[this.pos] || { type: TokenType.EOF, value: "", line: 0, column: 0, indent: 0 };
+    return this.tokens[this.pos] || { type: TokenType.EOF, value: "", line: 0, column: 0, endLine: 0, endColumn: 0, indent: 0 };
   }
 
   advance(): Token {
@@ -78,7 +78,7 @@ export class TokenStream {
   }
 
   makeSpaceToken(line: number, column: number): Token {
-    return { type: TokenType.TEXT, value: " ", line, column, indent: 0 };
+    return { type: TokenType.TEXT, value: " ", line, column, endLine: line, endColumn: column + 1, indent: 0 };
   }
 
   softWrapIntoTokens(target: Token[], newlineToken: Token): void {

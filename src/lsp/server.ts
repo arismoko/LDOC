@@ -244,9 +244,18 @@ function getRange(node: Node): Range {
   // AST is 1-based, LSP is 0-based
   const line = Math.max(0, node.line - 1);
   const char = Math.max(0, node.column - 1);
+  
+  // Use accurate end position if available
+  if (node.endLine !== undefined && node.endColumn !== undefined) {
+    return {
+      start: { line, character: char },
+      end: { line: Math.max(0, node.endLine - 1), character: Math.max(0, node.endColumn - 1) },
+    };
+  }
+  
   return {
     start: { line, character: char },
-    end: { line, character: char + 10 }, // Approximate end
+    end: { line, character: char + 10 }, // Fallback: approximate end
   };
 }
 

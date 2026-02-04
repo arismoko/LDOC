@@ -101,7 +101,7 @@ export class Lexer {
         this.advance();
       }
       
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.HORIZONTAL_RULE,
         value: "---",
         line: this.line,
@@ -122,7 +122,7 @@ export class Lexer {
         this.advance();
       }
       
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.BLOCKQUOTE,
         value: ">",
         line: this.line,
@@ -197,7 +197,7 @@ export class Lexer {
 
       // Otherwise, just text
       // We need to consume [ as text.
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.TEXT,
         value: "[",
         line: this.line,
@@ -285,7 +285,7 @@ export class Lexer {
     // Check if it's a bullet (@-)
     if (this.peek() === "-") {
       this.advance();
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.BULLET,
         value: "@".repeat(level) + "-",
         line: this.line,
@@ -371,7 +371,7 @@ export class Lexer {
         }
       }
 
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.MODIFIER,
         value: word,
         line: this.line,
@@ -396,7 +396,7 @@ export class Lexer {
     // Is it a keyword?
     if (level === 1 && KEYWORDS.has(word)) {
       const tokenType = this.keywordToTokenType(word);
-      this.tokens.push({
+      this.pushToken({
         type: tokenType,
         value: word,
         line: this.line,
@@ -441,7 +441,7 @@ export class Lexer {
       }
       
       const text = this.input.slice(startPos, this.pos);
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.TEXT,
         value: text,
         line: this.line,
@@ -454,7 +454,7 @@ export class Lexer {
 
     const marker = this.input.slice(startPos, this.pos);
 
-    this.tokens.push({
+    this.pushToken({
       type: TokenType.NUMBERED_ITEM,
       value: marker,
       line: this.line,
@@ -522,7 +522,7 @@ export class Lexer {
 
     const text = this.input.slice(textStart, this.pos).trim();
 
-    this.tokens.push({
+    this.pushToken({
       type: TokenType.HEADER,
       value: text,
       line: this.line,
@@ -547,7 +547,7 @@ export class Lexer {
     this.advance(); // }
     this.advance(); // }
 
-    this.tokens.push({
+    this.pushToken({
       type: TokenType.VARIABLE,
       value: name,
       line: this.line,
@@ -594,7 +594,7 @@ export class Lexer {
       // Optional space
       if (this.peek() === " ") this.advance();
 
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.FOOTNOTE_DEF,
         value: label,
         line: this.line,
@@ -604,7 +604,7 @@ export class Lexer {
       this.lineHasContent = true;
     } else {
       // Reference
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.FOOTNOTE_REF,
         value: label,
         line: this.line,
@@ -636,7 +636,7 @@ export class Lexer {
       const src = this.input.slice(srcStart, this.pos);
       this.advance(); // )
 
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.IMAGE,
         value: `${alt}|${src}`,
         line: this.line,
@@ -646,7 +646,7 @@ export class Lexer {
       this.lineHasContent = true;
     } else {
       // Not an image, treat as text
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.TEXT,
         value: `![${alt}]`,
         line: this.line,
@@ -677,7 +677,7 @@ export class Lexer {
       const url = this.input.slice(urlStart, this.pos);
       this.advance(); // )
 
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.LINK,
         value: `${text}|${url}`,
         line: this.line,
@@ -692,7 +692,7 @@ export class Lexer {
       // Actually, we consumed [text]. If no (, it's just text.
       // But we already advanced past ].
       // Let's just emit TEXT token for "[text]"
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.TEXT,
         value: `[${text}]`,
         line: this.line,
@@ -717,7 +717,7 @@ export class Lexer {
     this.advance(); // ]
     this.advance(); // ]
 
-    this.tokens.push({
+    this.pushToken({
       type: TokenType.CROSS_REF,
       value: ref,
       line: this.line,
@@ -739,7 +739,7 @@ export class Lexer {
     const term = this.input.slice(termStart, this.pos);
     this.advance(); // closing "
 
-    this.tokens.push({
+    this.pushToken({
       type: TokenType.DEFINED_TERM,
       value: term,
       line: this.line,
@@ -761,7 +761,7 @@ export class Lexer {
     // If followed by whitespace, it's not an emphasis start (treat as text)
     // This fixes ambiguity with math multiplication like "5 * 10"
     if (this.peek() === " " || this.peek() === "\t") {
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.TEXT,
         value: "*".repeat(stars),
         line: this.line,
@@ -804,7 +804,7 @@ export class Lexer {
 
     // If we didn't find closing stars, treat the opening stars as text
     if (!found) {
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.TEXT,
         value: "*".repeat(stars) + this.input.slice(textStart, this.pos),
         line: this.line,
@@ -819,7 +819,7 @@ export class Lexer {
     const type =
       stars >= 3 ? TokenType.BOLD_ITALIC : stars === 2 ? TokenType.BOLD : TokenType.ITALIC;
 
-    this.tokens.push({
+    this.pushToken({
       type,
       value: text,
       line: this.line,
@@ -856,7 +856,7 @@ export class Lexer {
       this.advance(); // ~
       this.advance(); // ~
       
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.STRIKETHROUGH,
         value: text,
         line: this.line,
@@ -873,7 +873,7 @@ export class Lexer {
       // We can emit a TEXT token for "~~" and then reset pos to textStart?
       // No, we can just emit TEXT for "~~" + textSoFar
       const textSoFar = this.input.slice(textStart, this.pos);
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.TEXT,
         value: "~~" + textSoFar,
         line: this.line,
@@ -905,7 +905,7 @@ export class Lexer {
       const text = this.input.slice(textStart, this.pos);
       this.advance(); // `
       
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.INLINE_CODE,
         value: text,
         line: this.line,
@@ -916,7 +916,7 @@ export class Lexer {
     } else {
       // Failed to find closing `, treat as text
       const textSoFar = this.input.slice(textStart, this.pos);
-      this.tokens.push({
+      this.pushToken({
         type: TokenType.TEXT,
         value: "`" + textSoFar,
         line: this.line,
@@ -936,7 +936,7 @@ export class Lexer {
       this.advance();
     }
 
-    this.tokens.push({
+    this.pushToken({
       type: TokenType.BLANK,
       value: "_".repeat(count),
       line: this.line,
@@ -982,7 +982,7 @@ export class Lexer {
     content.push({ value: current.trim(), quoted: cellQuoted });
     this.advance(); // ]
 
-    this.tokens.push({
+    this.pushToken({
       type: TokenType.TABLE_ROW,
       value: JSON.stringify(content),
       line: this.line,
@@ -1018,7 +1018,7 @@ export class Lexer {
       if (text.endsWith("  ") && this.peek() === "\n") {
         const trimmed = text.trimEnd();
         if (trimmed) {
-          this.tokens.push({
+          this.pushToken({
             type: TokenType.TEXT,
             value: trimmed,
             line: this.line,
@@ -1026,7 +1026,7 @@ export class Lexer {
             indent: this.indentation.currentIndent(),
           });
         }
-        this.tokens.push({
+        this.pushToken({
           type: TokenType.HARD_BREAK,
           value: "  ",
           line: this.line,
@@ -1034,7 +1034,7 @@ export class Lexer {
           indent: this.indentation.currentIndent(),
         });
       } else {
-        this.tokens.push({
+        this.pushToken({
           type: TokenType.TEXT,
           value: text,
           line: this.line,
@@ -1055,7 +1055,7 @@ export class Lexer {
       this.advance();
     }
 
-    this.tokens.push({
+    this.pushToken({
       type: TokenType.COMMENT,
       value: this.input.slice(textStart, this.pos).trim(),
       line: this.line,
@@ -1082,7 +1082,7 @@ export class Lexer {
     this.advance(); // *
     this.advance(); // /
 
-    this.tokens.push({
+    this.pushToken({
       type: TokenType.COMMENT,
       value: text,
       line: startLine,
@@ -1161,12 +1161,58 @@ export class Lexer {
     }
   }
 
+  /**
+   * Compute end position from start position and value.
+   * For multi-line values, tracks newlines. For single-line, adds value length.
+   */
+  private computeEndPosition(startLine: number, startColumn: number, value: string): { endLine: number; endColumn: number } {
+    const lines = value.split("\n");
+    if (lines.length > 1) {
+      return {
+        endLine: startLine + lines.length - 1,
+        endColumn: (lines[lines.length - 1]?.length ?? 0) + 1,
+      };
+    }
+    return {
+      endLine: startLine,
+      endColumn: startColumn + value.length,
+    };
+  }
+
+  /**
+   * Push a token with automatic end position computation.
+   * Takes a partial token (without endLine/endColumn) and adds them.
+   */
+  private pushToken(partial: Omit<Token, "endLine" | "endColumn">): void {
+    const { endLine, endColumn } = this.computeEndPosition(partial.line, partial.column, partial.value);
+    this.tokens.push({
+      ...partial,
+      endLine,
+      endColumn,
+    });
+  }
+
   private makeToken(type: TokenType, value: string, indent?: number): Token {
+    // Compute end position based on value content
+    let endLine = this.line;
+    let endColumn = this.column;
+
+    // Count newlines in value to find actual end position
+    const lines = value.split("\n");
+    if (lines.length > 1) {
+      endLine = this.line + lines.length - 1;
+      endColumn = (lines[lines.length - 1]?.length ?? 0) + 1;
+    } else {
+      endColumn = this.column + value.length;
+    }
+
     return {
       type,
       value,
       line: this.line,
       column: this.column,
+      endLine,
+      endColumn,
       indent: indent ?? (this.indentation.currentIndent()),
     };
   }

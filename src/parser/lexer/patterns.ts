@@ -74,6 +74,10 @@ export interface Token {
   value: string;
   line: number;
   column: number;
+  /** End line (1-based). For single-line tokens, same as line. */
+  endLine: number;
+  /** End column (1-based, exclusive - points to position after last char). */
+  endColumn: number;
   indent: number;
   // For modifiers
   count?: number; // e.g. @indent:2

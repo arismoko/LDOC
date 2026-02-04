@@ -109,9 +109,18 @@ export function buildDocumentIndex(uri: string, ast: DocumentNode): DocumentInde
   };
 }
 
-export function nodeToRange(node: { line: number; column: number }, length = 1): Range {
+export function nodeToRange(node: { line: number; column: number; endLine?: number; endColumn?: number }, length = 1): Range {
   const startLine = Math.max(0, node.line - 1);
   const startChar = Math.max(0, node.column - 1);
+  
+  // Use accurate end position if available, otherwise fallback to estimated length
+  if (node.endLine !== undefined && node.endColumn !== undefined) {
+    return {
+      start: { line: startLine, character: startChar },
+      end: { line: Math.max(0, node.endLine - 1), character: Math.max(0, node.endColumn - 1) },
+    };
+  }
+  
   return {
     start: { line: startLine, character: startChar },
     end: { line: startLine, character: startChar + Math.max(1, length) },
@@ -120,7 +129,7 @@ export function nodeToRange(node: { line: number; column: number }, length = 1):
 
 export function nodeToLocation(
   uri: string,
-  node: { line: number; column: number },
+  node: { line: number; column: number; endLine?: number; endColumn?: number },
   length = 1
 ): Location {
   return { uri, range: nodeToRange(node, length) };

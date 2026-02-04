@@ -10,6 +10,8 @@ export function parseHorizontalRule(ctx: ParserContext): HorizontalRuleNode {
     type: "horizontal_rule",
     line: token.line,
     column: token.column,
+    endLine: token.endLine,
+    endColumn: token.endColumn,
   };
 }
 
