@@ -24,7 +24,11 @@ export function normalizeWs(s: string, preserveTabs = false, trimEnd = true): st
   } else {
     result = result.replace(/[\t\v\f]+/g, " ");
   }
+  // Collapse multiple spaces but preserve "  \n" (hard break marker)
+  // Temporarily replace hard break marker, collapse spaces, then restore
+  result = result.replace(/  \n/g, "\x00HARDBREAK\x00");
   result = result.replace(/ +/g, " ");
+  result = result.replace(/\x00HARDBREAK\x00/g, "  \n");
   return trimEnd ? result.trimEnd() : result;
 }
 
@@ -358,12 +362,20 @@ export function collectTextFromNodes(nodes: XmlNode[], segments: TextSegment[], 
     }
 
     if (key === "w:br") {
-      segments.push({ style: { ...currentStyle }, text: "\n" });
+      // Check for page break (handled at paragraph level)
+      const brType = attrVal(n, "@_w:type");
+      if (brType === "page") {
+        // Page breaks are handled by isPageBreakParagraph
+        continue;
+      }
+      // Hard break: emit double-space + newline (Markdown-style line break)
+      segments.push({ style: { ...currentStyle }, text: "  \n" });
       continue;
     }
 
     if (key === "w:cr") {
-      segments.push({ style: { ...currentStyle }, text: "\n" });
+      // Carriage return: also treated as hard break
+      segments.push({ style: { ...currentStyle }, text: "  \n" });
       continue;
     }
 

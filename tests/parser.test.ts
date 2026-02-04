@@ -1196,8 +1196,8 @@ describe("numbering in @document block", () => {
     // legal-decimal uses "%1.%2." format at level 1
     expect(numXml).toContain("%1.%2.");
     // The document should reference the decimal numbering config
-    // We verify by checking that numId=3 (legal-decimal) is used
-    expect(docXml).toMatch(/<w:numId w:val="3"/);
+    // numId=2 maps to abstractNumId=3 (legal-decimal)
+    expect(docXml).toMatch(/<w:numId w:val="2"/);
   });
 
   test("explicit decimal_sub style at level sets memory for subsequent auto items", async () => {

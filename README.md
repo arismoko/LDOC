@@ -88,11 +88,11 @@ Notes:
 ### Tooling
 
 - [x] CLI: `compile`, `parse`, `watch`, `validate`, `fmt`
-- [ ] LSP: autocomplete/diagnostics/navigation (Missing)
+- [x] LSP: autocomplete/diagnostics/navigation
 
 ### Round-trip
 
-- [ ] DOCX -> `.ldoc` conversion (Missing)
+- [x] DOCX -> `.ldoc` conversion (lossy)
 
 ## Installation
 

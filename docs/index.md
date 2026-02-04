@@ -1,33 +1,87 @@
-# LDOC Documentation
+---
+hide:
+  - navigation
+  - toc
+---
 
-LDOC is a Markdown-like DSL for generating complex DOCX documents. It bridges the gap between simple Markdown and professional Word documents.
+# LDOC: Professional Documents, Simplified
 
-## Guide
+<div class="grid cards" markdown>
 
-- [Syntax Reference](syntax.md): Complete guide to LDOC syntax.
-- [CLI Usage](cli.md): How to use the `ldoc` command-line tool.
-- [Examples](../examples/): Example LDOC files.
+-   :material-language-markdown:{ .lg .middle } __Markdown-Compatible__
 
-## Key Features
+    ---
 
-- **Markdown-compatible**: Uses standard Markdown for text, headers, lists, and links.
-- **Directives**: `@directive` syntax for advanced layout (columns, boxes, page breaks).
-- **Variables**: `{{variable}}` interpolation.
-- **Control Flow**: `@if`, `@foreach`, `@repeat` for dynamic content.
-- **Macros**: `@define` and `@use` for reusable components.
-- **Decompiler**: Convert existing DOCX files back to LDOC.
-- **Diff**: Semantic diffing of LDOC files.
+    Write in familiar Markdown. Headers, lists, and links work exactly how you expect.
+
+-   :material-script-text-outline:{ .lg .middle } __Powerful Directives__
+
+    ---
+
+    Take control with `@directive` syntax. Columns, boxes, and page breaks are just a keyword away.
+
+-   :material-variable:{ .lg .middle } __Dynamic Content__
+
+    ---
+
+    Variables and control flow. Use `@if`, `@foreach`, and `{{var}}` to build flexible templates.
+
+-   :material-file-word-box-outline:{ .lg .middle } __Pro-Grade Output__
+
+    ---
+
+    Generate clean, professional DOCX files that look like they were hand-crafted in Word.
+
+</div>
+
+## At a Glance
+
+LDOC bridges the gap between the simplicity of Markdown and the professional requirements of legal and business documents.
+
+=== "Input (.ldoc)"
+
+    ```ldoc
+    @document
+      title: "Mutual NDA"
+      styles:
+        body: { font: "Times New Roman", size: 12pt }
+
+    # Non-Disclosure Agreement
+
+    This Agreement is between {{party_a}} and {{party_b}}.
+
+    @columns 2
+      **Effective Date:**
+      {{effective_date}}
+      @break
+      **Jurisdiction:**
+      {{state}}
+    @end
+    ```
+
+=== "Output (.docx)"
+
+    *A perfectly formatted Word document with standard fonts, exact margins, and precise layout.*
 
 ## Quick Start
 
 ```bash
-# Install (if distributed via npm)
+# 1. Install LDOC
 npm install -g ldoc
 
-# Initialize a new project
+# 2. Create a new document
 ldoc init my-doc
 cd my-doc
 
-# Compile
+# 3. Compile to Word
 ldoc compile document.ldoc
 ```
+
+<div class="grid cards" markdown>
+
+-   [:material-book-open-variant: __Syntax Reference__](syntax.md)
+-   [:material-cog: __Document Settings__](document.md)
+-   [:material-console: __CLI Guide__](cli.md)
+-   [:material-github: __GitHub Repo__](https://github.com/user/ldoc)
+
+</div>

@@ -310,7 +310,10 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
     .map((line) => {
       // Preserve indentation-only blank lines inside modifier blocks.
       if (!line.trim()) return line;
-      return line.replace(/[ \t]+$/g, "");
+      // Preserve double-space at end (hard break marker), strip other trailing whitespace
+      const hardBreak = line.endsWith("  ");
+      const trimmed = line.replace(/[ \t]+$/g, "");
+      return hardBreak ? trimmed + "  " : trimmed;
     })
     .join("\n");
 

@@ -1,61 +1,101 @@
 # LDOC CLI Reference
 
-## Commands
+The `ldoc` command-line tool is your primary interface for compiling, decompiling, and managing LDOC documents.
+
+## Installation
+
+=== "Binary (Recommended)"
+    ```bash
+    # Download or build the standalone binary
+    bun build --compile --target=bun src/cli/index.ts --outfile ~/.local/bin/ldoc
+    ```
+
+=== "Bun Run"
+    ```bash
+    # Run directly from source
+    bun run ldoc <command> [args]
+    ```
+
+---
+
+## Primary Commands
 
 ### `compile`
-Compiles an `.ldoc` file to `.docx`.
+Compiles an `.ldoc` file to a professional `.docx` document.
 
 ```bash
-ldoc compile input.ldoc [-o output.docx]
+ldoc compile input.ldoc -o output.docx
 ```
+
+!!! tip
+    You can use the shorthand `ldoc input.ldoc` to quickly compile a file using default settings.
 
 ### `decompile`
-Converts a `.docx` file to `.ldoc`.
+Converts an existing `.docx` file back to `.ldoc`.
 
 ```bash
-ldoc decompile input.docx [-o output.ldoc] [--emit-indent | --no-indent]
+ldoc decompile input.docx -o output.ldoc
 ```
+
+!!! warning "Lossy Conversion"
+    Decompilation is a "best effort" process. While text and structure are preserved, complex Word-specific formatting may require manual adjustment in the resulting `.ldoc` file.
+
+---
+
+## Development Tools
 
 ### `watch`
-Watches an `.ldoc` file and recompiles on changes.
+Automatically recompiles your document whenever you save the `.ldoc` source.
 
 ```bash
-ldoc watch input.ldoc
+ldoc watch agreement.ldoc
 ```
+
+!!! note
+    Requires `fswatch` to be installed on your system.
 
 ### `fmt`
-Formats an `.ldoc` file.
+Auto-formats your LDOC source code to maintain consistency.
 
 ```bash
-ldoc fmt input.ldoc [-w] [--spaces]
-```
-- `-w`: Write changes back to file.
-- `--spaces`: Use 2 spaces instead of tabs.
+# Preview changes
+ldoc fmt agreement.ldoc
 
-### `diff`
-Semantically compares two `.ldoc` files.
+# Write changes back to file
+ldoc fmt agreement.ldoc -w
+```
+
+### `parse`
+Outputs the Abstract Syntax Tree (AST). Highly useful for debugging complex templates or reporting issues.
 
 ```bash
-ldoc diff fileA.ldoc fileB.ldoc [--json]
+ldoc parse agreement.ldoc --json
 ```
+
+---
+
+## Quality Assurance
 
 ### `validate`
-Checks syntax validity.
+Checks your document for syntax errors without compiling.
 
 ```bash
-ldoc validate input.ldoc
+ldoc validate agreement.ldoc
 ```
 
-### `init`
-Creates a new LDOC project.
+### `diff`
+Performs a semantic diff between two LDOC files, ignoring trivial whitespace changes.
 
 ```bash
-ldoc init [directory]
+ldoc diff version1.ldoc version2.ldoc
 ```
+
+---
+
+## Editor Support
 
 ### `lsp`
-Starts the Language Server (used by editor extensions).
+Starts the LDOC Language Server.
 
-```bash
-ldoc lsp
-```
+!!! info "VS Code & Neovim"
+    Configure your editor to use `ldoc lsp` to get real-time diagnostics, autocompletion, and hover information while you write.

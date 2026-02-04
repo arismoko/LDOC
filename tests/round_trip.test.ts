@@ -357,4 +357,17 @@ Third paragraph to conclude.
     expect(result.source).toContain("@style(color=0000FF)");
     expect(result.source).toContain("**bold blue**");
   });
+
+  test("hard break round-trip", async () => {
+    // Double-space before newline creates a hard break (w:br) in DOCX
+    const input = `Line one  
+Line two`;
+    const parser = new Parser();
+    const ast = parser.parse(input);
+    const docxBuffer = await compile(ast);
+    const result = await decompile(docxBuffer);
+
+    // The hard break should be preserved as double-space before newline
+    expect(result.source).toContain("Line one  \nLine two");
+  });
 });

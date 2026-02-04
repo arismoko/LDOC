@@ -1,184 +1,195 @@
 # LDOC Syntax Reference
 
+This is the complete reference for LDOC (Legal Document DSL) syntax.
+
+!!! tip
+    LDOC is designed to be a superset of Markdown. Most standard Markdown features work out of the box.
+
+---
+
 ## Document Structure
 
-### `@document`
-Defines document-level metadata and settings. Must be at the top of the file.
+### `@document` Block
+
+Defines global document settings. Must be at the top of the file.
 
 ```ldoc
 @document
-  title: "My Document"
-  author: "John Doe"
-  margins: 1in
-@end
+  title: My Document
+  page_size: letter
+  margins: "1in 1in 1in 1.25in"
 ```
 
-### Headers and Footers
-Global headers and footers.
+!!! warning
+    The `@document` block does not require an `@end` tag and MUST be the first block in your file (except for comments).
+
+See [Document Settings](document.md) for the complete reference.
+
+### `@meta` Block
+
+Defines document variables and structured data.
 
 ```ldoc
-@doc_header
-  Confidential - {{page}}
-@end
-
-@doc_footer
-  Page {{page}} of {{pages}}
+@meta
+  date: February 15, 2026
+  parties:
+    seller: { name: "ACME Corp" }
 @end
 ```
 
-## Text Formatting
+!!! example "Usage"
+    Access these variables anywhere in your text using double braces:
+    `This agreement is dated {{date}}.`
 
-Standard Markdown syntax:
-- `**Bold**` -> **Bold**
-- `*Italic*` -> *Italic*
-- `***Bold Italic***` -> ***Bold Italic***
-- `~~Strikethrough~~` -> ~~Strikethrough~~
-- `` `Code` `` -> `Code`
+---
 
-## Blocks
+## Headers
 
-### Headers
+Markdown-style headers with `#` through `######`:
+
 ```ldoc
 # Heading 1
 ## Heading 2
-### Heading 3
 ```
 
-### Lists
-```ldoc
-@1 Numbered Item
-@@a Nested Item (a, b, c)
-@@@i Nested Item (i, ii, iii)
+!!! info
+    Headers automatically become cross-reference anchors. You can link to them using `[[Heading Text]]`.
 
-@- Bullet Item
-@@- Nested Bullet
-```
-
-### Blockquotes
-```ldoc
-> This is a blockquote.
-```
-
-### Horizontal Rule
-```ldoc
 ---
-```
 
-## Layout
+## Lists
 
-### Columns
-Create multi-column layouts.
+### Numbered Lists
 
-```ldoc
-@columns 2
-  Left Column
-  @break
-  Right Column
-@end
-```
-
-### Boxes
-Create a boxed region (single-cell table).
+Nesting depth is determined by the number of `@` symbols.
 
 ```ldoc
-@box
-  Content inside a box.
-@end
+@1 First item
+@@a Sub-item a
+@@@i Sub-sub-item i
 ```
 
-### Page Breaks
-```ldoc
-@page_break
-```
+| Marker | Style | Output |
+|--------|-------|--------|
+| `@1` | Decimal | 1., 2., 3. |
+| `@@a` | Lowercase alpha | (a), (b), (c) |
+| `@@@i` | Lowercase roman | (i), (ii), (iii) |
 
-### Alignment
-```ldoc
-@center
-Centered text
-@end
+!!! tip "Continuation Paragraphs"
+    Indent content under a list item to include it in that item without breaking the list:
+    ```ldoc
+    @1 Purchase Price.
+      The price shall be $500,000.
+    ```
 
-@right
-Right-aligned text
-@end
-```
-
-## Dynamic Content
-
-### Variables
-```ldoc
-Hello {{name}}!
-```
-
-### Set Variables
-```ldoc
-@set name = "World"
-```
-
-### Conditionals
-```ldoc
-@if show_details
-  Details here...
-@else
-  Summary only.
-@end
-```
-
-### Loops
-```ldoc
-@foreach item in items
-  - {{item.name}}: {{item.price}}
-@end
-```
-
-### Macros
-Define reusable snippets.
-
-```ldoc
-@define signature(name, title)
-  Sincerely,
-  
-  {{name}}
-  *{{title}}*
-@end
-
-@use signature("Alice", "CEO")
-```
-
-## Images and Links
-
-### Images
-```ldoc
-![Alt Text](path/to/image.png)
-```
-Or with size:
-```ldoc
-@image path/to/image.png width=200 height=100
-```
-
-### Links
-```ldoc
-[Google](https://google.com)
-```
-
-### Anchors and Internal Links
-```ldoc
-@anchor my-section
-...
-See [Section](#my-section)
-```
+---
 
 ## Tables
 
-LDOC uses a custom array-style syntax for tables to support complex features like colspans and rowspans.
+LDOC uses a clean bracket-based syntax for tables.
 
 ```ldoc
 @table
   [Header 1, Header 2]
-  [Cell 1,   Cell 2]
-  [Colspan >, Cell 3]
-  [Rowspan ^, Cell 4]
+  [Cell A1, Cell A2]
+  [Cell B1, Cell B2]
 ```
 
-- `>` merges with the cell to the left (colspan).
-- `^` merges with the cell above (rowspan).
+!!! example "Merging Cells"
+    - Use `>` to merge with the cell to the left (Colspan).
+    - Use `^` to merge with the cell above (Rowspan).
 
+---
+
+## Control Flow
+
+### Conditionals
+
+```ldoc
+@if price > 100000
+  **HIGH VALUE TRANSACTION**
+@else
+  Standard Transaction
+@end
+```
+
+### Loops
+
+```ldoc
+@foreach item in items
+  - {{item.name}}
+@end
+```
+
+---
+
+## Macros
+
+Macros allow you to define reusable components.
+
+```ldoc
+@define signature(name)
+  ______________________
+  {{name}}
+@end
+
+@use signature(name="John Doe")
+```
+
+!!! tip "Slots"
+    Use `@slot` inside a macro definition to allow passing a block of content when using the macro.
+
+---
+
+## Layout & Formatting
+
+### Alignment & Styles
+
+```ldoc
+@center @bold @caps THE TITLE
+@right *Dated: {{date}}*
+```
+
+### Columns
+
+```ldoc
+@columns 2
+  Left column content.
+  @break
+  Right column content.
+@end
+```
+
+!!! info
+    Columns are balanced automatically unless you use `@break` to force content into the next column.
+
+---
+
+## Page Layout
+
+### Page Breaks
+
+```ldoc
+@pagebreak
+```
+
+### Headers and Footers
+
+```ldoc
+@header Page {{page}} of {{pages}}
+@footer Confidential - {{title}}
+```
+
+!!! tip "First Page"
+    Use `@firstpage @header` to define a different header for only the first page.
+
+---
+
+## Cross-References
+
+```ldoc
+See [[Important Section]] for details.
+```
+
+!!! info
+    These become clickable hyperlinks in the final DOCX file.

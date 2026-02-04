@@ -26,8 +26,11 @@ export function getNumberingReference(
   }
 
   // For other explicit styles (not auto): decimal, alpha_lower, alpha_upper, roman_lower, roman_upper
+  // If numberingScheme is "decimal", use legal-decimal for decimal-type items
   if (style.type !== "auto") {
-    const ref = "legal-default";
+    const ref = (numberingScheme === "decimal" && style.type === "decimal") 
+      ? "legal-decimal" 
+      : "legal-default";
     styleMemory.set(level, ref);
     return ref;
   }

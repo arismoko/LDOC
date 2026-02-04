@@ -15,9 +15,6 @@ If you are an agent making changes here: follow the commands + conventions below
 - Build library bundle: `bun run build`
   - Defined in `package.json` as: `bun build src/index.ts --outdir dist --target node`
 
-- Build standalone CLI binary:
-  - `bun build --compile --target=bun src/cli/index.ts --outfile /home/ari/.local/bin/ldoc`
-
 ### Test
 
 - Run all tests: `bun test`
@@ -30,6 +27,7 @@ If you are an agent making changes here: follow the commands + conventions below
   - `bun test -t "Parser"`
 
 Notes:
+
 - Tests use Bun's test runner (`import { test, expect, describe } from "bun:test"`).
 - Primary suite is `tests/parser.test.ts`.
 
@@ -63,6 +61,7 @@ There is a grammar subproject at `tree-sitter-ldoc/`.
 - Run grammar tests: `bun run test` (runs `tree-sitter test`)
 
 Run from that directory:
+
 - `cd tree-sitter-ldoc && bun install && bun run generate && bun run test`
 
 ## Repo Rules (Cursor/Copilot)
