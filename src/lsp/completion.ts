@@ -6,6 +6,7 @@ import {
 } from "vscode-languageserver/node";
 
 import type { DocumentIndex, MacroSignature } from "./indexer";
+import type { ImportedSymbols } from "./workspace";
 
 export type CompletionContext =
   | { kind: "directive"; prefix: string }
@@ -97,7 +98,8 @@ export function detectCompletionContext(text: string, position: Position): Compl
 export function completeForContext(
   index: DocumentIndex,
   ctx: CompletionContext,
-  options: CompletionOptions
+  options: CompletionOptions,
+  imported?: ImportedSymbols
 ): CompletionItem[] {
   switch (ctx.kind) {
     case "directive":
@@ -107,15 +109,15 @@ export function completeForContext(
     case "meta_key":
       return completeMetaKeys(ctx.prefix);
     case "macro_name":
-      return completeMacroNames(index, ctx.prefix);
+      return completeMacroNames(index, ctx.prefix, imported);
     case "macro_param_key":
-      return completeMacroParamKeys(index, ctx.macroName, ctx.prefix, options);
+      return completeMacroParamKeys(index, ctx.macroName, ctx.prefix, options, imported);
     case "variable":
       return completeVariables(index, ctx.prefix);
     case "variable_filter":
       return completeVariableFilters(ctx.prefix);
     case "cross_ref":
-      return completeCrossRefs(index, ctx.prefix);
+      return completeCrossRefs(index, ctx.prefix, imported);
     case "none":
       return [];
   }
@@ -181,8 +183,9 @@ function completeMetaKeys(prefix: string): CompletionItem[] {
   return out;
 }
 
-function completeMacroNames(index: DocumentIndex, prefix: string): CompletionItem[] {
+function completeMacroNames(index: DocumentIndex, prefix: string, imported?: ImportedSymbols): CompletionItem[] {
   const out: CompletionItem[] = [];
+  // Local macros
   for (const [name, sig] of index.macros) {
     if (prefix && !name.startsWith(prefix)) continue;
     out.push({
@@ -194,6 +197,21 @@ function completeMacroNames(index: DocumentIndex, prefix: string): CompletionIte
       data: { kind: "macro", name, uri: index.uri },
     });
   }
+  // Imported macros
+  if (imported) {
+    for (const [name, sig] of imported.macros) {
+      if (index.macros.has(name)) continue; // Local shadows imported
+      if (prefix && !name.startsWith(prefix)) continue;
+      out.push({
+        label: name,
+        kind: CompletionItemKind.Function,
+        detail: `${macroDetail(sig)} (imported)`,
+        insertText: name,
+        insertTextFormat: InsertTextFormat.PlainText,
+        data: { kind: "macro", name, uri: sig.location.uri },
+      });
+    }
+  }
   return out;
 }
 
@@ -201,9 +219,11 @@ function completeMacroParamKeys(
   index: DocumentIndex,
   macroName: string,
   prefix: string,
-  options: CompletionOptions
+  options: CompletionOptions,
+  imported?: ImportedSymbols
 ): CompletionItem[] {
-  const sig = index.macros.get(macroName);
+  // Check local first, then imported
+  const sig = index.macros.get(macroName) ?? imported?.macros.get(macroName);
   if (!sig) return [];
 
   const out: CompletionItem[] = [];
@@ -303,8 +323,9 @@ function completeVariableFilters(prefix: string): CompletionItem[] {
   return out;
 }
 
-function completeCrossRefs(index: DocumentIndex, prefix: string): CompletionItem[] {
+function completeCrossRefs(index: DocumentIndex, prefix: string, imported?: ImportedSymbols): CompletionItem[] {
   const out: CompletionItem[] = [];
+  // Local anchors
   for (const [name] of index.anchors) {
     if (prefix && !name.toLowerCase().startsWith(prefix.toLowerCase())) continue;
     out.push({
@@ -314,6 +335,20 @@ function completeCrossRefs(index: DocumentIndex, prefix: string): CompletionItem
       insertText: name,
       insertTextFormat: InsertTextFormat.PlainText,
     });
+  }
+  // Imported anchors
+  if (imported) {
+    for (const [name] of imported.anchors) {
+      if (index.anchors.has(name)) continue; // Local shadows imported
+      if (prefix && !name.toLowerCase().startsWith(prefix.toLowerCase())) continue;
+      out.push({
+        label: name,
+        kind: CompletionItemKind.Reference,
+        detail: "Anchor (imported)",
+        insertText: name,
+        insertTextFormat: InsertTextFormat.PlainText,
+      });
+    }
   }
   return out;
 }

@@ -25,12 +25,14 @@ import type { Node } from "../parser/ast";
 import { completeForContext, detectCompletionContext, type CompletionOptions } from "./completion";
 import { buildDocumentIndex, nodeToLocation, type DocumentIndex } from "./indexer";
 import { buildSymbolUsages, type SymbolUsages } from "./references";
+import { resolveImportedSymbols, type ImportedSymbols } from "./workspace";
 
 // Cache for document ASTs and symbol tables
 interface DocumentInfo {
   ast: Node;
   index: DocumentIndex;
   usages: SymbolUsages;
+  imported: ImportedSymbols;
 }
 const documentCache = new Map<string, DocumentInfo>();
 
@@ -128,7 +130,7 @@ export function startServer() {
       const text = doc.getText();
       const ctx = detectCompletionContext(text, params.position);
       const options: CompletionOptions = { snippetSupport };
-      return completeForContext(info.index, ctx, options);
+      return completeForContext(info.index, ctx, options, info.imported);
     }
   );
 
@@ -202,7 +204,8 @@ export function startServer() {
     // 3) Macro usage/definition: @use Name / @define Name
     const macroName = extractMacroNameAt(line, params.position.character);
     if (macroName) {
-      const sig = info.index.macros.get(macroName);
+      // Check local first, then imported
+      const sig = info.index.macros.get(macroName) ?? info.imported.macros.get(macroName);
       if (sig) return sig.location;
     }
 
@@ -340,12 +343,26 @@ async function validateTextDocument(textDocument: TextDocument, connection: any)
 
     const index = buildDocumentIndex(textDocument.uri, ast);
     const usages = buildSymbolUsages(textDocument.uri, ast);
+    
+    // Resolve imports for cross-file symbols (async but we don't block on it)
+    const imported = await resolveImportedSymbols(ast, textDocument.uri);
 
     // Update cache only on successful parse
-    documentCache.set(textDocument.uri, { ast, index, usages });
+    documentCache.set(textDocument.uri, { ast, index, usages, imported });
 
     // Add semantic diagnostics (warnings for undefined references)
-    addSemanticDiagnostics(index, usages, diagnostics);
+    // Pass imported symbols so we don't warn on imported macros
+    addSemanticDiagnostics(index, usages, imported, diagnostics);
+    
+    // Report import errors as warnings
+    for (const err of imported.errors) {
+      diagnostics.push({
+        severity: DiagnosticSeverity.Warning,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+        message: err,
+        source: "ldoc",
+      });
+    }
 
   } catch (error: any) {
     // If parsing fails, report the error
@@ -423,11 +440,12 @@ function extractAnchorDefAt(line: string, cursor: number): string | null {
 function addSemanticDiagnostics(
   index: DocumentIndex,
   usages: SymbolUsages,
+  imported: ImportedSymbols,
   diagnostics: Diagnostic[]
 ): void {
-  // Warn on unknown anchor references
+  // Warn on unknown anchor references (check both local and imported)
   for (const [key, locs] of usages.anchorRefs) {
-    if (!index.anchorsByKey.has(key)) {
+    if (!index.anchorsByKey.has(key) && !imported.anchors.has(key)) {
       for (const loc of locs) {
         diagnostics.push({
           severity: DiagnosticSeverity.Warning,
@@ -439,9 +457,9 @@ function addSemanticDiagnostics(
     }
   }
 
-  // Warn on unknown macro usages
+  // Warn on unknown macro usages (check both local and imported)
   for (const [name, locs] of usages.macroRefs) {
-    if (!index.macros.has(name)) {
+    if (!index.macros.has(name) && !imported.macros.has(name)) {
       for (const loc of locs) {
         diagnostics.push({
           severity: DiagnosticSeverity.Warning,
