@@ -471,9 +471,47 @@ function addSemanticDiagnostics(
     }
   }
 
-  // Note: We don't warn on unknown variables because:
+  // Note: We don't warn on unknown variables by default because:
   // 1. Variables can come from @meta (already tracked)
   // 2. Variables can come from runtime data (not known at parse time)
   // 3. Too many false positives for a legal DSL
-  // TODO: Consider adding a strict mode that warns on unknown variables
+  // 
+  // Strict mode: set LDOC_LSP_STRICT=1 to enable warnings for unknown variables
+  if (process.env.LDOC_LSP_STRICT === "1") {
+    // Build set of known variable paths
+    const knownVars = new Set<string>([
+      // Meta paths
+      ...index.meta.paths,
+      // Document paths (prefixed)
+      ...index.document.paths.map((p) => `document.${p}`),
+      // @set variables
+      ...index.setVariables.keys(),
+      // @foreach loop variables
+      ...index.foreachItems.keys(),
+      // Built-in loop variables
+      "loop.index",
+      "loop.first",
+      "loop.last",
+      "loop.count",
+    ]);
+
+    for (const [name, locs] of usages.variableRefs) {
+      // Skip if known
+      if (knownVars.has(name)) continue;
+      // Skip if it starts with a known prefix (nested access)
+      const hasKnownPrefix = [...knownVars].some(
+        (k) => name.startsWith(k + ".") || k.startsWith(name + ".")
+      );
+      if (hasKnownPrefix) continue;
+
+      for (const loc of locs) {
+        diagnostics.push({
+          severity: DiagnosticSeverity.Hint, // Use Hint, not Warning, to be less noisy
+          range: loc.range,
+          message: `Unknown variable: "${name}" (strict mode)`,
+          source: "ldoc",
+        });
+      }
+    }
+  }
 }

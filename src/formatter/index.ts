@@ -607,13 +607,17 @@ function printForeach(node: ForeachNode, indent: string, level: number): string[
 function printDefine(node: DefineNode, indent: string, level: number): string[] {
   const prefix = indent.repeat(level);
 
-  // Build params string
+  // Build params string - params contains all param names in order,
+  // optionalParams contains the default values for optional ones
   let paramsStr = "";
-  if (node.params.length > 0 || Object.keys(node.optionalParams).length > 0) {
-    const allParams: string[] = [...node.params];
-    for (const [key, value] of Object.entries(node.optionalParams)) {
-      allParams.push(`${key}=${JSON.stringify(value)}`);
-    }
+  if (node.params.length > 0) {
+    const allParams: string[] = node.params.map((paramName) => {
+      const defaultValue = node.optionalParams[paramName];
+      if (defaultValue !== undefined) {
+        return `${paramName}=${JSON.stringify(defaultValue)}`;
+      }
+      return paramName;
+    });
     paramsStr = `(${allParams.join(", ")})`;
   }
 
