@@ -15,6 +15,7 @@ export interface UseNode extends BaseNode {
   name: string;
   label?: string;
   args: Record<string, string>;
+  children?: Node[];
 }
 
 export interface IfNode extends BaseNode {

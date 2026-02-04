@@ -4,7 +4,7 @@ import { clone, applyScope, hasAnchorNodes } from "./utils";
 import { rewriteParams } from "./substitutor";
 import { pruneControls } from "./control-flow";
 
-type Def = { params: string[]; template: Node[]; sourcePath?: string };
+type Def = { params: string[]; optionalParams?: Record<string, any>; template: Node[]; sourcePath?: string };
 
 export class MacroExpander {
   private defines = new Map<string, Def>();
@@ -22,6 +22,7 @@ export class MacroExpander {
     for (const [name, def] of imported.defines.entries()) {
       this.defines.set(name, {
         params: (def.node as any).params ?? [],
+        optionalParams: (def.node as any).optionalParams,
         template: (def.node as any).template ?? [],
         sourcePath: def.sourcePath,
       });
@@ -34,6 +35,7 @@ export class MacroExpander {
         const name = (node as any).name as string;
         this.defines.set(name, {
           params: ((node as any).params ?? []) as string[],
+          optionalParams: (node as any).optionalParams,
           template: ((node as any).template ?? []) as Node[],
           sourcePath: ast.sourcePath,
         });
@@ -61,6 +63,15 @@ export class MacroExpander {
     const out: Node[] = [];
 
     for (const node of nodes) {
+      // Handle @yield
+      if ((node as any).type === "modifier" && (node as any).modifier === "yield") {
+        const injected = locals["__children__"] as Node[] | undefined;
+        if (injected) {
+          out.push(...injected);
+        }
+        continue;
+      }
+
       // Handle Control Flow
       if ((node as any).type === "if" || (node as any).type === "repeat" || (node as any).type === "foreach") {
         const keep = pruneControls([clone(node as any)], locals, this.globals, depth, scopePrefix);
@@ -88,7 +99,7 @@ export class MacroExpander {
 
       // Handle @use
       const useName = (node as any).name as string;
-      const useArgs = ((node as any).args ?? {}) as Record<string, string>;
+      const useArgsRaw = ((node as any).args ?? {}) as Record<string, string>;
       const useLabel = ((node as any).label ?? undefined) as string | undefined;
       const def = this.defines.get(useName);
       if (!def) throw new Error(`Unknown @use: ${useName}`);
@@ -97,9 +108,26 @@ export class MacroExpander {
         throw new Error(`Recursive @use detected: ${[...callStack, useName].join(" -> ")}`);
       }
 
+      // Merge defaults
+      const useArgs = { ...((def as any).optionalParams ?? {}), ...useArgsRaw };
+
       // Validate args
       const paramSet = new Set(def.params);
-      for (const k of Object.keys(useArgs)) {
+      for (const k of Object.keys(useArgsRaw)) {
+        if (!paramSet.has(k) && !((def as any).optionalParams && k in (def as any).optionalParams)) {
+           // Wait, optionalParams are valid params too?
+           // parseDefineSignature separates params (required) and optionalParams (defaults).
+           // So I should check both.
+        }
+      }
+      
+      // Actually, parseDefineSignature puts ALL params in `params` array?
+      // Let's check `parseDefineSignature` in `macro.ts`.
+      // `params.push(paramName)`. Yes.
+      // So `def.params` contains ALL params (required and optional).
+      // So `paramSet` check is correct using `useArgsRaw`.
+      
+      for (const k of Object.keys(useArgsRaw)) {
         if (!paramSet.has(k)) {
           throw new Error(`@use ${useName}: unknown param '${k}'`);
         }
@@ -129,8 +157,17 @@ export class MacroExpander {
       const rewritten = def.params.length > 0 ? cloned.map((n: any) => rewriteParams(n, paramSet, useArgs)) : cloned;
       const scoped = fullScope ? applyScope(rewritten as any, fullScope) : (rewritten as any);
       
+      // Expand children (content block) in current scope
+      const useChildren = (node as any).children as Node[] | undefined;
+      let expandedChildren: Node[] | undefined;
+      if (useChildren) {
+         expandedChildren = this.expandSeq(useChildren, callStack, depth, scopePrefix, locals);
+      }
+
+      const nextLocals = { ...useArgs, __children__: expandedChildren };
+
       // Recurse
-      const expanded = this.expandSeq(scoped as any, [...callStack, useName], depth + 1, fullScope, useArgs);
+      const expanded = this.expandSeq(scoped as any, [...callStack, useName], depth + 1, fullScope, nextLocals);
       out.push(...expanded);
     }
     return out;

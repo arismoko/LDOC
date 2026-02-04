@@ -7,23 +7,80 @@ function parseDefineSignature(
   raw: string,
   line: number,
   column: number
-): { name: string; params: string[] } {
+): { name: string; params: string[]; optionalParams: Record<string, any> } {
   const m = raw.trim().match(/^([A-Za-z_][A-Za-z0-9_\-]*)\s*(?:\((.*)\))?$/);
   if (!m) {
     throw new Error(`Invalid @define signature at line ${line}, column ${column}: ${raw}`);
   }
   const name = m[1]!;
   const inner = (m[2] ?? "").trim();
-  if (!inner) return { name, params: [] };
+  if (!inner) return { name, params: [], optionalParams: {} };
 
-  const params = inner
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const params: string[] = [];
+  const optionalParams: Record<string, any> = {};
 
-  for (const p of params) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(p)) {
-      throw new Error(`Invalid param name '${p}' in @define ${name} at line ${line}`);
+  let i = 0;
+  const s = inner;
+  const skipWs = () => {
+    while (i < s.length && /\s/.test(s[i]!)) i++;
+  };
+  const readIdent = (): string => {
+    const start = i;
+    while (i < s.length && /[A-Za-z0-9_]/.test(s[i]!)) i++;
+    return s.slice(start, i);
+  };
+  const readQuoted = (quote: '"' | "'"): string => {
+    i++; // opening
+    let out = "";
+    while (i < s.length) {
+      const ch = s[i]!;
+      if (ch === "\\") {
+        const next = s[i + 1];
+        if (next === undefined) break;
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === quote) {
+        i++;
+        return out;
+      }
+      out += ch;
+      i++;
+    }
+    throw new Error(`Unterminated string in @define ${name} at line ${line}`);
+  };
+  const readBare = (): string => {
+    const start = i;
+    while (i < s.length && !/[\s,]/.test(s[i]!)) i++;
+    return s.slice(start, i);
+  };
+
+  while (i < s.length) {
+    skipWs();
+    if (i >= s.length) break;
+
+    const paramName = readIdent();
+    if (!paramName) throw new Error(`Expected param name in @define ${name} at line ${line}`);
+    
+    skipWs();
+    if (s[i] === "=") {
+      i++;
+      skipWs();
+      let value = "";
+      if (s[i] === '"' || s[i] === "'") {
+        value = readQuoted(s[i] as any);
+      } else {
+        value = readBare();
+      }
+      optionalParams[paramName] = value;
+    }
+
+    params.push(paramName);
+    
+    skipWs();
+    if (s[i] === ",") {
+      i++;
     }
   }
 
@@ -32,7 +89,7 @@ function parseDefineSignature(
     throw new Error(`Duplicate param in @define ${name} at line ${line}`);
   }
 
-  return { name, params };
+  return { name, params, optionalParams };
 }
 
 function parseUseSignature(
@@ -139,7 +196,7 @@ export function parseDefine(ctx: ParserContext): Node {
     throw new Error(`@define requires a name at line ${token.line}, column ${token.column}`);
   }
 
-  const { name, params } = parseDefineSignature(sig, token.line, token.column);
+  const { name, params, optionalParams } = parseDefineSignature(sig, token.line, token.column);
 
   const template: Node[] = [];
 
@@ -184,7 +241,7 @@ export function parseDefine(ctx: ParserContext): Node {
     column: token.column,
     name,
     params,
-    optionalParams: {},
+    optionalParams,
     template,
   } as any;
 }
@@ -196,6 +253,53 @@ export function parseUse(ctx: ParserContext): Node {
     throw new Error(`@use requires a name at line ${token.line}, column ${token.column}`);
   }
   const { name, args, label } = parseUseSignature(sig, token.line, token.column);
+  
+  const children: Node[] = [];
+
+  // Check for optional indented block
+  const la = ctx.stream.lookaheadNewlinesThenIndent();
+  if (la.indentAfter) {
+    ctx.stream.consumeNewlines();
+    if (ctx.stream.check(TokenType.INDENT)) {
+      ctx.stream.advance();
+      
+      while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
+        if (ctx.stream.check(TokenType.END_BLOCK)) {
+          consumeEndBlockOrThrow(ctx, "use");
+          break;
+        }
+
+        if (ctx.stream.check(TokenType.NEWLINE)) {
+          const start = ctx.stream.peek();
+          const n = ctx.stream.consumeNewlines();
+          pushBlankLines(children, start.line, start.column, n);
+          continue;
+        }
+
+        if (ctx.stream.check(TokenType.DEDENT)) break;
+
+        const child = ctx.parseNode();
+        if (child) children.push(child);
+      }
+
+      if (ctx.stream.check(TokenType.DEDENT)) ctx.stream.advance();
+
+      // Require @end for @use with block
+      ctx.stream.skipNewlines();
+      if (!ctx.stream.check(TokenType.END)) {
+        const t = ctx.stream.peek();
+        throw new Error(`@use with block content must be closed with @end (line ${t.line}, column ${t.column})`);
+      }
+      ctx.stream.advance();
+      if (!ctx.stream.check(TokenType.NEWLINE) && !ctx.stream.check(TokenType.EOF)) {
+        const rest = parseRestOfLineRaw(ctx);
+        if (rest) {
+          throw new Error(`@end does not take arguments (line ${token.line}). Got: ${rest}`);
+        }
+      }
+    }
+  }
+
   return {
     type: "use",
     line: token.line,
@@ -203,5 +307,6 @@ export function parseUse(ctx: ParserContext): Node {
     name,
     label,
     args,
+    children: children.length > 0 ? children : undefined,
   } as any;
 }

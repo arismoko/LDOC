@@ -97,6 +97,7 @@ export const MODIFIERS = new Set([
   "h4",
   "h5",
   "h6",
+  "yield",
 ]);
 
 // Legacy directives that are now errors (must use @document block)
