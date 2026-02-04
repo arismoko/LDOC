@@ -1,0 +1,63 @@
+@document
+  title: All Features Demo
+  author: Gemini
+
+@meta
+  user:
+    name: Alice
+    role: admin
+    balance: 250.50
+  items: [{"name": "Laptop", "price": 1200}, {"name": "Mouse", "price": 25}, {"name": "Monitor", "price": 300}]
+
+@define Card(title="Info", footer="End of card")
+  @box
+    # {{title}}
+    @yield
+    
+    *{{footer}}*
+
+# All Features Demo
+
+## 1. Rich Expressions
+User: {{user.name}} ({{user.role}})
+Balance: ${{user.balance}}
+Bonus: ${{user.balance * 0.10}} (10%)
+Can Afford Laptop? {{user.balance >= 1200}}
+
+Math with spacing: 5 * 10 + 2 = {{5 * 10 + 2}}
+
+## 2. Advanced Control Flow
+@if user.balance > 1000
+  Status: Platinum
+@elseif user.balance > 100
+  Status: Gold
+@else
+  Status: Silver
+@end
+
+### Inventory
+@foreach item in items
+  {{loop.count}}. **{{item.name}}**: ${{item.price}}
+  @if loop.first
+    (Best Seller!)
+  @elseif loop.last
+    (Clearance!)
+  @end
+@end
+
+Total Items: {{items.length}}
+
+## 3. Enhanced Macros
+@use Card(title="User Profile")
+  Name: {{user.name}}
+  Role: {{user.role}}
+@end
+
+@use Card()
+  This card uses the default title.
+  It also has a default footer.
+@end
+
+@use Card(title="Custom Footer", footer="Copyright 2026")
+  This card has a custom footer.
+@end
