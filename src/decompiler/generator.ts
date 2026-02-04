@@ -93,12 +93,12 @@ export function processChildren(
             for (const anchor of p.anchors ?? []) {
               out.push(`${baseIndent}  @anchor ${anchor}`);
             }
-            // In LDOC, a single newline is a soft wrap (joins paragraphs).
-            // Use hard break (two trailing spaces) to create visual line breaks
-            // without adding empty paragraphs on round-trip.
+            // In LDOC, a single newline is a soft wrap for plain paragraphs.
+            // Insert an indented blank separator so each DOCX paragraph stays its own paragraph.
+            // (Parser now treats single blank line as separator without creating empty paragraph)
+            out.push(`${baseIndent}  ${p.line}`);
             const hasMore = group.slice(gi + 1).some((k) => !paragraphInfos[k]!.isEmpty);
-            const suffix = hasMore ? "  " : "";
-            out.push(`${baseIndent}  ${p.line}${suffix}`);
+            if (hasMore) out.push(`${baseIndent}  `);
           }
           i = j;
           continue;

@@ -2,13 +2,16 @@ import type { Node } from "./ast";
 import type { ParserContext } from "./parsers/inline";
 
 export function pushBlankLines(target: Node[], line: number, column: number, newlineCount: number): void {
-  // 2+ newlines => 1+ blank lines (N newlines = N-1 blank lines)
-  if (newlineCount >= 2) {
+  // 3+ newlines => 1+ empty paragraphs for extra spacing
+  // 2 newlines (1 blank line) = paragraph separator, no visual gap needed
+  // 3 newlines (2 blank lines) = 1 empty paragraph
+  // 4 newlines (3 blank lines) = 2 empty paragraphs, etc.
+  if (newlineCount >= 3) {
     target.push({
       type: "empty_paragraph",
       line,
       column,
-      count: newlineCount - 1,
+      count: newlineCount - 2,
     } as any);
   }
 }

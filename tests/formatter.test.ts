@@ -156,7 +156,7 @@ Content after define
       expect(formatted).toContain("Hello world");
     });
 
-    test("preserves blank lines between paragraphs", () => {
+    test("single blank line separates paragraphs without extra spacing", () => {
       const input = `First paragraph
 
 Second paragraph
@@ -164,21 +164,37 @@ Second paragraph
       const formatted = format(input, { useTabs: false });
       expect(formatted).toContain("First paragraph");
       expect(formatted).toContain("Second paragraph");
-      // Blank line should be preserved
+      // Single blank line = paragraph separator, no empty line in output
       const lines = formatted.split("\n");
       const firstIdx = lines.findIndex((l) => l.includes("First"));
       const secondIdx = lines.findIndex((l) => l.includes("Second"));
-      expect(secondIdx - firstIdx).toBeGreaterThan(1);
+      expect(secondIdx - firstIdx).toBe(1); // Adjacent paragraphs
     });
 
-    test("respects empty_paragraph nodes", () => {
+    test("double blank line creates visible spacing", () => {
+      const input = `First paragraph
+
+
+Second paragraph
+`;
+      const formatted = format(input, { useTabs: false });
+      const lines = formatted.split("\n");
+      const firstIdx = lines.findIndex((l) => l.includes("First"));
+      const secondIdx = lines.findIndex((l) => l.includes("Second"));
+      // Two blank lines = 1 empty line between paragraphs
+      expect(secondIdx - firstIdx).toBe(2);
+    });
+
+    test("respects empty_paragraph nodes from double blank lines", () => {
+      // Two blank lines (3 newlines) creates empty_paragraph
       const input = `Hello
+
 
 World
 `;
       const formatted = format(input, { useTabs: false });
       const lines = formatted.split("\n");
-      // Should have: "Hello", "", "World", ""
+      // Should have: "Hello", "", "World", ...
       expect(lines[0]).toBe("Hello");
       expect(lines[1]).toBe("");
       expect(lines[2]).toBe("World");

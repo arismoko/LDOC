@@ -405,9 +405,22 @@ Hello world`);
     expect(ast.meta?.data.nextkey).toBe("value");
   });
 
-  test("preserves blank lines as spacing", () => {
+  test("single blank line acts as paragraph separator (no empty_paragraph)", () => {
     const parser = new Parser();
+    // Single blank line = paragraph separator, no visual gap
     const ast = parser.parse("Hello\n\nWorld");
+
+    const n0 = must(ast.body[0]);
+    const n1 = must(ast.body[1]);
+    expect(n0.type).toBe("paragraph");
+    expect(n1.type).toBe("paragraph");
+    expect(ast.body.length).toBe(2);
+  });
+
+  test("double blank line creates empty_paragraph for extra spacing", () => {
+    const parser = new Parser();
+    // Two blank lines (3 newlines) = 1 empty paragraph
+    const ast = parser.parse("Hello\n\n\nWorld");
 
     const n0 = must(ast.body[0]);
     const n1 = must(ast.body[1]);
@@ -418,26 +431,36 @@ Hello world`);
     expect(n2.type).toBe("paragraph");
   });
 
-  test("preserves blank lines between list item and following paragraph", () => {
+  test("single blank line between list item and paragraph (no empty_paragraph)", () => {
     const parser = new Parser();
     const ast = parser.parse("@1 One\n\nTwo");
     const n0 = must(ast.body[0]);
     const n1 = must(ast.body[1]);
-    const n2 = must(ast.body[2]);
     expect(n0.type).toBe("numbered_item");
-    expect(n1.type).toBe("empty_paragraph");
-    expect((n1 as any).count).toBe(1);
-    expect(n2.type).toBe("paragraph");
+    expect(n1.type).toBe("paragraph");
+    expect(ast.body.length).toBe(2);
   });
 
-  test("preserves blank lines inside modifier blocks", () => {
+  test("single blank line inside modifier blocks (no empty_paragraph)", () => {
     const parser = new Parser();
     const ast = parser.parse("@center\n  Hello\n\n  World\n");
     expect(must(ast.body[0]).type).toBe("modifier");
     const m: any = must(ast.body[0]);
-    // content should include: paragraph, empty_paragraph, paragraph
+    // Single blank line = just separates paragraphs, no empty_paragraph
+    expect(must(m.content[0]).type).toBe("paragraph");
+    expect(must(m.content[1]).type).toBe("paragraph");
+    expect(m.content.length).toBe(2);
+  });
+
+  test("double blank line inside modifier blocks creates empty_paragraph", () => {
+    const parser = new Parser();
+    const ast = parser.parse("@center\n  Hello\n\n\n  World\n");
+    expect(must(ast.body[0]).type).toBe("modifier");
+    const m: any = must(ast.body[0]);
+    // Two blank lines = empty_paragraph between paragraphs
     expect(must(m.content[0]).type).toBe("paragraph");
     expect(must(m.content[1]).type).toBe("empty_paragraph");
+    expect((m.content[1] as any).count).toBe(1);
     expect(must(m.content[2]).type).toBe("paragraph");
   });
 
@@ -585,9 +608,8 @@ After columns.`);
     expect(col.gapTwip).toBe(720); // 0.5in = 720 twips
     expect(col.separator).toBe(true);
     expect(col.children.length).toBeGreaterThan(0);
-    // Body after columns: empty_paragraph (from blank line), then paragraph
-    expect(must(ast.body[1]).type).toBe("empty_paragraph");
-    expect(must(ast.body[2]).type).toBe("paragraph");
+    // Body after columns: single blank line = just separator, no empty_paragraph
+    expect(must(ast.body[1]).type).toBe("paragraph");
   });
 
   test("parses @columns region with default gap", () => {
