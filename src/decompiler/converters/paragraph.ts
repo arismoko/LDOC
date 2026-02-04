@@ -30,6 +30,7 @@ export type ParagraphInfo = {
   /** Style attributes that differ from dominant (for @style emission) */
   styleAttrs?: Record<string, string>;
   isBlockquote?: boolean;
+  spacing?: { after?: number; before?: number };
 };
 
 // Hyperlink info for collecting text within hyperlinks
@@ -99,6 +100,25 @@ function isPageBreakParagraph(pNode: XmlNode): boolean {
   }
 
   return hasPageBreak && !hasText;
+}
+
+function paragraphSpacing(pNode: XmlNode): { after?: number; before?: number } | undefined {
+  const pChildren = pNode["w:p"] as XmlNode[];
+  const pPr = findFirst(pChildren, "w:pPr");
+  if (!pPr) return undefined;
+  const pPrChildren = pPr["w:pPr"] as XmlNode[];
+  const spacing = findFirst(pPrChildren, "w:spacing");
+  if (!spacing) return undefined;
+
+  const after = attrVal(spacing, "@_w:after");
+  const before = attrVal(spacing, "@_w:before");
+
+  if (after === undefined && before === undefined) return undefined;
+
+  return {
+    after: after ? parseInt(after, 10) : undefined,
+    before: before ? parseInt(before, 10) : undefined,
+  };
 }
 
 export function paragraphHasPageBreak(pNode: XmlNode): boolean {
@@ -456,6 +476,7 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
   const styleId = paragraphStyleId(pNode);
   const alignment = paragraphAlignment(pNode);
   const indentLeftTwips = paragraphIndentLeftTwips(pNode, styles);
+  const spacing = paragraphSpacing(pNode);
   
   // Check for TOC styles - don't emit list markers for TOC paragraphs
   const isToc = isTocStyle(styleId);
@@ -581,5 +602,6 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
     isEmpty,
     anchors: anchorsField,
     styleAttrs,
+    spacing,
   };
 }

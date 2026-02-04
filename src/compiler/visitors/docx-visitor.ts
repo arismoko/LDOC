@@ -264,6 +264,14 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       ? undefined
       : this.currentAlignment;
 
+    // DEBUG: Check alignment for underscore line
+    /*
+    const textContent = node.content.map(c => c.type === 'text' ? c.value : '').join('');
+    if (textContent.includes("_____")) {
+       console.log(`DEBUG: Paragraph with underscores. currentAlignment=${this.currentAlignment}, alignment=${alignment}`);
+    }
+    */
+
     const paragraph = new Paragraph({
       children: wrappedChildren,
       heading: headingLevel,
@@ -290,7 +298,10 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
 
     let nextAlignment = this.currentAlignment;
     if (node.modifier === "center") nextAlignment = AlignmentType.CENTER;
-    if (node.modifier === "right") nextAlignment = AlignmentType.RIGHT;
+    if (node.modifier === "right") {
+      nextAlignment = AlignmentType.RIGHT;
+      // console.log("DEBUG: Found right modifier, setting alignment to RIGHT");
+    }
     if (node.modifier === "justify" as any) nextAlignment = AlignmentType.JUSTIFIED;
     
     // Handle indent/outdent modifiers
@@ -324,6 +335,8 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
     }
 
     // Handle @style modifier with attributes
+    let nextParagraphOptions = this.paragraphOptions;
+
     if (node.modifier === "style" && node.attributes) {
       // Apply font
       if (node.attributes.font) {
@@ -346,6 +359,25 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
           nextStyle.color = colorMatch[1]!.toUpperCase();
         }
       }
+
+      // Apply spacing
+      if (node.attributes["spacing-after"] || node.attributes["spacing-before"]) {
+        const spacing: any = { ...nextParagraphOptions?.spacing };
+
+        if (node.attributes["spacing-after"]) {
+          const val = parseInt(node.attributes["spacing-after"], 10);
+          if (!isNaN(val)) spacing.after = val;
+        }
+        if (node.attributes["spacing-before"]) {
+          const val = parseInt(node.attributes["spacing-before"], 10);
+          if (!isNaN(val)) spacing.before = val;
+        }
+
+        nextParagraphOptions = {
+          ...nextParagraphOptions,
+          spacing,
+        };
+      }
     }
 
     const results: (Paragraph | Table)[] = [];
@@ -364,7 +396,7 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
         nextStyle,
         nextAlignment,
         nextIndent,
-        this.paragraphOptions
+        nextParagraphOptions
       );
       // Only pass bookmarks to the first child
       bookmarksToPass = undefined;
@@ -444,20 +476,33 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       const first = this.makeBookmarkParagraph(
         this.forcedBookmarks,
         this.currentIndent,
-        (opts) => { if (this.ctx.defaultSpacing) (opts as any).spacing = this.ctx.defaultSpacing; }
+        (opts) => {
+          (opts as any).alignment = this.currentAlignment;
+          if (this.ctx.defaultSpacing) (opts as any).spacing = this.ctx.defaultSpacing;
+        }
       );
       const rest = Array.from({ length: Math.max(0, node.count) }, () =>
-        new Paragraph({ spacing: this.ctx.defaultSpacing })
+        new Paragraph({
+          alignment: this.currentAlignment,
+          spacing: this.ctx.defaultSpacing,
+        })
       );
       return [first, ...rest];
     }
     return Array.from({ length: Math.max(0, node.count) }, () =>
-      new Paragraph({ spacing: this.ctx.defaultSpacing })
+      new Paragraph({
+        alignment: this.currentAlignment,
+        spacing: this.ctx.defaultSpacing,
+      })
     );
   }
 
   visitBlank(node: BlankNode): (Paragraph | Table)[] {
-    return [new Paragraph({ text: "", spacing: this.ctx.defaultSpacing })];
+    return [new Paragraph({
+      text: "",
+      alignment: this.currentAlignment,
+      spacing: this.ctx.defaultSpacing,
+    })];
   }
 
   visitPageBreak(node: PageBreakNode): (Paragraph | Table)[] {

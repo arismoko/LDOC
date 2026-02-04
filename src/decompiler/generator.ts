@@ -15,14 +15,23 @@ export function formatTwipsAsPt(twips: number): string {
 /**
  * Format style attributes as key=value pairs for @style directive.
  */
-function formatStyleAttrs(attrs: Record<string, string>): string {
-  return Object.entries(attrs)
-    .map(([k, v]) => {
-      // Quote values with spaces
-      const quotedVal = v.includes(" ") ? `"${v}"` : v;
-      return `${k}=${quotedVal}`;
-    })
-    .join(" ");
+function formatStyleAttrs(attrs: Record<string, string>, spacing?: { after?: number; before?: number }): string {
+  const parts = Object.entries(attrs).map(([k, v]) => {
+    // Quote values with spaces
+    const quotedVal = v.includes(" ") ? `"${v}"` : v;
+    return `${k}=${quotedVal}`;
+  });
+
+  if (spacing?.after !== undefined) parts.push(`spacing-after=${spacing.after}`);
+  if (spacing?.before !== undefined) parts.push(`spacing-before=${spacing.before}`);
+
+  return parts.join(" ");
+}
+
+function spacingEqual(a?: { after?: number; before?: number }, b?: { after?: number; before?: number }): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.after === b.after && a.before === b.before;
 }
 
 export function shouldEmitIndent(options: DecompilerOptions | undefined): boolean {
@@ -59,72 +68,118 @@ export function processChildren(
     let i = 0;
     while (i < paragraphInfos.length) {
       const info = paragraphInfos[i]!;
-      const alignment = info.alignment;
-
-      if (alignment && !info.isHeading && !info.isList && !info.isEmpty) {
-        const group: number[] = [i];
-        let j = i + 1;
+      
+      // Group by spacing first
+      const currentSpacing = info.spacing;
+      const spacingGroup: number[] = [i];
+      let j = i + 1;
+      
+      // Only group by spacing if we actually have spacing to emit
+      // (If no spacing, we just process normally, potentially grouping by alignment)
+      const hasSpacing = currentSpacing && (currentSpacing.after !== undefined || currentSpacing.before !== undefined);
+      
+      if (hasSpacing) {
         while (j < paragraphInfos.length) {
           const next = paragraphInfos[j]!;
           if (next.isHeading || next.isList) break;
-          if (next.isEmpty) {
-            group.push(j);
-            j++;
-            continue;
-          }
-          if (next.alignment !== alignment) break;
-          group.push(j);
+          if (!spacingEqual(currentSpacing, next.spacing)) break;
+          spacingGroup.push(j);
           j++;
         }
-
-        const nonEmptyCount = group.filter((idx) => !paragraphInfos[idx]!.isEmpty).length;
-        if (nonEmptyCount >= 2) {
-          out.push(`${baseIndent}@${alignment}`);
-          for (let gi = 0; gi < group.length; gi++) {
-            const idx = group[gi]!;
-            const p = paragraphInfos[idx]!;
-            // Preserve block indentation on empty lines, otherwise blocks break.
-            if (p.isEmpty) {
-              out.push(`${baseIndent}  `);
-              continue;
-            }
-
-            // Emit anchors before content line (inside the block)
-            for (const anchor of p.anchors ?? []) {
-              out.push(`${baseIndent}  @anchor ${anchor}`);
-            }
-            // In LDOC, a single newline is a soft wrap for plain paragraphs.
-            // Insert an indented blank separator so each DOCX paragraph stays its own paragraph.
-            // (Parser now treats single blank line as separator without creating empty paragraph)
-            out.push(`${baseIndent}  ${p.line}`);
-            const hasMore = group.slice(gi + 1).some((k) => !paragraphInfos[k]!.isEmpty);
-            if (hasMore) out.push(`${baseIndent}  `);
-          }
-          i = j;
-          continue;
+      } else {
+        // If no spacing, we process one by one (or rather, the alignment loop will handle grouping)
+        // But wait, if we don't group here, the alignment loop needs to know NOT to group across spacing boundaries?
+        // Yes, so we should essentially treat "undefined spacing" as a group too, 
+        // OR just let the alignment loop handle it but verify spacing match.
+        
+        // Let's simplify: Always group by spacing first.
+        while (j < paragraphInfos.length) {
+          const next = paragraphInfos[j]!;
+          if (next.isHeading || next.isList) break;
+          if (!spacingEqual(currentSpacing, next.spacing)) break;
+          spacingGroup.push(j);
+          j++;
         }
       }
 
-      // Emit anchors before the line
-      for (const anchor of info.anchors ?? []) {
-        out.push(`${baseIndent}@anchor ${anchor}`);
-      }
-      let line = info.line;
-      // Emit @style block if paragraph has different font/size
-      if (info.styleAttrs && !info.isEmpty) {
-        const styleStr = formatStyleAttrs(info.styleAttrs);
+      // Determine indentation for inner content
+      let innerIndent = baseIndent;
+      if (hasSpacing) {
+        const styleStr = formatStyleAttrs({}, currentSpacing);
         out.push(`${baseIndent}@style ${styleStr}`);
-        // Alignment handled inside style block
-        let alignedLine = line;
-        if (info.alignment === "center") alignedLine = `@center ${line}`;
-        else if (info.alignment === "right") alignedLine = `@right ${line}`;
-        out.push(`${baseIndent}  ${alignedLine}`);
-      } else {
-        if (info.alignment === "center" && !info.isEmpty) line = `@center ${line}`;
-        else if (info.alignment === "right" && !info.isEmpty) line = `@right ${line}`;
-        out.push(baseIndent + line);
+        innerIndent += "  ";
       }
-      i++;
+
+      // Process alignment within this spacing group
+      const groupInfos = spacingGroup.map(k => paragraphInfos[k]!);
+      
+      let k = 0;
+      while (k < groupInfos.length) {
+        const subInfo = groupInfos[k]!;
+        const alignment = subInfo.alignment;
+
+        if (alignment && !subInfo.isHeading && !subInfo.isList && !subInfo.isEmpty) {
+          const alignGroup: number[] = [k];
+          let l = k + 1;
+          while (l < groupInfos.length) {
+            const next = groupInfos[l]!;
+            if (next.isHeading || next.isList) break;
+            if (next.isEmpty) {
+              alignGroup.push(l);
+              l++;
+              continue;
+            }
+            if (next.alignment !== alignment) break;
+            alignGroup.push(l);
+            l++;
+          }
+
+          const nonEmptyCount = alignGroup.filter((idx) => !groupInfos[idx]!.isEmpty).length;
+          if (nonEmptyCount >= 2) {
+            out.push(`${innerIndent}@${alignment}`);
+            for (let gi = 0; gi < alignGroup.length; gi++) {
+              const idx = alignGroup[gi]!;
+              const p = groupInfos[idx]!;
+              if (p.isEmpty) {
+                out.push(`${innerIndent}  `);
+                continue;
+              }
+              for (const anchor of p.anchors ?? []) {
+                out.push(`${innerIndent}  @anchor ${anchor}`);
+              }
+              const lines = p.line.split("\n");
+              for (const line of lines) {
+                out.push(`${innerIndent}  ${line}`);
+              }
+              const hasMore = alignGroup.slice(gi + 1).some((m) => !groupInfos[m]!.isEmpty);
+              if (hasMore) out.push(`${innerIndent}  `);
+            }
+            k = l;
+            continue;
+          }
+        }
+
+        // Single paragraph (or no alignment grouping)
+        for (const anchor of subInfo.anchors ?? []) {
+          out.push(`${innerIndent}@anchor ${anchor}`);
+        }
+        let line = subInfo.line;
+        if (subInfo.styleAttrs && !subInfo.isEmpty) {
+          const styleStr = formatStyleAttrs(subInfo.styleAttrs);
+          out.push(`${innerIndent}@style ${styleStr}`);
+          let alignedLine = line;
+          if (subInfo.alignment === "center") alignedLine = `@center ${line}`;
+          else if (subInfo.alignment === "right") alignedLine = `@right ${line}`;
+          out.push(`${innerIndent}  ${alignedLine}`);
+        } else {
+          if (subInfo.alignment === "center" && !subInfo.isEmpty) line = `@center ${line}`;
+          else if (subInfo.alignment === "right" && !subInfo.isEmpty) line = `@right ${line}`;
+          out.push(innerIndent + line);
+        }
+        k++;
+      }
+      
+      i = j;
     }
     return out;
   };

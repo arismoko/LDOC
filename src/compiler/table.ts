@@ -109,6 +109,7 @@ export function compileTable(
 
         return new Paragraph({
           children: paragraphChildren,
+          spacing: { after: 0 },
         });
       });
 
