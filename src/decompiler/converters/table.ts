@@ -80,7 +80,7 @@ export function tableToLdoc(tblNode: XmlNode): string {
         const pk = getOnlyKey(p);
         if (pk === "w:p") {
           const t = paragraphText(p);
-          if (t) paras.push(t);
+          paras.push(t);
         }
       }
       // Join paragraphs with double newline to preserve paragraph structure in LDOC
