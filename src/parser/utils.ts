@@ -44,3 +44,16 @@ export function parseLengthToTwip(raw: string, line: number): number {
       throw new Error(`Unsupported unit: ${unit}`);
   }
 }
+
+export function parseLiteral(raw: string): any {
+  const s = raw.trim();
+  if (s === "true") return true;
+  if (s === "false") return false;
+  if (s === "null") return null;
+  if (/^-?\d+(?:\.\d+)?$/.test(s)) return Number(s);
+  // quoted string
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    return s.slice(1, -1);
+  }
+  return s;
+}

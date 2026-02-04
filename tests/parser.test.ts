@@ -412,7 +412,7 @@ Hello world`);
   test("@; closes @meta block early", () => {
     const parser = new Parser();
     const ast = parser.parse("@meta\n  a: 1\n@;\nHello\n");
-    expect(ast.meta?.data.a).toBe("1");
+    expect(ast.meta?.data.a).toBe(1);
     expect(must(ast.body[0]).type).toBe("paragraph");
   });
 

@@ -1,7 +1,7 @@
 import { TokenType } from "../lexer";
 import type { DocumentNode, MetaNode, ImportNode, Node, ColumnsRegionNode, NumberingScheme } from "../ast";
 import { type ParserContext, parseTextUntilNewline, parseRestOfLineRaw } from "./inline";
-import { pushBlankLines, consumeEndBlockOrThrow, parseLengthToTwip } from "../utils";
+import { pushBlankLines, consumeEndBlockOrThrow, parseLengthToTwip, parseLiteral } from "../utils";
 import { parseParagraph } from "./block";
 
 function parseMetaBlock(ctx: ParserContext): Record<string, any> {
@@ -45,7 +45,7 @@ function parseMetaBlock(ctx: ParserContext): Record<string, any> {
             data[key] = "";
           }
         } else {
-          data[key] = value;
+          data[key] = parseLiteral(value);
         }
       }
 
@@ -109,7 +109,7 @@ export function parseMeta(ctx: ParserContext): MetaNode {
             data[key] = "";
           }
         } else {
-          data[key] = value;
+          data[key] = parseLiteral(value);
         }
       }
 
