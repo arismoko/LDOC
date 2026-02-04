@@ -147,6 +147,12 @@ export function extractStylesFromDocument(doc: Record<string, any> | undefined):
         settings.color = colorMatch[1]!.toUpperCase();
       }
     }
+    if (targetStyles.align) {
+      const alignVal = String(targetStyles.align).toLowerCase();
+      if (alignVal === "center" || alignVal === "right" || alignVal === "justify" || alignVal === "left") {
+        settings.align = alignVal as "left" | "center" | "right" | "justify";
+      }
+    }
 
     if (Object.keys(settings).length > 0) {
       config[target as keyof StyleConfig] = settings;

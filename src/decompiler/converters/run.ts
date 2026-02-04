@@ -224,13 +224,18 @@ export function coalesceInlineStyles(
   if (segments.length === 0) return "";
   
   // Group adjacent segments with same inline style attrs
+  // Break groups at newlines to avoid @style()[] spanning lines
   const groups: { attrs: InlineStyleAttrs | null; segments: TextSegment[] }[] = [];
   
   for (const seg of segments) {
     const attrs = getInlineStyleAttrs(seg.style, dominant);
     const lastGroup = groups[groups.length - 1];
     
-    if (lastGroup && sameInlineStyle(lastGroup.attrs, attrs)) {
+    // Check if previous segment ended with newline - if so, start new group
+    const prevSeg = lastGroup?.segments[lastGroup.segments.length - 1];
+    const prevEndsWithNewline = prevSeg?.text.includes("\n");
+    
+    if (lastGroup && sameInlineStyle(lastGroup.attrs, attrs) && !prevEndsWithNewline) {
       lastGroup.segments.push(seg);
     } else {
       groups.push({ attrs, segments: [seg] });
@@ -245,6 +250,19 @@ export function coalesceInlineStyles(
     // Then wrap with @style if needed
     if (group.attrs) {
       const attrStr = formatInlineStyleAttrs(group.attrs);
+      // If content contains newlines, we can't wrap in inline @style()[]
+      // Split by newline and wrap each non-empty line separately
+      if (emphasisText.includes("\n")) {
+        const parts = emphasisText.split("\n");
+        return parts.map((part, i) => {
+          const suffix = i < parts.length - 1 ? "\n" : "";
+          // Only wrap non-whitespace parts
+          if (part.trim()) {
+            return `@style(${attrStr})[${part}]${suffix}`;
+          }
+          return part + suffix;
+        }).join("");
+      }
       return `@style(${attrStr})[${emphasisText}]`;
     }
     return emphasisText;

@@ -128,7 +128,8 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
     const paragraph = new Paragraph({
       children: wrappedChildren,
       heading: level,
-      alignment: this.currentAlignment,
+      // Don't specify alignment for headings unless explicitly set - let the style's alignment apply
+      alignment: this.currentAlignment === AlignmentType.LEFT ? undefined : this.currentAlignment,
       indent: this.currentIndent ? { left: this.currentIndent } : undefined,
       spacing: this.ctx.defaultSpacing,
       ...this.paragraphOptions,
@@ -252,9 +253,21 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       wrappedChildren = this.wrapWithBookmarks(wrappedChildren, this.forcedBookmarks);
     }
 
+    // If we're inside a heading modifier (@h1-@h6), apply the heading level
+    const headingLevel = this.currentStyle.heading 
+      ? getHeadingLevel(this.currentStyle.heading)
+      : undefined;
+
+    // For headings, don't specify alignment unless explicitly set - let the style's alignment apply
+    // The default LEFT alignment would override the style's centered alignment
+    const alignment = headingLevel && this.currentAlignment === AlignmentType.LEFT
+      ? undefined
+      : this.currentAlignment;
+
     const paragraph = new Paragraph({
       children: wrappedChildren,
-      alignment: this.currentAlignment,
+      heading: headingLevel,
+      alignment,
       indent: this.currentIndent ? { left: this.currentIndent } : undefined,
       spacing: this.ctx.defaultSpacing,
       ...this.paragraphOptions,

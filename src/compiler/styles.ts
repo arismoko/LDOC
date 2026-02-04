@@ -1,4 +1,4 @@
-import { HeadingLevel } from "docx";
+import { AlignmentType, HeadingLevel } from "docx";
 
 /** Style applied while compiling inline/block content. */
 export interface TextStyle {
@@ -21,6 +21,7 @@ export interface StyleSettings {
   bold?: boolean;
   italic?: boolean;
   color?: string; // 6-hex without '#'
+  align?: "left" | "center" | "right" | "justify";
 }
 
 /** Merged style configuration from @styles directives */
@@ -150,12 +151,11 @@ export function buildDocumentStyles(styleConfig: StyleConfig): any {
     }
   }
 
-  // Build paragraph styles for headings, header, footer
+  // Build paragraph styles for header, footer (not headings - those use default overrides)
   const paragraphStyles: any[] = [];
 
-  // Helper to build a paragraph style entry
-  const buildParagraphStyle = (id: string, name: string, settings: StyleSettings) => {
-    const style: any = { id, name };
+  // Helper to build run/paragraph props from settings
+  const buildStyleProps = (settings: StyleSettings): { run?: any; paragraph?: any } => {
     const runProps: any = {};
     const paragraphProps: any = {};
 
@@ -165,40 +165,49 @@ export function buildDocumentStyles(styleConfig: StyleConfig): any {
     if (settings.italic !== undefined) runProps.italics = settings.italic;
     if (settings.color) runProps.color = settings.color;
 
-    if (Object.keys(runProps).length > 0) {
-      style.run = runProps;
-    }
-    if (Object.keys(paragraphProps).length > 0) {
-      style.paragraph = paragraphProps;
+    // Paragraph alignment
+    if (settings.align) {
+      switch (settings.align) {
+        case "center":
+          paragraphProps.alignment = AlignmentType.CENTER;
+          break;
+        case "right":
+          paragraphProps.alignment = AlignmentType.RIGHT;
+          break;
+        case "justify":
+          paragraphProps.alignment = AlignmentType.JUSTIFIED;
+          break;
+        // "left" is default, no need to set
+      }
     }
 
+    const result: { run?: any; paragraph?: any } = {};
+    if (Object.keys(runProps).length > 0) result.run = runProps;
+    if (Object.keys(paragraphProps).length > 0) result.paragraph = paragraphProps;
+    return result;
+  };
+
+  // Helper to build a paragraph style entry (for header/footer)
+  const buildParagraphStyle = (id: string, name: string, settings: StyleSettings) => {
+    const style: any = { id, name, ...buildStyleProps(settings) };
     return style;
   };
 
-  // Heading styles - specific heading levels (heading1-heading6)
-  const headingLevelMap: Record<string, { id: string; name: string }> = {
-    heading1: { id: "Heading1", name: "Heading 1" },
-    heading2: { id: "Heading2", name: "Heading 2" },
-    heading3: { id: "Heading3", name: "Heading 3" },
-    heading4: { id: "Heading4", name: "Heading 4" },
-    heading5: { id: "Heading5", name: "Heading 5" },
-    heading6: { id: "Heading6", name: "Heading 6" },
-  };
+  // Heading styles use styles.default.heading1-heading6 to properly override built-in styles
+  // (Using paragraphStyles creates duplicate Heading1 entries)
+  styles.default = styles.default || {};
 
-  // Apply generic "heading" style to all heading levels as a base
-  if (styleConfig.heading) {
-    for (const [key, info] of Object.entries(headingLevelMap)) {
-      // Merge generic heading with specific if exists
-      const specific = styleConfig[key as keyof StyleConfig];
-      const merged = { ...styleConfig.heading, ...(specific ?? {}) };
-      paragraphStyles.push(buildParagraphStyle(info.id, info.name, merged));
-    }
-  } else {
-    // Only apply specific heading styles
-    for (const [key, info] of Object.entries(headingLevelMap)) {
-      const specific = styleConfig[key as keyof StyleConfig];
-      if (specific) {
-        paragraphStyles.push(buildParagraphStyle(info.id, info.name, specific));
+  const headingLevelKeys = ["heading1", "heading2", "heading3", "heading4", "heading5", "heading6"] as const;
+
+  for (const key of headingLevelKeys) {
+    // Merge generic heading with specific if exists
+    const generic = styleConfig.heading;
+    const specific = styleConfig[key];
+    if (generic || specific) {
+      const merged = { ...(generic ?? {}), ...(specific ?? {}) };
+      const props = buildStyleProps(merged);
+      if (props.run || props.paragraph) {
+        styles.default[key] = props;
       }
     }
   }

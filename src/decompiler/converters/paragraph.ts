@@ -331,7 +331,9 @@ function mergeTextSegments(segments: TextSegment[]): TextSegment[] {
   const merged: TextSegment[] = [];
   for (const seg of segments) {
     const last = merged[merged.length - 1];
-    if (last && stylesMatch(last.style, seg.style)) {
+    // Don't merge across newlines - this prevents @style()[] from spanning lines
+    const lastEndsWithNewline = last?.text.endsWith("\n");
+    if (last && stylesMatch(last.style, seg.style) && !lastEndsWithNewline) {
       last.text += seg.text;
     } else {
       merged.push({ style: { ...seg.style }, text: seg.text });
@@ -475,6 +477,29 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
     const m = styleId.match(/^Heading([1-6])$/i);
     if (m) {
       const level = parseInt(m[1]!, 10);
+      
+      // If heading contains hard breaks (newlines), use @h1 block syntax
+      // Hard breaks are represented as "  \n" (double-space before newline)
+      if (text.includes("\n")) {
+        // Multi-line heading: use @h1 block with indented content
+        // Split on hard breaks, preserve trailing spaces for hard break syntax
+        const lines = text.split("\n").map((line, i, arr) => {
+          // Add trailing double-space for hard break (except last line)
+          const hardBreakSuffix = i < arr.length - 1 ? "  " : "";
+          // Trim existing trailing spaces before adding our controlled suffix
+          return `  ${line.trimEnd()}${hardBreakSuffix}`;
+        });
+        return {
+          line: `@h${level}\n${lines.join("\n")}`,
+          indentLeftTwips,
+          isHeading: true,
+          isList: false,
+          isEmpty,
+          anchors: anchorsField,
+        };
+      }
+      
+      // Single-line heading: use # syntax
       const hashes = "#".repeat(Math.max(1, Math.min(6, level)));
       return {
         line: `${hashes} ${text}`.trimEnd(),

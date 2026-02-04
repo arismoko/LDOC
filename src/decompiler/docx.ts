@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import { xmlParser, findFirst, findPath, getOnlyKey, type XmlNode } from "./xml";
 import { parseNumbering, type NumberingInfo } from "./parsers/numbering";
-import { parseSpacingFromStylesXml, parseParagraphStyles, parseDocumentDefaults, type ParagraphStyleMap } from "./parsers/styles";
+import { parseSpacingFromStylesXml, parseParagraphStyles, parseDocumentDefaults, extractUsedStyles, styleIdToLdocKey, styleToLdocLines, type ParagraphStyleMap } from "./parsers/styles";
 import { collectFontStatistics, computeDominantStyle, type FontSizeStats } from "./statistics";
 import { parseDocumentRels, parseLayoutFromSectPr, parseHeaderFooterRefs, parseSectionProps, findFinalSectPr, findParagraphSectPr, type LayoutInfo, type HeaderFooterRefs, type SectionProps } from "./parsers/layout";
 import { parseFootnotes, type FootnoteInfo } from "./parsers/footnotes";
@@ -133,6 +133,9 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
   const fontStats = collectFontStatistics(bodyChildren);
   const dominantStyle = computeDominantStyle(fontStats, docDefaults);
 
+  // Extract all used styles from the document (flattened)
+  const usedStyles = extractUsedStyles(stylesXml, bodyChildren);
+
   // Find final sectPr for layout and header/footer references
   const finalSectPr = findFinalSectPr(bodyChildren);
   let layout: LayoutInfo = {};
@@ -154,7 +157,15 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
     Math.abs(twipsToInches(layout.margins.left) - 1) < 0.05
   );
   
-  const hasDominantStyles = dominantStyle.font || dominantStyle.sizePt;
+  // Check if we have styles to emit (beyond just body defaults)
+  const hasNonBodyStyles = Array.from(usedStyles.keys()).some(
+    id => id !== "Normal" && (
+      usedStyles.get(id)?.align !== undefined ||
+      usedStyles.get(id)?.bold !== undefined ||
+      usedStyles.get(id)?.italic !== undefined
+    )
+  );
+  const hasDominantStyles = dominantStyle.font || dominantStyle.sizePt || hasNonBodyStyles;
   const hasLayoutSettings = hasNonDefaultMargins || layout.landscape || (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0) || hasDominantStyles;
 
   if (hasLayoutSettings) {
@@ -178,15 +189,38 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
       output.push(`    line: ${spacingInfo.lineMultiplier}`);
     }
     
-    // Emit dominant styles
+    // Emit all used styles
     if (hasDominantStyles) {
-      output.push("  styles:");
-      output.push("    body:");
+      // Collect all style lines first to check if any exist
+      const styleLines: string[] = [];
+      
+      // Body style lines
+      const bodyLines: string[] = [];
       if (dominantStyle.font) {
-        output.push(`      font: ${dominantStyle.font}`);
+        bodyLines.push(`      font: ${dominantStyle.font}`);
       }
       if (dominantStyle.sizePt) {
-        output.push(`      size: ${dominantStyle.sizePt}pt`);
+        bodyLines.push(`      size: ${dominantStyle.sizePt}pt`);
+      }
+      if (bodyLines.length > 0) {
+        styleLines.push("    body:", ...bodyLines);
+      }
+      
+      // Other used styles (headings, etc.)
+      for (const [styleId, style] of usedStyles) {
+        if (styleId === "Normal") continue; // Already handled as body
+        
+        const ldocKey = styleIdToLdocKey(styleId);
+        const lines = styleToLdocLines(ldocKey, style, dominantStyle);
+        if (lines.length > 0) {
+          styleLines.push(...lines);
+        }
+      }
+      
+      // Only emit styles: block if there are actual styles
+      if (styleLines.length > 0) {
+        output.push("  styles:");
+        output.push(...styleLines);
       }
     }
     
