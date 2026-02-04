@@ -6,6 +6,12 @@ module.exports = grammar({
 
   extras: ($) => [/[ \t]/],
 
+  conflicts: ($) => [
+    [$.modifier_line],
+    [$.paragraph],
+    [$.table_block],
+  ],
+
   rules: {
     source_file: ($) => repeat($._statement),
 
@@ -16,22 +22,59 @@ module.exports = grammar({
         $.import_directive,
         $.define_block,
         $.use_directive,
+        $.if_block,
+        $.repeat_block,
+        $.foreach_block,
+        $.set_directive,
         $.header,
         $.numbered_item,
         $.bullet_item,
         $.modifier_line,
         $.table_block,
+        $.blockquote,
+        $.horizontal_rule,
         $.pagebreak,
+        $.column_break,
         $.doc_header,
         $.doc_footer,
         $.firstpage,
         $.evenpage,
-        $.margins,
-        $.spacing,
-        $.landscape,
         $.columns,
         $.anchor,
-        $.end_directive,
+        $.footnote_def,
+        $.comment,
+        $.paragraph,
+        $._newline
+      ),
+
+    // Block content excludes end_directive, elseif, else (they're block terminators)
+    _block_content: ($) =>
+      choice(
+        $.document_directive,
+        $.meta_block,
+        $.import_directive,
+        $.define_block,
+        $.use_directive,
+        $.if_block,
+        $.repeat_block,
+        $.foreach_block,
+        $.set_directive,
+        $.header,
+        $.numbered_item,
+        $.bullet_item,
+        $.modifier_line,
+        $.table_block,
+        $.blockquote,
+        $.horizontal_rule,
+        $.pagebreak,
+        $.column_break,
+        $.doc_header,
+        $.doc_footer,
+        $.firstpage,
+        $.evenpage,
+        $.columns,
+        $.anchor,
+        $.footnote_def,
         $.comment,
         $.paragraph,
         $._newline
@@ -62,21 +105,152 @@ module.exports = grammar({
     import_directive: ($) =>
       seq("@import", /[^\n]+/),
 
-    // @define name(params)
+    // @define name(params) ... @end
     define_block: ($) =>
       seq(
         "@define",
         $.identifier,
         optional(seq("(", optional($.parameter_list), ")")),
         $._newline,
-        repeat($._statement)
+        repeat($._block_content),
+        $.end_directive
       ),
 
-    // @use name
-    use_directive: ($) => seq("@use", /[^\n]+/),
+    // @use name or @use name(args)
+    use_directive: ($) =>
+      seq(
+        "@use",
+        $.identifier,
+        optional(seq("(", optional($.argument_list), ")"))
+      ),
 
     parameter_list: ($) =>
-      seq($.identifier, repeat(seq(",", $.identifier))),
+      seq($.parameter, repeat(seq(",", $.parameter))),
+
+    // Parameter with optional default value
+    parameter: ($) =>
+      seq(
+        $.identifier,
+        optional(seq("=", $.default_value))
+      ),
+
+    default_value: ($) =>
+      choice(
+        $.string_literal,
+        $.integer,
+        $.identifier
+      ),
+
+    // Argument list for @use (supports named params)
+    argument_list: ($) =>
+      seq($.argument, repeat(seq(",", $.argument))),
+
+    argument: ($) =>
+      choice(
+        $.named_argument,
+        $.positional_argument
+      ),
+
+    named_argument: ($) =>
+      seq($.identifier, "=", $.argument_value),
+
+    positional_argument: ($) =>
+      $.argument_value,
+
+    argument_value: ($) =>
+      choice(
+        $.string_literal,
+        $.integer,
+        $.identifier,
+        $.variable
+      ),
+
+    string_literal: ($) =>
+      choice(
+        seq('"', /[^"]*/, '"'),
+        seq("'", /[^']*/, "'")
+      ),
+
+    // Control flow: @if ... @elseif ... @else ... @end
+    if_block: ($) =>
+      seq(
+        $.if_clause,
+        repeat($.elseif_clause),
+        optional($.else_clause),
+        $.end_directive
+      ),
+
+    if_clause: ($) =>
+      seq(
+        "@if",
+        $.condition_expression,
+        $._newline,
+        repeat($._block_content)
+      ),
+
+    elseif_clause: ($) =>
+      seq(
+        "@elseif",
+        $.condition_expression,
+        $._newline,
+        repeat($._block_content)
+      ),
+
+    else_clause: ($) =>
+      seq(
+        "@else",
+        $._newline,
+        repeat($._block_content)
+      ),
+
+    condition_expression: ($) =>
+      /[^\n]+/,
+
+    // Control flow: @repeat count ... @end
+    repeat_block: ($) =>
+      seq(
+        "@repeat",
+        $.repeat_count,
+        $._newline,
+        repeat($._block_content),
+        $.end_directive
+      ),
+
+    repeat_count: ($) =>
+      choice($.integer, $.variable),
+
+    // Control flow: @foreach item in collection ... @end
+    foreach_block: ($) =>
+      seq(
+        "@foreach",
+        $.foreach_binding,
+        $._newline,
+        repeat($._block_content),
+        $.end_directive
+      ),
+
+    foreach_binding: ($) =>
+      seq($.identifier, "in", $.iterable_expression),
+
+    iterable_expression: ($) =>
+      choice($.variable, $.identifier),
+
+    // @set variable = value
+    set_directive: ($) =>
+      seq(
+        "@set",
+        $.identifier,
+        "=",
+        $.set_value
+      ),
+
+    set_value: ($) =>
+      choice(
+        $.string_literal,
+        $.integer,
+        $.variable,
+        $.identifier
+      ),
 
     // # Header
     header: ($) =>
@@ -136,6 +310,7 @@ module.exports = grammar({
         "@italic",
         "@small",
         "@caps",
+        "@slot",
         "@h1",
         "@h2",
         "@h3",
@@ -161,8 +336,19 @@ module.exports = grammar({
         $._newline
       ),
 
+    // > blockquote content
+    blockquote: ($) =>
+      seq(">", /[^\n]*/),
+
+    // --- horizontal rule
+    horizontal_rule: ($) =>
+      /---+/,
+
     // @pagebreak
     pagebreak: ($) => "@pagebreak",
+
+    // @break (column break)
+    column_break: ($) => "@break",
 
     // Document header/footer directives
     doc_header: ($) => seq("@header", optional(/[^\n]+/)),
@@ -171,15 +357,18 @@ module.exports = grammar({
     evenpage: ($) => seq("@evenpage", optional(/[^\n]+/)),
 
     // Document layout directives
-    margins: ($) => seq("@margins", optional(/[^\n]+/)),
-    spacing: ($) => seq("@spacing", optional(/[^\n]+/)),
-    landscape: ($) => seq("@landscape", optional(/[^\n]+/)),
     columns: ($) => seq("@columns", optional(/[^\n]+/)),
 
     // @anchor
     anchor: ($) => seq("@anchor", optional(/[^\n]+/)),
 
-    // @end directive (replaces @;)
+    // [^label]: footnote definition (block level)
+    footnote_def: ($) =>
+      seq("[^", $.footnote_label, "]:", /[^\n]*/),
+
+    footnote_label: ($) => /[a-zA-Z0-9_-]+/,
+
+    // @end directive
     end_directive: ($) => "@end",
 
     // Comments
@@ -207,6 +396,12 @@ module.exports = grammar({
         $.cross_reference,
         $.defined_term,
         $.emphasis,
+        $.strikethrough,
+        $.inline_code,
+        $.footnote_ref,
+        $.image,
+        $.link,
+        $.hard_break,
         $.blank,
         $.text
       ),
@@ -233,11 +428,43 @@ module.exports = grammar({
         seq("*", /[^*]+/, "*")
       ),
 
+    // ~~strikethrough~~
+    strikethrough: ($) =>
+      seq("~~", /[^~]+/, "~~"),
+
+    // `inline code`
+    inline_code: ($) =>
+      seq("`", /[^`]+/, "`"),
+
+    // [^label] footnote reference
+    footnote_ref: ($) =>
+      seq("[^", $.footnote_label, "]"),
+
+    // ![alt](src) image
+    image: ($) =>
+      seq("![", $.image_alt, "](", $.image_src, ")"),
+
+    image_alt: ($) => /[^\]]*/,
+
+    image_src: ($) => /[^)]*/,
+
+    // [text](url) link
+    link: ($) =>
+      seq("[", $.link_text, "](", $.link_url, ")"),
+
+    link_text: ($) => /[^\]]+/,
+
+    link_url: ($) => /[^)]*/,
+
+    // Hard break: two or more trailing spaces at end of line
+    hard_break: ($) => /  +\n/,
+
     // _____
     blank: ($) => /_{3,}/,
 
-    // Regular text
-    text: ($) => /[^\n@#{}[\]"*_\/]+/,
+    // Regular text - excludes special characters  
+    // Note: ( and ! are allowed within text - only special at token start
+    text: ($) => /[^\n@#>{}\[\]"*_\/~`]+/,
 
     // Helpers
     identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,

@@ -279,22 +279,15 @@ As described in [[Section 5.2]], subject to [[Exhibit A]].
 
 ## Neovim Setup
 
-### Vim syntax (no build required)
-
-```bash
-# Copy to your Neovim config
-cp -r vim/* ~/.config/nvim/
-```
-
-### Tree-sitter (optional)
+### Tree-sitter
 
 ```bash
 cd tree-sitter-ldoc
-npm install
-npx tree-sitter generate
+bun install
+bun run generate
 ```
 
-Then add to your Neovim tree-sitter config.
+Then configure Neovim Tree-sitter + LSP; see `EDITORS.md`.
 
 ## File Extension
 

@@ -91,6 +91,18 @@ Content after define
       // The @box is a block modifier inside the template
       expect(formatted).toContain("@box");
     });
+
+    test("prints hard breaks without breaking block indentation", () => {
+      const input = `@bold
+  hello world  
+  test!
+`;
+      const formatted = format(input, { useTabs: false });
+      expect(formatted).toBe(`@bold
+  hello world  
+  test!
+`);
+    });
   });
 
   describe("Table alignment", () => {

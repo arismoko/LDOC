@@ -1097,7 +1097,7 @@ Lots 5 and 6, Block 6, Wildwood Manor, Washington County, MN
 - [ ] Parse modifiers (`@center`, `@bold`, etc.)
 - [ ] Variable substitution (`{{var}}`)
 - [ ] Compile to DOCX via python-docx
-- [ ] Neovim syntax highlighting (`.vim` or TreeSitter)
+- [ ] Neovim syntax highlighting (Tree-sitter)
 
 ### Phase 2: Full Features
 - [ ] `@meta` block parsing

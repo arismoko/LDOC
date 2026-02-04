@@ -3,9 +3,9 @@ import {
   TextDocuments,
   ProposedFeatures,
   DidChangeConfigurationNotification,
-  CompletionItemKind,
   TextDocumentSyncKind,
   DiagnosticSeverity,
+  TextEdit,
   type InitializeParams,
   type CompletionItem,
   type TextDocumentPositionParams,
@@ -14,22 +14,29 @@ import {
   type DefinitionParams,
   type Location,
   type Range,
+  type DocumentFormattingParams,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { parse } from "../parser/parser";
-import { walkTree, type Node, type AnchorNode } from "../parser/ast";
+import { normalizeRefKey } from "../compiler/bookmark-utils";
+import type { Node } from "../parser/ast";
+
+import { completeForContext, detectCompletionContext, type CompletionOptions } from "./completion";
+import { buildDocumentIndex, nodeToLocation, type DocumentIndex } from "./indexer";
 
 // Cache for document ASTs and symbol tables
 interface DocumentInfo {
   ast: Node;
-  anchors: Map<string, Location>;
+  index: DocumentIndex;
 }
 const documentCache = new Map<string, DocumentInfo>();
 
 export function startServer() {
   // Create a connection for the server, using Node's IPC as a transport.
   // Also include all preview / proposed LSP features.
-  const connection = createConnection(ProposedFeatures.all);
+  // Always use stdio transport. Some runtimes (e.g. compiled Bun binaries)
+  // don't set LSP transport flags like `--stdio`, so autodetection fails.
+  const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 
   // Create a simple text document manager.
   const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
@@ -37,6 +44,7 @@ export function startServer() {
   let hasConfigurationCapability = false;
   let hasWorkspaceFolderCapability = false;
   let hasDiagnosticRelatedInformationCapability = false;
+  let snippetSupport = false;
 
   connection.onInitialize((params: InitializeParams) => {
     const capabilities = params.capabilities;
@@ -55,15 +63,21 @@ export function startServer() {
       capabilities.textDocument.publishDiagnostics.relatedInformation
     );
 
+    snippetSupport = Boolean(
+      capabilities.textDocument?.completion?.completionItem?.snippetSupport
+    );
+
     const result: InitializeResult = {
       capabilities: {
         textDocumentSync: TextDocumentSyncKind.Incremental,
         // Tell the client that this server supports code completion.
         completionProvider: {
           resolveProvider: true,
+          triggerCharacters: ["@", "{", "[", "|", "."],
         },
         // Support Go to Definition
         definitionProvider: true,
+        documentFormattingProvider: true,
       },
     };
     if (hasWorkspaceFolderCapability) {
@@ -77,21 +91,20 @@ export function startServer() {
   });
 
   connection.onInitialized(() => {
-    if (hasConfigurationCapability) {
-      // Register for all configuration changes.
-      connection.client.register(DidChangeConfigurationNotification.type, undefined);
-    }
-    if (hasWorkspaceFolderCapability) {
-      connection.workspace.onDidChangeWorkspaceFolders((_event) => {
-        connection.console.log("Workspace folder change event received.");
-      });
-    }
+    // Avoid dynamic capability registration. Neovim commonly has
+    // `dynamicRegistration=false` which otherwise logs noisy warnings.
+    void hasConfigurationCapability;
+    void hasWorkspaceFolderCapability;
   });
 
   // The content of a text document has changed. This event is emitted
   // when the text document first opened or when its content has changed.
   documents.onDidChangeContent((change) => {
     validateTextDocument(change.document, connection);
+  });
+
+  documents.onDidOpen((e) => {
+    validateTextDocument(e.document, connection);
   });
 
   connection.onDidChangeWatchedFiles((_change) => {
@@ -101,42 +114,16 @@ export function startServer() {
 
   // This handler provides the initial list of the completion items.
   connection.onCompletion(
-    (_textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
-      // The pass parameter contains the position of the text document in
-      // which code complete got requested. For the example we ignore this
-      // info and always provide the same completion items.
-      return [
-        {
-          label: "@columns",
-          kind: CompletionItemKind.Keyword,
-          data: 1,
-        },
-        {
-          label: "@break",
-          kind: CompletionItemKind.Keyword,
-          data: 2,
-        },
-        {
-          label: "@end",
-          kind: CompletionItemKind.Keyword,
-          data: 3,
-        },
-        {
-          label: "@box",
-          kind: CompletionItemKind.Keyword,
-          data: 4,
-        },
-        {
-          label: "@image",
-          kind: CompletionItemKind.Keyword,
-          data: 5,
-        },
-        {
-          label: "@anchor",
-          kind: CompletionItemKind.Keyword,
-          data: 6,
-        },
-      ];
+    (params: TextDocumentPositionParams): CompletionItem[] => {
+      const uri = params.textDocument.uri;
+      const doc = documents.get(uri);
+      const info = documentCache.get(uri);
+      if (!doc || !info) return [];
+
+      const text = doc.getText();
+      const ctx = detectCompletionContext(text, params.position);
+      const options: CompletionOptions = { snippetSupport };
+      return completeForContext(info.index, ctx, options);
     }
   );
 
@@ -144,68 +131,101 @@ export function startServer() {
   // the completion list.
   connection.onCompletionResolve(
     (item: CompletionItem): CompletionItem => {
-      if (item.data === 1) {
-        item.detail = "Columns Region";
-        item.documentation = "Create a multi-column layout region.";
-      } else if (item.data === 2) {
-        item.detail = "Column Break";
-        item.documentation = "Force a break to the next column.";
-      } else if (item.data === 6) {
-        item.detail = "Anchor";
-        item.documentation = "Define a named anchor for linking.";
+      // Keep resolve lightweight; enrich macro items if present
+      const data = isRecord(item.data) ? item.data : undefined;
+      const uri = typeof data?.uri === "string" ? data.uri : undefined;
+      const kind = typeof data?.kind === "string" ? data.kind : undefined;
+      if (kind === "macro") {
+        const name = typeof data?.name === "string" ? data.name : "";
+        const docInfo = uri ? documentCache.get(uri) : undefined;
+        const sig = docInfo?.index.macros.get(name);
+        if (sig) {
+          item.detail = `@define ${sig.name}`;
+          const req = sig.requiredParams.join(", ");
+          const opt = sig.optionalParams.length ? `, ${sig.optionalParams.join(", ")}` : "";
+          item.documentation = `@define ${sig.name}(${req}${opt})`;
+        }
       }
       return item;
     }
   );
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === "object";
+  }
 
   connection.onDefinition((params: DefinitionParams): Location | null => {
     const uri = params.textDocument.uri;
     const info = documentCache.get(uri);
     if (!info) return null;
 
-    // We need to find what symbol is at the position
-    // This requires traversing the AST to find the node at the position
-    // For now, let's assume we are looking for a link target
-    
-    // Simple heuristic: check if the line contains a link pattern [text](#target)
-    // and if the cursor is inside the target part.
-    // Or better, find the LinkNode at the position.
-    
     const doc = documents.get(uri);
     if (!doc) return null;
-    
-    // Find the link node at the cursor position
-    // Since we don't have a precise node finder, we'll iterate all links in the AST
-    // and check if the cursor is within their range.
-    // Note: Our AST currently lacks end positions, so we'll approximate.
-    
-    let targetLoc: Location | null = null;
-    
-    walkTree(info.ast, (node) => {
-      if (node.type === "link") {
-        const link = node as any; // Cast to access url
-        if (link.url && link.url.startsWith("#")) {
-          // Check if cursor is on this line
-          // AST is 1-based, LSP is 0-based
-          const nodeLine = node.line - 1;
-          if (nodeLine === params.position.line) {
-             // Check column proximity (very rough)
-             // We assume the link is around the column reported by the parser
-             const nodeCol = node.column - 1;
-             if (params.position.character >= nodeCol) {
-                 // Found a candidate link on the same line
-                 const targetName = link.url.substring(1);
-                 const loc = info.anchors.get(targetName);
-                 if (loc) {
-                     targetLoc = loc;
-                 }
-             }
+
+    const text = doc.getText();
+    const lines = text.split("\n");
+    const line = lines[params.position.line] ?? "";
+
+    // 1) Cross references: [[...]]
+    const cross = extractEnclosed(line, params.position.character, "[[", "]]" );
+    if (cross) {
+      const hit = info.index.anchorsByKey.get(normalizeRefKey(cross));
+      return hit ?? null;
+    }
+
+    // 2) Variables: {{...}}
+    const variable = extractEnclosed(line, params.position.character, "{{", "}}" );
+    if (variable) {
+      const name = variable.split("|")[0]?.trim() ?? "";
+      if (name) {
+        const direct = info.index.setVariables.get(name) ?? info.index.foreachItems.get(name);
+        if (direct) return direct;
+
+        if (name.startsWith("document.")) {
+          const p = name.slice("document.".length);
+          if (info.index.document.pathsSet.has(p)) {
+            return nodeToLocation(uri, info.index.ast, "@document".length);
           }
         }
+
+        if (info.index.meta.pathsSet.has(name) && info.index.meta.node) {
+          return nodeToLocation(uri, info.index.meta.node, "@meta".length);
+        }
       }
-    });
-    
-    return targetLoc;
+    }
+
+    // 3) Macro usage/definition: @use Name / @define Name
+    const macroName = extractMacroNameAt(line, params.position.character);
+    if (macroName) {
+      const sig = info.index.macros.get(macroName);
+      if (sig) return sig.location;
+    }
+
+    return null;
+  });
+
+  connection.onDocumentFormatting((params: DocumentFormattingParams) => {
+    const uri = params.textDocument.uri;
+    const doc = documents.get(uri);
+    if (!doc) return [];
+
+    const original = doc.getText();
+    const useTabs = !params.options.insertSpaces;
+    return (async () => {
+      try {
+        // Lazy import to keep LSP start fast
+        const { format } = await import("../formatter");
+        const next = format(original, { useTabs });
+        if (next === original) return [];
+        const fullRange: Range = {
+          start: { line: 0, character: 0 },
+          end: doc.positionAt(original.length),
+        };
+        return [TextEdit.replace(fullRange, next)];
+      } catch {
+        return [];
+      }
+    })();
   });
 
   // Make the text document manager listen on the connection
@@ -237,21 +257,11 @@ async function validateTextDocument(textDocument: TextDocument, connection: any)
   try {
     // Parse the document to find errors
     const ast = parse(text, { sourcePath: textDocument.uri });
-    
-    // Build symbol table (anchors)
-    const anchors = new Map<string, Location>();
-    walkTree(ast, (node) => {
-      if (node.type === "anchor") {
-        const anchor = node as AnchorNode;
-        anchors.set(anchor.name, {
-          uri: textDocument.uri,
-          range: getRange(anchor),
-        });
-      }
-    });
-    
-    // Update cache
-    documentCache.set(textDocument.uri, { ast, anchors });
+
+    const index = buildDocumentIndex(textDocument.uri, ast);
+
+    // Update cache only on successful parse
+    documentCache.set(textDocument.uri, { ast, index });
 
   } catch (error: any) {
     // If parsing fails, report the error
@@ -289,4 +299,28 @@ async function validateTextDocument(textDocument: TextDocument, connection: any)
 
   // Send the computed diagnostics to VSCode.
   connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+}
+
+function extractEnclosed(line: string, cursor: number, open: string, close: string): string | null {
+  const start = line.lastIndexOf(open, cursor);
+  if (start === -1) return null;
+  const end = line.indexOf(close, start + open.length);
+  if (end === -1) return null;
+  if (cursor < start + open.length || cursor > end + close.length) return null;
+  return line.slice(start + open.length, end);
+}
+
+function extractMacroNameAt(line: string, cursor: number): string | null {
+  const re = /@(use|define)\s+([A-Za-z_][A-Za-z0-9_]*)/g;
+  for (;;) {
+    const m = re.exec(line);
+    if (!m) break;
+    const full = m[0] ?? "";
+    const name = m[2] ?? "";
+    const idx = m.index;
+    const nameStart = idx + (full.lastIndexOf(name) === -1 ? 0 : full.lastIndexOf(name));
+    const nameEnd = nameStart + name.length;
+    if (cursor >= nameStart && cursor <= nameEnd) return name;
+  }
+  return null;
 }

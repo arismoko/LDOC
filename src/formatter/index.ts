@@ -171,7 +171,7 @@ function printNode(node: Node, indent: string, level: number): string[] {
 
   switch (node.type) {
     case "paragraph":
-      return [`${prefix}${printInlineNodes((node as ParagraphNode).content)}`];
+      return printInlineNodesToLines((node as ParagraphNode).content).map((l) => `${prefix}${l}`);
 
     case "empty_paragraph":
       return Array((node as EmptyParagraphNode).count).fill("");
@@ -253,6 +253,30 @@ function printInlineNodes(nodes: InlineNode[]): string {
   return result.trimEnd();
 }
 
+function printInlineNodesToLines(nodes: InlineNode[]): string[] {
+  const lines: string[] = [""];
+  const endsWithHardBreak: boolean[] = [false];
+
+  for (const node of nodes) {
+    if (node.type === "hard_break") {
+      // LDOC hard break syntax: Markdown-style two trailing spaces.
+      lines[lines.length - 1] = (lines[lines.length - 1] ?? "") + "  ";
+      endsWithHardBreak[endsWithHardBreak.length - 1] = true;
+      lines.push("");
+      endsWithHardBreak.push(false);
+      continue;
+    }
+    lines[lines.length - 1] = (lines[lines.length - 1] ?? "") + printInlineNode(node);
+  }
+
+  // Trim trailing whitespace on each line, except when it's meaningful hard-break spaces.
+  return lines.map((l, i) => (endsWithHardBreak[i] ? l : l.trimEnd()));
+}
+
+function inlineHasHardBreak(nodes: InlineNode[]): boolean {
+  return nodes.some((n) => n.type === "hard_break");
+}
+
 /**
  * Print a single inline node
  */
@@ -319,7 +343,8 @@ function printInlineNode(node: InlineNode): string {
       return `[^${(node as FootnoteReferenceNode).label}]`;
 
     case "hard_break":
-      return "\\\n";
+      // Hard breaks are printed by printInlineNodesToLines.
+      return "";
 
     default:
       return "";
@@ -337,9 +362,13 @@ function printNumberedItem(
   const prefix = indent.repeat(level);
   const atCount = "@".repeat(node.level);
   const style = getNumberingStyleMarker(node);
-  const content = printInlineNodes(node.content);
+  const contentLines = printInlineNodesToLines(node.content);
+  const first = contentLines[0] ?? "";
 
-  const lines: string[] = [`${prefix}${atCount}${style} ${content}`];
+  const lines: string[] = [`${prefix}${atCount}${style} ${first}`];
+  for (let i = 1; i < contentLines.length; i++) {
+    lines.push(`${prefix}${contentLines[i] ?? ""}`);
+  }
 
   // Print children with incremented level
   if (node.children.length > 0) {
@@ -389,9 +418,13 @@ function printBulletItem(
 ): string[] {
   const prefix = indent.repeat(level);
   const atCount = "@".repeat(node.level);
-  const content = printInlineNodes(node.content);
+  const contentLines = printInlineNodesToLines(node.content);
+  const first = contentLines[0] ?? "";
 
-  const lines: string[] = [`${prefix}${atCount}- ${content}`];
+  const lines: string[] = [`${prefix}${atCount}- ${first}`];
+  for (let i = 1; i < contentLines.length; i++) {
+    lines.push(`${prefix}${contentLines[i] ?? ""}`);
+  }
 
   // Print children
   if (node.children.length > 0) {
@@ -426,7 +459,12 @@ function printModifier(
     node.content[0]?.type === "paragraph"
   ) {
     const para = node.content[0] as ParagraphNode;
-    return [`${prefix}${modifierStr} ${printInlineNodes(para.content)}`];
+    if (inlineHasHardBreak(para.content)) {
+      // Inline form can't safely represent hard breaks.
+      // Fall through to the block form.
+    } else {
+      return [`${prefix}${modifierStr} ${printInlineNodes(para.content)}`];
+    }
   }
 
   // Block modifier with indented content
