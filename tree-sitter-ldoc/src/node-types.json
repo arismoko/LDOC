@@ -1502,6 +1502,11 @@
     }
   },
   {
+    "type": "image_alt",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "image_src",
     "named": true,
     "fields": {}
@@ -2112,9 +2117,24 @@
     }
   },
   {
-    "type": "table_row",
+    "type": "table_cell_content",
     "named": true,
     "fields": {}
+  },
+  {
+    "type": "table_row",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "table_cell_content",
+          "named": true
+        }
+      ]
+    }
   },
   {
     "type": "todo_comment",
@@ -2421,10 +2441,6 @@
   },
   {
     "type": "identifier",
-    "named": true
-  },
-  {
-    "type": "image_alt",
     "named": true
   },
   {

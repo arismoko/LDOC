@@ -365,14 +365,25 @@ module.exports = grammar({
         repeat($.table_row)
       ),
 
+    // Table row with cell content - uses table_cell_content to handle nested brackets
     table_row: ($) =>
       seq(
         optional(/[ \t]+/),
         "[",
-        /[^\]]+/,
+        $.table_cell_content,
         "]",
         $._newline
       ),
+
+    // Table cell content - matches content with balanced [] brackets
+    // This allows [link](url) and other bracket-containing content inside cells
+    table_cell_content: ($) =>
+      repeat1(choice(
+        // Nested brackets (for links, footnotes, etc.)
+        seq("[", /[^\]]*/, "]"),
+        // Regular content without brackets
+        /[^\[\]]+/
+      )),
 
     // =========================================================================
     // Blockquote: > content
