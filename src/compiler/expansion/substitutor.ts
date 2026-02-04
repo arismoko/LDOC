@@ -63,7 +63,10 @@ export const rewriteParams = (node: any, params: Set<string>, args: Record<strin
       ...node,
       rows: (node.rows ?? []).map((r: any) => ({
         ...r,
-        cells: (r.cells ?? []).map((cell: any[]) => substituteParamsInInline(cell ?? [], params, args)),
+        cells: (r.cells ?? []).map((cell: any) => ({
+          ...cell,
+          content: substituteParamsInInline(cell.content ?? [], params, args),
+        })),
       })),
     };
   }

@@ -38,3 +38,9 @@ export interface ForeachNode extends BaseNode {
   iterable: string;
   body: Node[];
 }
+
+export interface SetNode extends BaseNode {
+  type: "set";
+  name: string; // The variable name (e.g. "count" or "user.name")
+  expression: string; // The raw expression to evaluate
+}

@@ -11,10 +11,11 @@ import {
   WidthType,
   TableLayoutType,
   VerticalAlign,
+  VerticalMergeType,
   convertInchesToTwip,
 } from "docx";
 
-import type { TableNode, ModifierNode, InlineNode, Node } from "../parser/ast";
+import type { TableNode, ModifierNode, InlineNode, Node, TableCellNode } from "../parser/ast";
 import type { AlignmentType } from "docx";
 import type { TextStyle } from "./styles";
 
@@ -78,9 +79,9 @@ export function compileTable(
 
   const rows = node.rows.map((row, index) => {
     const isHeader = index === 0;
-    const cells = row.cells.map((cellContent) => {
+    const cells = row.cells.map((cellNode: TableCellNode) => {
       let paragraphChildren: any[] = ctx.compileInlineNodes(
-        cellContent,
+        cellNode.content,
         isHeader ? { bold: true } : {},
         (node as any).scope
       );
@@ -90,7 +91,9 @@ export function compileTable(
         }
         bookmarksForFirstRow = undefined;
       }
-      return new TableCell({
+
+      // Build cell options
+      const cellOptions: any = {
         children: [
           new Paragraph({
             children: paragraphChildren,
@@ -100,7 +103,21 @@ export function compileTable(
         shading: isHeader
           ? { type: ShadingType.CLEAR, fill: "F2F2F2" }
           : undefined,
-      });
+      };
+
+      // Add colspan (columnSpan)
+      if (cellNode.colspan > 1) {
+        cellOptions.columnSpan = cellNode.colspan;
+      }
+
+      // Add vertical merge
+      if (cellNode.vMerge === "restart") {
+        cellOptions.verticalMerge = VerticalMergeType.RESTART;
+      } else if (cellNode.vMerge === "continue") {
+        cellOptions.verticalMerge = VerticalMergeType.CONTINUE;
+      }
+
+      return new TableCell(cellOptions);
     });
 
     return new TableRow({
@@ -162,7 +179,7 @@ export function compileBox(
 
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
-    layout: TableLayoutType.FIXED,
+    layout: TableLayoutType.AUTOFIT,
     indent: indentLeftTwip ? { size: indentLeftTwip, type: WidthType.DXA } : undefined,
     rows: [
       new TableRow({

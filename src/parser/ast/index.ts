@@ -14,6 +14,7 @@ import type {
   IfNode,
   RepeatNode,
   ForeachNode,
+  SetNode,
 } from "./control";
 import type {
   HeaderNode,
@@ -24,9 +25,15 @@ import type {
   ParagraphNode,
   TableNode,
   TableRowNode,
+  TableCellNode,
   PageBreakNode,
   CommentNode,
+  BlockquoteNode,
+  HorizontalRuleNode,
+  FootnoteDefinitionNode,
+  ColumnBreakNode,
 } from "./block";
+
 import type {
   TextNode,
   VariableNode,
@@ -34,6 +41,11 @@ import type {
   DefinedTermNode,
   BlankNode,
   EmphasisNode,
+  LinkNode,
+  ImageNode,
+  StrikethroughNode,
+  InlineCodeNode,
+  FootnoteReferenceNode,
 } from "./inline";
 
 export * from "./base";
@@ -55,7 +67,11 @@ export type Node =
   | IfNode
   | RepeatNode
   | ForeachNode
+  | SetNode
   | HeaderNode
+  | BlockquoteNode
+  | HorizontalRuleNode
+  | FootnoteDefinitionNode
   | NumberedItemNode
   | BulletItemNode
   | ModifierNode
@@ -63,7 +79,13 @@ export type Node =
   | ParagraphNode
   | TableNode
   | TableRowNode
+  | TableCellNode
   | TextNode
+  | LinkNode
+  | ImageNode
+  | StrikethroughNode
+  | InlineCodeNode
+  | FootnoteReferenceNode
   | VariableNode
   | CrossRefNode
   | DefinedTermNode
@@ -71,6 +93,7 @@ export type Node =
   | EmphasisNode
   | PageBreakNode
   | CommentNode
+  | ColumnBreakNode
   | ImportNode;
 
 // Visitor pattern for AST traversal
@@ -88,7 +111,11 @@ export interface NodeVisitor<T = void> {
   visitIf?(node: IfNode): T;
   visitRepeat?(node: RepeatNode): T;
   visitForeach?(node: ForeachNode): T;
+  visitSet?(node: SetNode): T;
   visitHeader?(node: HeaderNode): T;
+  visitBlockquote?(node: BlockquoteNode): T;
+  visitHorizontalRule?(node: HorizontalRuleNode): T;
+  visitFootnoteDefinition?(node: FootnoteDefinitionNode): T;
   visitNumberedItem?(node: NumberedItemNode): T;
   visitBulletItem?(node: BulletItemNode): T;
   visitModifier?(node: ModifierNode): T;
@@ -97,12 +124,18 @@ export interface NodeVisitor<T = void> {
   visitTable?(node: TableNode): T;
   visitTableRow?(node: TableRowNode): T;
   visitText?(node: TextNode): T;
+  visitLink?(node: LinkNode): T;
+  visitImage?(node: ImageNode): T;
+  visitStrikethrough?(node: StrikethroughNode): T;
+  visitInlineCode?(node: InlineCodeNode): T;
+  visitFootnoteReference?(node: FootnoteReferenceNode): T;
   visitVariable?(node: VariableNode): T;
   visitCrossRef?(node: CrossRefNode): T;
   visitDefinedTerm?(node: DefinedTermNode): T;
   visitBlank?(node: BlankNode): T;
   visitEmphasis?(node: EmphasisNode): T;
   visitPageBreak?(node: PageBreakNode): T;
+  visitColumnBreak?(node: ColumnBreakNode): T;
   visitComment?(node: CommentNode): T;
 }
 
@@ -135,8 +168,16 @@ export function visit<T>(node: Node, visitor: NodeVisitor<T>): T | undefined {
       return visitor.visitRepeat?.(node as RepeatNode);
     case "foreach":
       return visitor.visitForeach?.(node as ForeachNode);
+    case "set":
+      return visitor.visitSet?.(node as SetNode);
     case "header":
       return visitor.visitHeader?.(node);
+    case "blockquote":
+      return visitor.visitBlockquote?.(node);
+    case "horizontal_rule":
+      return visitor.visitHorizontalRule?.(node);
+    case "footnote_def":
+      return visitor.visitFootnoteDefinition?.(node);
     case "numbered_item":
       return visitor.visitNumberedItem?.(node);
     case "bullet_item":
@@ -153,6 +194,16 @@ export function visit<T>(node: Node, visitor: NodeVisitor<T>): T | undefined {
       return visitor.visitTableRow?.(node);
     case "text":
       return visitor.visitText?.(node);
+    case "link":
+      return visitor.visitLink?.(node);
+    case "image":
+      return visitor.visitImage?.(node);
+    case "strikethrough":
+      return visitor.visitStrikethrough?.(node);
+    case "inline_code":
+      return visitor.visitInlineCode?.(node);
+    case "footnote_ref":
+      return visitor.visitFootnoteReference?.(node);
     case "variable":
       return visitor.visitVariable?.(node);
     case "cross_ref":
@@ -165,6 +216,8 @@ export function visit<T>(node: Node, visitor: NodeVisitor<T>): T | undefined {
       return visitor.visitEmphasis?.(node);
     case "page_break":
       return visitor.visitPageBreak?.(node);
+    case "column_break":
+      return visitor.visitColumnBreak?.(node);
     case "comment":
       return visitor.visitComment?.(node);
   }

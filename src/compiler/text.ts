@@ -6,6 +6,7 @@ import type { IRunOptions } from "docx";
 
 import type { InlineNode, VariableNode } from "../parser/ast";
 import type { TextStyle } from "./styles";
+import { evalCond } from "./conditions";
 
 /**
  * Context required for variable resolution.
@@ -20,18 +21,24 @@ export interface VariableContext {
  * If the variable is not found, it is added to missingVariables and the template placeholder is returned.
  */
 export function resolveVariable(node: VariableNode, ctx: VariableContext): string {
-  let value: any = ctx.variables;
+  let value: any;
 
-  for (const key of node.path) {
-    if (value && typeof value === "object" && key in value) {
-      value = value[key];
-    } else {
-      const label = node.path.join(".");
-      if (!ctx.missingVariables.has(label)) {
-        ctx.missingVariables.set(label, { line: node.line, column: node.column });
-      }
-      return `{{${node.name}}}`; // Unresolved variable
+  try {
+    // Try to evaluate as an expression first
+    value = evalCond(node.name, ctx.variables, {});
+  } catch (e) {
+    // If evaluation fails (e.g. syntax error), fall back to undefined
+    value = undefined;
+  }
+
+  // If evaluation returned undefined (variable not found) or NaN (math with undefined), treat as missing
+  if (value === undefined || (typeof value === "number" && Number.isNaN(value))) {
+    // Check if it was a simple path lookup that failed
+    const label = node.name;
+    if (!ctx.missingVariables.has(label)) {
+      ctx.missingVariables.set(label, { line: node.line, column: node.column });
     }
+    return `{{${node.name}}}`; // Unresolved variable
   }
 
   // Apply filters
@@ -104,6 +111,8 @@ export function createSingleTextRun(text: string, style: TextStyle): TextRun {
     ...(style.italics ? { italics: true } : {}),
     ...(style.allCaps ? { allCaps: true } : {}),
     ...(style.smallCaps ? { smallCaps: true } : {}),
+    ...(style.strike ? { strike: true } : {}),
+    ...(style.doubleStrike ? { doubleStrike: true } : {}),
     ...(style.size ? { size: style.size } : {}),
     ...(style.font ? { font: style.font } : {}),
     ...(style.color ? { color: style.color } : {}),

@@ -8,7 +8,6 @@
 "@define" @keyword
 "@table" @keyword
 "@pagebreak" @keyword
-"@;" @keyword
 "@margins" @keyword
 "@spacing" @keyword
 "@landscape" @keyword

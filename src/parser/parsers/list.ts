@@ -1,7 +1,7 @@
 import { TokenType, type Token } from "../lexer";
 import type { NumberedItemNode, BulletItemNode, NumberingStyle, Node } from "../ast";
 import { type ParserContext, tokensToInlineNodes } from "./inline";
-import { pushBlankLines, consumeEndBlockOrThrow } from "../utils";
+import { pushBlankLines } from "../utils";
 
 export function parseNumberingStyle(style: string): NumberingStyle {
   if (!style) {
@@ -83,10 +83,6 @@ export function parseNumberedItem(ctx: ParserContext): NumberedItemNode {
     // Now we're positioned at INDENT
     ctx.stream.advance();
     while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-      if (ctx.stream.check(TokenType.END_BLOCK)) {
-        consumeEndBlockOrThrow(ctx, "numbered_item");
-        break;
-      }
       if (ctx.stream.check(TokenType.NEWLINE)) {
         const start = ctx.stream.peek();
         const n = ctx.stream.consumeNewlines();
@@ -168,10 +164,6 @@ export function parseBulletItem(ctx: ParserContext): BulletItemNode {
     // Now we're positioned at INDENT
     ctx.stream.advance();
     while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-      if (ctx.stream.check(TokenType.END_BLOCK)) {
-        consumeEndBlockOrThrow(ctx, "bullet_item");
-        break;
-      }
       if (ctx.stream.check(TokenType.NEWLINE)) {
         const start = ctx.stream.peek();
         const n = ctx.stream.consumeNewlines();

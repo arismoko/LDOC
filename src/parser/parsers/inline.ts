@@ -1,5 +1,5 @@
 import { TokenType, type Token } from "../lexer";
-import type { InlineNode, Node } from "../ast";
+import type { InlineNode, Node, StrikethroughNode, InlineCodeNode, FootnoteReferenceNode, ImageNode } from "../ast";
 import type { TokenStream } from "../token-stream";
 
 export interface ParserContext {
@@ -26,7 +26,12 @@ export function parseRestOfLineRaw(ctx: ParserContext): string {
 export function parseTextUntilNewline(ctx: ParserContext): string {
   let text = "";
   while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.NEWLINE)) {
-    text += ctx.stream.advance().value;
+    const t = ctx.stream.advance();
+    if (t.type === TokenType.DEFINED_TERM) {
+      text += `"${t.value}"`;
+    } else {
+      text += t.value;
+    }
   }
   return text.trim();
 }
@@ -198,6 +203,65 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           column: token.column,
           style: "bold_italic",
           content: parseInlineContent(token.value),
+        });
+        break;
+
+      case TokenType.HARD_BREAK:
+        nodes.push({
+          type: "hard_break",
+          line: token.line,
+          column: token.column,
+        });
+        break;
+
+      case TokenType.LINK:
+        // Value is "text|url"
+        const [linkText, linkUrl] = token.value.split("|");
+        nodes.push({
+          type: "link",
+          line: token.line,
+          column: token.column,
+          text: linkText ?? "",
+          url: linkUrl ?? "",
+        });
+        break;
+
+      case TokenType.IMAGE:
+        // Value is "alt|src"
+        const [imgAlt, imgSrc] = token.value.split("|");
+        nodes.push({
+          type: "image",
+          line: token.line,
+          column: token.column,
+          alt: imgAlt ?? "",
+          src: imgSrc ?? "",
+        });
+        break;
+
+      case TokenType.STRIKETHROUGH:
+        nodes.push({
+          type: "strikethrough",
+          line: token.line,
+          column: token.column,
+          content: parseInlineContent(token.value),
+        });
+        break;
+
+      case TokenType.INLINE_CODE:
+        nodes.push({
+          type: "inline_code",
+          line: token.line,
+          column: token.column,
+          value: token.value,
+        });
+        break;
+
+      case TokenType.FOOTNOTE_REF:
+        nodes.push({
+          type: "footnote_ref",
+          line: token.line,
+          column: token.column,
+          label: token.value,
         });
         break;
     }

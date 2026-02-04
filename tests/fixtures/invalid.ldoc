@@ -1,0 +1,4 @@
+# Test Document
+
+@if true
+  This block is never closed.

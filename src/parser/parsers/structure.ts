@@ -1,7 +1,7 @@
 import { TokenType } from "../lexer";
 import type { DocumentNode, MetaNode, ImportNode, Node, ColumnsRegionNode, NumberingScheme } from "../ast";
 import { type ParserContext, parseTextUntilNewline, parseRestOfLineRaw } from "./inline";
-import { pushBlankLines, consumeEndBlockOrThrow, parseLengthToTwip, parseLiteral } from "../utils";
+import { pushBlankLines, parseLengthToTwip, parseLiteral } from "../utils";
 import { parseParagraph } from "./block";
 
 function parseMetaBlock(ctx: ParserContext): Record<string, any> {
@@ -11,11 +11,6 @@ function parseMetaBlock(ctx: ParserContext): Record<string, any> {
     ctx.stream.advance();
 
     while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-      if (ctx.stream.check(TokenType.END_BLOCK)) {
-        consumeEndBlockOrThrow(ctx, "meta_block");
-        break;
-      }
-
       ctx.stream.skipNewlines();
       if (ctx.stream.check(TokenType.DEDENT)) break;
       if (ctx.stream.isAtEnd()) break;
@@ -70,11 +65,6 @@ export function parseMeta(ctx: ParserContext): MetaNode {
     ctx.stream.advance();
 
     while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-      if (ctx.stream.check(TokenType.END_BLOCK)) {
-        consumeEndBlockOrThrow(ctx, "meta");
-        break;
-      }
-
       ctx.stream.skipNewlines();
       if (ctx.stream.check(TokenType.DEDENT)) break;
       if (ctx.stream.isAtEnd()) break;
@@ -281,10 +271,6 @@ function parseDocHeaderFooter(
 
     ctx.stream.advance(); // INDENT
     while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-      if (ctx.stream.check(TokenType.END_BLOCK)) {
-        consumeEndBlockOrThrow(ctx, "doc_header_footer");
-        break;
-      }
       if (ctx.stream.check(TokenType.NEWLINE)) {
         const start2 = ctx.stream.peek();
         const n2 = ctx.stream.consumeNewlines();
@@ -368,10 +354,9 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
   const token = ctx.stream.advance();
   const args = parseRestOfLineRaw(ctx);
 
-  // Check for nested columns region
-  if (ctx.insideColumnsRegion) {
-    throw new Error(`Nested @columns regions are not allowed (line ${token.line}, column ${token.column})`);
-  }
+  // NOTE: Nested @columns regions are allowed.
+  // Top-level columns use Section Breaks (native Word columns).
+  // Nested columns are rendered as Tables with invisible borders.
 
   // Parse args: @columns <N> [gap=<len>] [separator]
   const parsed = parseColumnsArgs(args, token.line, token.column);
@@ -394,13 +379,8 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
       // Consume INDENT
       ctx.stream.advance();
 
-      // Parse children until DEDENT or END_BLOCK
+      // Parse children until DEDENT
       while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-        if (ctx.stream.check(TokenType.END_BLOCK)) {
-          consumeEndBlockOrThrow(ctx, "columns");
-          break;
-        }
-
         if (ctx.stream.check(TokenType.NEWLINE)) {
           const start2 = ctx.stream.peek();
           const n2 = ctx.stream.consumeNewlines();
@@ -415,12 +395,19 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
       }
 
       if (ctx.stream.check(TokenType.DEDENT)) ctx.stream.advance();
+
+      // After indented block, require @end
+      ctx.stream.skipNewlines();
+      if (!ctx.stream.check(TokenType.END)) {
+        throw new Error(`@columns region must end with @end (line ${token.line})`);
+      }
+      ctx.stream.advance();
     } else {
-      // No indented block; parse until @;
+      // No indented block; parse until @end
       // Consume any newlines first
       ctx.stream.skipNewlines();
 
-      while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.END_BLOCK)) {
+      while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.END)) {
         if (ctx.stream.check(TokenType.NEWLINE)) {
           const start = ctx.stream.peek();
           const n = ctx.stream.consumeNewlines();
@@ -432,10 +419,10 @@ export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
         if (child) children.push(child);
       }
 
-      if (!ctx.stream.check(TokenType.END_BLOCK)) {
-        throw new Error(`@columns region must end with @; (line ${token.line})`);
+      if (!ctx.stream.check(TokenType.END)) {
+        throw new Error(`@columns region must end with @end (line ${token.line})`);
       }
-      consumeEndBlockOrThrow(ctx, "columns");
+      ctx.stream.advance();
     }
   } finally {
     ctx.insideColumnsRegion = wasInside;

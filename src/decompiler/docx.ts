@@ -9,6 +9,11 @@ import { processChildren, shouldEmitIndent, formatTwipsAsPt } from "./generator"
 
 export type { DecompilerOptions };
 
+export type DecompileResult = {
+  source: string;
+  assets: Map<string, Uint8Array>;
+};
+
 function twipsToInches(twips: number): number {
   return twips / 1440;
 }
@@ -25,7 +30,8 @@ async function parseHeaderFooterContent(
   rels: Map<string, string>,
   numInfo: NumberingInfo,
   styles: ParagraphStyleMap,
-  options?: DecompilerOptions
+  options?: DecompilerOptions,
+  docRels?: Map<string, string>
 ): Promise<string[]> {
   const target = rels.get(rId);
   if (!target) return [];
@@ -49,7 +55,7 @@ async function parseHeaderFooterContent(
   for (const child of rootChildren ?? []) {
     const key = getOnlyKey(child);
     if (key === "w:p") {
-      const info = paragraphToLdoc(child, numInfo, styles, options);
+      const info = paragraphToLdoc(child, numInfo, styles, options, docRels);
       let line = info.line;
       if (info.alignment === "center" && !info.isEmpty) line = `@center ${line}`;
       else if (info.alignment === "right" && !info.isEmpty) line = `@right ${line}`;
@@ -68,7 +74,31 @@ async function parseHeaderFooterContent(
   return lines;
 }
 
-export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, options?: DecompilerOptions): Promise<string> {
+async function extractMediaAssets(zip: JSZip): Promise<Map<string, Uint8Array>> {
+  const assets = new Map<string, Uint8Array>();
+  
+  // Look for files in word/media/
+  const mediaFolder = zip.folder("word/media");
+  if (!mediaFolder) return assets;
+  
+  const files: string[] = [];
+  mediaFolder.forEach((relativePath) => {
+    files.push(relativePath);
+  });
+  
+  for (const relativePath of files) {
+    const file = zip.file(`word/media/${relativePath}`);
+    if (file) {
+      const data = await file.async("uint8array");
+      // Store with path relative to output: media/image1.png
+      assets.set(`media/${relativePath}`, data);
+    }
+  }
+  
+  return assets;
+}
+
+export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, options?: DecompilerOptions): Promise<DecompileResult> {
   const zip = await JSZip.loadAsync(input);
   const documentXml = await zip.file("word/document.xml")?.async("text");
   if (!documentXml) throw new Error("Invalid .docx: missing word/document.xml");
@@ -82,6 +112,9 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
 
   const relsXml = await zip.file("word/_rels/document.xml.rels")?.async("text");
   const rels = relsXml ? parseDocumentRels(relsXml) : new Map<string, string>();
+  
+  // Extract media assets
+  const assets = await extractMediaAssets(zip);
 
   const tree = xmlParser.parse(documentXml) as XmlNode[];
   const body = findPath(tree, ["w:document", "w:body"]);
@@ -138,7 +171,7 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
 
   // Emit header if present
   if (hfRefs.defaultHeader) {
-    const headerLines = await parseHeaderFooterContent(zip, hfRefs.defaultHeader, rels, numInfo, paragraphStyles, options);
+    const headerLines = await parseHeaderFooterContent(zip, hfRefs.defaultHeader, rels, numInfo, paragraphStyles, options, rels);
     const nonEmptyLines = headerLines.filter((l) => l.trim());
     if (nonEmptyLines.length > 0) {
       output.push("@header\n" + nonEmptyLines.map((l) => `  ${l}`).join("\n"));
@@ -147,7 +180,7 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
 
   // Emit footer if present
   if (hfRefs.defaultFooter) {
-    const footerLines = await parseHeaderFooterContent(zip, hfRefs.defaultFooter, rels, numInfo, paragraphStyles, options);
+    const footerLines = await parseHeaderFooterContent(zip, hfRefs.defaultFooter, rels, numInfo, paragraphStyles, options, rels);
     const nonEmptyLines = footerLines.filter((l) => l.trim());
     if (nonEmptyLines.length > 0) {
       output.push("@footer\n" + nonEmptyLines.map((l) => `  ${l}`).join("\n"));
@@ -217,14 +250,14 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
       }
 
       // Collect content lines for columns block
-      const contentLines = processChildren(section.children, numInfo, paragraphStyles, options, "  ");
+      const contentLines = processChildren(section.children, numInfo, paragraphStyles, options, "  ", rels);
       const nonEmptyLines = contentLines.filter((l) => l.trim());
 
       // Emit as a single block
-      blocks.push(columnsLine + "\n" + nonEmptyLines.join("\n") + "\n@;");
+      blocks.push(columnsLine + "\n" + nonEmptyLines.join("\n") + "\n@end");
     } else {
       // Normal section - emit blocks with alignment grouping
-      const lines = processChildren(section.children, numInfo, paragraphStyles, options, "");
+      const lines = processChildren(section.children, numInfo, paragraphStyles, options, "", rels);
       blocks.push(...lines);
     }
   }
@@ -243,5 +276,6 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
     })
     .join("\n");
 
-  return trimmedTrailing.replace(/\n{3,}/g, "\n\n").trim();
+  const source = trimmedTrailing.replace(/\n{3,}/g, "\n\n").trim();
+  return { source, assets };
 }

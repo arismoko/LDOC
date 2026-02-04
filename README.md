@@ -61,6 +61,7 @@ Notes:
 ### Tables
 
 - [x] `@table` + row syntax `[a, b, c]`
+- [x] Complex tables: `>` for colspan, `^` for rowspan
 - [x] First row treated as header
 - [x] Quoted cell values for commas
 - [x] Table styling (legal grid: thin borders, light gray header shading, cell padding, auto-fit columns)
@@ -70,7 +71,9 @@ Notes:
 - [x] `@pagebreak`
 - [x] Headers/footers: `@header`, `@footer`, `@firstpage`
 - [x] `@document` layout (margins, spacing, page_size, orientation)
-- [x] `@columns` region blocks (multi-column sections)
+- [x] `@columns` region blocks (multi-column sections, closed with `@end`)
+  - Top-level: Native Word columns (Section Breaks)
+  - Nested: Rendered as invisible tables (for complex layouts)
 
 ### Templates, Imports, Control Flow
 
@@ -80,10 +83,11 @@ Notes:
 - [x] `@if` / `@else` / `@end` conditionals
 - [x] `@repeat` count-based loops
 - [x] `@foreach item in iterable` iteration
+- [x] `@set variable = expression` data manipulation
 
 ### Tooling
 
-- [x] CLI: `compile`, `parse`, `watch`
+- [x] CLI: `compile`, `parse`, `watch`, `validate`, `fmt`
 - [ ] LSP: autocomplete/diagnostics/navigation (Missing)
 
 ### Round-trip
@@ -105,10 +109,51 @@ bun run ldoc compile document.ldoc
 bun run ldoc compile document.ldoc -o output.docx
 ```
 
+### Decompile
+
+Convert DOCX back to LDOC:
+
+```bash
+bun run ldoc decompile document.docx -o source.ldoc
+```
+
+This will:
+1. Create `source.ldoc`.
+2. Extract images to `media/` (relative to the output file).
+3. Emit `![alt](media/image.png)` in the LDOC source.
+4. Convert bookmarks to `@anchor Name`.
+
 ### Watch mode
 
 ```bash
 bun run ldoc watch document.ldoc
+```
+
+### Format
+
+Auto-format LDOC files (indentation, table alignment):
+
+```bash
+# Output to stdout (uses tabs by default)
+bun run ldoc fmt document.ldoc
+
+# Overwrite file
+bun run ldoc fmt document.ldoc -w
+
+# Use 2 spaces instead of tabs for indentation
+bun run ldoc fmt document.ldoc --spaces
+```
+
+### Diff
+
+Compare two LDOC files semantically (ignoring whitespace/formatting differences):
+
+```bash
+# Human-readable color diff
+bun run ldoc diff fileA.ldoc fileB.ldoc
+
+# JSON output (for agents)
+bun run ldoc diff fileA.ldoc fileB.ldoc --json
 ```
 
 ### Parse (debug)

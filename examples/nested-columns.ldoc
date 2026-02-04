@@ -1,0 +1,56 @@
+@document
+  title: Nested Columns Example
+
+@center
+  # Nested Columns Demo
+
+This document demonstrates top-level columns (using Section Breaks) and nested columns (using Tables).
+
+@columns 2 gap=0in separator
+  @center
+    ## Left Column (Top Level)
+
+    This text is in the left column. It uses a native Word section break.
+
+    @box
+      **Nested Layout inside Box**
+
+      @columns 2 gap=0.1in
+        @center
+          Left inner.
+        @end
+        @break
+        @center
+          Right inner.
+        @end
+      @end
+
+      (Box continues...)
+    @end
+  @end
+
+  @break
+
+  @center
+    ## Right Column (Top Level)
+
+    This text is in the right column.
+
+    @columns 3
+      @center
+        1. One
+      @end
+      @break
+      @center
+        2. Two
+      @end
+      @break
+      @center
+        3. Three
+      @end
+    @end
+  @end
+@end
+
+Back to single column.
+

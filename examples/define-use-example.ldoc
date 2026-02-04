@@ -32,7 +32,7 @@
     If to Tenant:
     {{parties.tenant}}
     [Property Address]
-  @;
+  @end
 
 @define signature_block_landlord
   **LANDLORD:**
@@ -161,7 +161,7 @@ located at:
   **Legal Description:**
   Lot 12, Block 3, Commerce Park Addition
   Hennepin County, Minnesota
-@;
+@end
 
 The Premises includes access to common areas, parking (4 designated spaces), 
 and building amenities as described in the Building Rules attached hereto.

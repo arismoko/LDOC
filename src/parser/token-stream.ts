@@ -126,6 +126,7 @@ export class TokenStream {
       type === TokenType.MODIFIER ||
       type === TokenType.TABLE ||
       type === TokenType.PAGEBREAK ||
+      type === TokenType.COLUMN_BREAK ||
       type === TokenType.DOC_HEADER ||
       type === TokenType.DOC_FOOTER ||
       type === TokenType.DOC_FIRSTPAGE ||
@@ -137,14 +138,16 @@ export class TokenStream {
       type === TokenType.END ||
       type === TokenType.REPEAT ||
       type === TokenType.FOREACH ||
-      type === TokenType.END_BLOCK ||
       type === TokenType.DOCUMENT ||
       type === TokenType.META ||
       type === TokenType.IMPORT ||
       type === TokenType.DEFINE ||
       type === TokenType.USE ||
       type === TokenType.COMMENT ||
-      type === TokenType.TODO
+      type === TokenType.TODO ||
+      type === TokenType.BLOCKQUOTE ||
+      type === TokenType.HORIZONTAL_RULE ||
+      type === TokenType.FOOTNOTE_DEF
     );
   }
 }

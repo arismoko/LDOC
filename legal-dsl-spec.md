@@ -710,6 +710,40 @@ Tax Parcel Identification No(s). 29.030.21.31.0084
 
 ---
 
+### @set
+
+Use `@set` to define or update variables in the current scope.
+
+```ldoc
+@set count = 1
+@set user.name = "Alice"
+@set total = price * quantity
+```
+
+Variables set this way are available in subsequent expressions and variable substitutions.
+
+---
+
+### Complex Tables (Merged Cells)
+
+- **Colspan:** Use `>` (unquoted) to merge with the cell to the left.
+- **Rowspan:** Use `^` (unquoted) to merge with the cell above.
+
+```ldoc
+@table
+  [Header 1, >, Header 3]
+  [Row 1, Cell 2, Cell 3]
+  [Row 2, ^,      Cell 3]
+```
+
+**Renders as:**
+- Row 1: "Header 1" spans 2 columns.
+- Row 3: "Row 2" is in col 1. Col 2 is merged with "Cell 2" from above.
+
+To use literal `>` or `^`, quote them: `[">", "^"]`.
+
+---
+
 ## Inline Elements
 
 ### Defined Terms
@@ -901,8 +935,16 @@ This document uses Georgia for body text and Helvetica for headings.
 
 ### Multi-Column Regions
 
-Use `@columns` to create a multi-column section. The region ends with `@;`:
+Use `@columns` to create a multi-column section. The region ends with `@end`:
 
+```ldoc
+@columns 2 gap=0.5in separator
+  First column content...
+  
+  More content...
+@end
+
+Back to single column here.
 ```
 @columns 2 gap=0.5in separator
   First column content...

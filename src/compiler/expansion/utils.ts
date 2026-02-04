@@ -11,7 +11,13 @@ export const applyScope = (nodes: any[], scope: string): any[] => {
     if (Array.isArray(n.body)) n.body = n.body.map(visit);
     if (Array.isArray(n.rows)) n.rows = n.rows.map(visit);
     if (n.type === "table_row" && Array.isArray(n.cells)) {
-      n.cells = n.cells.map((cell: any[]) => cell.map(visit));
+      n.cells = n.cells.map((cell: any) => {
+        cell.scope = scope;
+        if (Array.isArray(cell.content)) {
+          cell.content = cell.content.map(visit);
+        }
+        return cell;
+      });
     }
     return n;
   };

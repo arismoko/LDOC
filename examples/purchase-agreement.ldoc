@@ -1,4 +1,5 @@
-@document Real Estate Purchase Agreement
+@document
+  title: Real Estate Purchase Agreement
 
 @import legal-blocks
 

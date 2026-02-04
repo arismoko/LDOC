@@ -38,11 +38,11 @@ describe("Enhanced Macros", () => {
     expect(text).toContain("Hello Alice!");
   });
 
-  test("content blocks via @yield work", async () => {
+  test("content blocks via @slot work", async () => {
     const ldoc = `
 @define Box(title)
   # {{title}}
-  @yield
+  @slot
   End of box.
 
 @use Box(title="My Box")
@@ -64,7 +64,7 @@ describe("Enhanced Macros", () => {
     const ldoc = `
 @define Wrapper()
   Start Wrapper
-  @yield
+  @slot
   End Wrapper
 
 @define Inner()

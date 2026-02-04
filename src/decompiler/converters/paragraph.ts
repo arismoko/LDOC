@@ -20,7 +20,17 @@ export type ParagraphInfo = {
   isHeading: boolean;
   isList: boolean;
   isEmpty: boolean;
+  anchors?: string[]; // Bookmark names (from w:bookmarkStart, excluding _ prefix)
 };
+
+// Hyperlink info for collecting text within hyperlinks
+type HyperlinkSegment = {
+  type: "hyperlink";
+  url: string;
+  segments: TextSegment[];
+};
+
+type ContentSegment = TextSegment | HyperlinkSegment;
 
 function isTocStyle(styleId: string | undefined): boolean {
   if (!styleId) return false;
@@ -94,9 +104,9 @@ export function paragraphHasPageBreak(pNode: XmlNode): boolean {
   return false;
 }
 
-function paragraphSegments(pNode: XmlNode): TextSegment[] {
+function paragraphSegments(pNode: XmlNode, rels?: Map<string, string>): ContentSegment[] {
   const pChildren = pNode["w:p"] as XmlNode[];
-  const segments: TextSegment[] = [];
+  const segments: ContentSegment[] = [];
 
   for (const child of pChildren ?? []) {
     const key = getOnlyKey(child);
@@ -105,41 +115,154 @@ function paragraphSegments(pNode: XmlNode): TextSegment[] {
     if (key === "w:r") {
       const style = parseRunStyle(child);
       const runChildren = child["w:r"] as XmlNode[];
-      collectTextFromNodes(runChildren, segments, style);
+      const textSegments: TextSegment[] = [];
+      collectTextFromNodes(runChildren, textSegments, style, rels);
+      segments.push(...textSegments);
       continue;
     }
 
     if (key === "w:hyperlink") {
-      // Treat hyperlink like a container; collect its runs.
+      // Get the relationship ID and look up the URL
+      const rId = attrVal(child, "@_r:id");
+      const url = rId && rels ? rels.get(rId) : undefined;
+      
+      // Collect runs within the hyperlink
       const linkChildren = child["w:hyperlink"] as XmlNode[];
+      const linkSegments: TextSegment[] = [];
+      
       for (const n of linkChildren ?? []) {
         const k = getOnlyKey(n);
         if (k === "w:r") {
           const style = parseRunStyle(n);
           const runChildren = n["w:r"] as XmlNode[];
-          collectTextFromNodes(runChildren, segments, style);
+          collectTextFromNodes(runChildren, linkSegments, style, rels);
         }
+      }
+      
+      if (url && linkSegments.length > 0) {
+        // Create a hyperlink segment
+        segments.push({
+          type: "hyperlink",
+          url,
+          segments: linkSegments,
+        });
+      } else {
+        // No URL found, just add the text segments directly
+        segments.push(...linkSegments);
       }
       continue;
     }
   }
 
-  // Merge adjacent segments with same style
+  return segments;
+}
+
+function stylesMatch(a: { bold: boolean; italic: boolean; strike?: boolean; code?: boolean }, b: { bold: boolean; italic: boolean; strike?: boolean; code?: boolean }): boolean {
+  return a.bold === b.bold && a.italic === b.italic && a.strike === b.strike && a.code === b.code;
+}
+
+// Check if paragraph is uniformly styled with a single style modifier (bold-only, italic-only, etc.)
+// Returns the modifier name if applicable, undefined otherwise
+function detectUniformStyle(segments: ContentSegment[]): "bold" | "italic" | undefined {
+  // Collect all text segments (flatten hyperlinks)
+  const allTextSegs: TextSegment[] = [];
+  for (const seg of segments) {
+    if ("type" in seg && seg.type === "hyperlink") {
+      allTextSegs.push(...seg.segments);
+    } else {
+      allTextSegs.push(seg as TextSegment);
+    }
+  }
+  
+  // Filter to segments with actual text content
+  const withText = allTextSegs.filter(s => s.text.trim().length > 0);
+  if (withText.length === 0) return undefined;
+  
+  // Check if ALL are bold-only (bold=true, italic=false)
+  const allBoldOnly = withText.every(s => s.style.bold && !s.style.italic && !s.style.strike && !s.style.code);
+  if (allBoldOnly) return "bold";
+  
+  // Check if ALL are italic-only (italic=true, bold=false)
+  const allItalicOnly = withText.every(s => s.style.italic && !s.style.bold && !s.style.strike && !s.style.code);
+  if (allItalicOnly) return "italic";
+  
+  return undefined;
+}
+
+// Get paragraph text without emphasis wrapping (for use with @bold/@italic modifiers)
+function paragraphTextPlain(pNode: XmlNode, preserveTabs = false, rels?: Map<string, string>): string {
+  const contentSegments = paragraphSegments(pNode, rels);
+  
+  const textSegs: TextSegment[] = [];
+  const resultParts: string[] = [];
+  
+  for (const seg of contentSegments) {
+    if ("type" in seg && seg.type === "hyperlink") {
+      if (textSegs.length > 0) {
+        const merged = mergeTextSegments(textSegs);
+        resultParts.push(normalizeWs(merged.map((s) => s.text).join(""), preserveTabs, false));
+        textSegs.length = 0;
+      }
+      const mergedLink = mergeTextSegments(seg.segments);
+      const linkText = normalizeWs(mergedLink.map((s) => s.text).join(""), preserveTabs);
+      resultParts.push(`[${linkText}](${seg.url})`);
+    } else {
+      textSegs.push(seg as TextSegment);
+    }
+  }
+  
+  if (textSegs.length > 0) {
+    const merged = mergeTextSegments(textSegs);
+    resultParts.push(normalizeWs(merged.map((s) => s.text).join(""), preserveTabs));
+  }
+  
+  return resultParts.join("");
+}
+
+function mergeTextSegments(segments: TextSegment[]): TextSegment[] {
   const merged: TextSegment[] = [];
   for (const seg of segments) {
     const last = merged[merged.length - 1];
-    if (last && last.style.bold === seg.style.bold && last.style.italic === seg.style.italic) {
+    if (last && stylesMatch(last.style, seg.style)) {
       last.text += seg.text;
     } else {
-      merged.push({ style: seg.style, text: seg.text });
+      merged.push({ style: { ...seg.style }, text: seg.text });
     }
   }
   return merged;
 }
 
-export function paragraphText(pNode: XmlNode, preserveTabs = false): string {
-  const segments = paragraphSegments(pNode);
-  return normalizeWs(segments.map((s) => wrapEmphasis(s.text, s.style)).join(""), preserveTabs);
+export function paragraphText(pNode: XmlNode, preserveTabs = false, rels?: Map<string, string>): string {
+  const contentSegments = paragraphSegments(pNode, rels);
+  
+  // Process non-hyperlink segments with merging
+  const textSegs: TextSegment[] = [];
+  const resultParts: string[] = [];
+  
+  for (const seg of contentSegments) {
+    if ("type" in seg && seg.type === "hyperlink") {
+      // Flush accumulated text segments - don't trim trailing space before hyperlink
+      if (textSegs.length > 0) {
+        const merged = mergeTextSegments(textSegs);
+        resultParts.push(normalizeWs(merged.map((s) => wrapEmphasis(s.text, s.style)).join(""), preserveTabs, false));
+        textSegs.length = 0;
+      }
+      // Add hyperlink
+      const mergedLink = mergeTextSegments(seg.segments);
+      const linkText = normalizeWs(mergedLink.map((s) => wrapEmphasis(s.text, s.style)).join(""), preserveTabs);
+      resultParts.push(`[${linkText}](${seg.url})`);
+    } else {
+      textSegs.push(seg as TextSegment);
+    }
+  }
+  
+  // Flush remaining text segments - trim trailing space at end of paragraph
+  if (textSegs.length > 0) {
+    const merged = mergeTextSegments(textSegs);
+    resultParts.push(normalizeWs(merged.map((s) => wrapEmphasis(s.text, s.style)).join(""), preserveTabs));
+  }
+  
+  return resultParts.join("");
 }
 
 function paragraphStyleId(pNode: XmlNode): string | undefined {
@@ -186,10 +309,34 @@ function paragraphIndentLeftTwips(pNode: XmlNode, styles: ParagraphStyleMap): nu
   return resolveStyleIndentLeftTwips(styleId, styles) ?? 0;
 }
 
-export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: ParagraphStyleMap, options?: DecompilerOptions): ParagraphInfo {
+/**
+ * Extract bookmark names from w:bookmarkStart elements in a paragraph.
+ * Filters out hidden bookmarks (names starting with `_`).
+ */
+function extractBookmarkNames(pNode: XmlNode): string[] {
+  const pChildren = pNode["w:p"] as XmlNode[];
+  const names: string[] = [];
+  for (const child of pChildren ?? []) {
+    const key = getOnlyKey(child);
+    if (key === "w:bookmarkStart") {
+      const name = attrVal(child, "@_w:name");
+      // Filter out hidden bookmarks (start with _)
+      if (typeof name === "string" && !name.startsWith("_")) {
+        names.push(name);
+      }
+    }
+  }
+  return names;
+}
+
+export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: ParagraphStyleMap, options?: DecompilerOptions, rels?: Map<string, string>): ParagraphInfo {
+  // Extract bookmarks (anchors) from this paragraph
+  const anchors = extractBookmarkNames(pNode);
+  const anchorsField = anchors.length > 0 ? anchors : undefined;
+
   // Check for page break only paragraph
   if (isPageBreakParagraph(pNode)) {
-    return { line: "@pagebreak", isHeading: false, isList: false, isEmpty: false };
+    return { line: "@pagebreak", isHeading: false, isList: false, isEmpty: false, anchors: anchorsField };
   }
 
   const styleId = paragraphStyleId(pNode);
@@ -199,8 +346,12 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
   // Check for TOC styles - don't emit list markers for TOC paragraphs
   const isToc = isTocStyle(styleId);
   
+  // Get content segments for uniform style detection
+  const contentSegments = paragraphSegments(pNode, rels);
+  const uniformStyle = detectUniformStyle(contentSegments);
+  
   // For TOC paragraphs, preserve tabs for readable title+page format
-  const text = paragraphText(pNode, isToc);
+  const text = paragraphText(pNode, isToc, rels);
   const isEmpty = !text.trim();
 
   // Check for heading style first
@@ -215,6 +366,7 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
         isHeading: true,
         isList: false,
         isEmpty,
+        anchors: anchorsField,
       };
     }
   }
@@ -230,6 +382,7 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
       isHeading: false,
       isList: false,
       isEmpty,
+      anchors: anchorsField,
     };
   }
 
@@ -245,6 +398,21 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
       isHeading: false,
       isList: true,
       isEmpty,
+      anchors: anchorsField,
+    };
+  }
+
+  // Check for uniform @bold or @italic modifier (entire paragraph same style)
+  if (uniformStyle && !isEmpty) {
+    const plainText = paragraphTextPlain(pNode, isToc, rels);
+    return {
+      line: `@${uniformStyle} ${plainText}`.trimEnd(),
+      alignment: alignment === "center" ? "center" : alignment === "right" ? "right" : undefined,
+      indentLeftTwips,
+      isHeading: false,
+      isList: false,
+      isEmpty,
+      anchors: anchorsField,
     };
   }
 
@@ -256,5 +424,6 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
     isHeading: false,
     isList: false,
     isEmpty,
+    anchors: anchorsField,
   };
 }

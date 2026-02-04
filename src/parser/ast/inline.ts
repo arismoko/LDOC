@@ -34,6 +34,37 @@ export interface EmphasisNode extends BaseNode {
   content: InlineNode[];
 }
 
+export interface HardBreakNode extends BaseNode {
+  type: "hard_break";
+}
+
+export interface LinkNode extends BaseNode {
+  type: "link";
+  text: string;
+  url: string;
+}
+
+export interface StrikethroughNode extends BaseNode {
+  type: "strikethrough";
+  content: InlineNode[];
+}
+
+export interface InlineCodeNode extends BaseNode {
+  type: "inline_code";
+  value: string;
+}
+
+export interface FootnoteReferenceNode extends BaseNode {
+  type: "footnote_ref";
+  label: string;
+}
+
+export interface ImageNode extends BaseNode {
+  type: "image";
+  alt: string;
+  src: string;
+}
+
 // Inline nodes (can appear inside text)
 export type InlineNode =
   | TextNode
@@ -41,4 +72,10 @@ export type InlineNode =
   | CrossRefNode
   | DefinedTermNode
   | BlankNode
-  | EmphasisNode;
+  | EmphasisNode
+  | HardBreakNode
+  | LinkNode
+  | ImageNode
+  | StrikethroughNode
+  | InlineCodeNode
+  | FootnoteReferenceNode;

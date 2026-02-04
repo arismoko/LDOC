@@ -15,15 +15,50 @@ describe("Compiler Robustness & Bugs", () => {
     await expect(compile(ast)).rejects.toThrow(/Misplaced @define/);
   });
 
-  test("throws error for nested @columns", async () => {
+  test("compiles nested @columns as table with @break", async () => {
     const input = `
 @center
   @columns 2
     Col 1
+    @break
+    Col 2
+  @end
 `;
     const ast = parse(input);
-    // Expect compile to fail because columns_region is handled in main loop, not compileNode
-    await expect(compile(ast)).rejects.toThrow(/Misplaced @columns/);
+    // Nested columns should compile successfully (rendered as table)
+    const result = await compile(ast);
+    expect(result).toBeInstanceOf(Buffer);
+  });
+
+  test("compiles @columns within @columns (deeply nested) with @break", async () => {
+    const input = `
+@columns 2
+  Left column
+  @break
+  @columns 2 gap=0.5in separator
+    Nested col 1
+    @break
+    Nested col 2
+  @end
+@end
+`;
+    const ast = parse(input);
+    // Nested columns within columns should compile (outer as section, inner as table)
+    const result = await compile(ast);
+    expect(result).toBeInstanceOf(Buffer);
+  });
+
+  test("compiles top-level @break as column break", async () => {
+    const input = `
+@columns 2
+  First column content
+  @break
+  Second column content
+@end
+`;
+    const ast = parse(input);
+    const result = await compile(ast);
+    expect(result).toBeInstanceOf(Buffer);
   });
 
   test("expands @use inside modifiers", async () => {

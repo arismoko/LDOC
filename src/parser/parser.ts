@@ -1,11 +1,11 @@
-import { Lexer, TokenType } from "./lexer";
+import { Lexer, TokenType, type Token } from "./lexer";
 import type { Node, DocumentNode } from "./ast";
 import { TokenStream } from "./token-stream";
 import type { ParserContext } from "./parsers/inline";
-import { parseHeader, parseParagraph, parseModifier, parsePageBreak, parseComment, parseAnchor } from "./parsers/block";
+import { parseHeader, parseParagraph, parseModifier, parsePageBreak, parseColumnBreak, parseComment, parseAnchor, parseHorizontalRule, parseBlockquote, parseFootnoteDefinition } from "./parsers/block";
 import { parseNumberedItem, parseBulletItem } from "./parsers/list";
 import { parseTable } from "./parsers/table";
-import { parseIf, parseRepeat, parseForeach } from "./parsers/control";
+import { parseIf, parseRepeat, parseForeach, parseSet } from "./parsers/control";
 import { parseDefine, parseUse } from "./parsers/macro";
 import { parseDocument, parseDocHeaderFooterWithScope, parseDocHeaderFooterDefault, parseColumnsRegion } from "./parsers/structure";
 
@@ -17,11 +17,7 @@ export class Parser {
 
   constructor() {
     this.dispatchTable = new Map<TokenType, ParserFn>([
-      // Error cases
-      [TokenType.END_BLOCK, (ctx) => {
-        const token = ctx.stream.peek();
-        throw new Error(`Unmatched @; at line ${token.line}, column ${token.column}`);
-      }],
+
       [TokenType.ELSE, (ctx) => {
         const token = ctx.stream.peek();
         throw new Error(`Unmatched @else at line ${token.line}, column ${token.column}`);
@@ -65,6 +61,7 @@ export class Parser {
       [TokenType.IF, (ctx) => parseIf(ctx)],
       [TokenType.REPEAT, (ctx) => parseRepeat(ctx)],
       [TokenType.FOREACH, (ctx) => parseForeach(ctx)],
+      [TokenType.SET, (ctx) => parseSet(ctx)],
 
       // Block elements
       [TokenType.HEADER, (ctx) => parseHeader(ctx)],
@@ -73,6 +70,10 @@ export class Parser {
       [TokenType.MODIFIER, (ctx) => parseModifier(ctx)],
       [TokenType.TABLE, (ctx) => parseTable(ctx)],
       [TokenType.PAGEBREAK, (ctx) => parsePageBreak(ctx)],
+      [TokenType.COLUMN_BREAK, (ctx) => parseColumnBreak(ctx)],
+      [TokenType.HORIZONTAL_RULE, (ctx) => parseHorizontalRule(ctx)],
+      [TokenType.BLOCKQUOTE, (ctx) => parseBlockquote(ctx)],
+      [TokenType.FOOTNOTE_DEF, (ctx) => parseFootnoteDefinition(ctx)],
 
       // Comments
       [TokenType.COMMENT, (ctx) => parseComment(ctx)],
@@ -80,10 +81,9 @@ export class Parser {
     ]);
   }
 
-  parse(input: string, options?: { sourcePath?: string }): DocumentNode {
-    const lexer = new Lexer(input);
-    const tokens = lexer.tokenize();
-    
+  parse(input: string | Token[], options?: { sourcePath?: string }): DocumentNode {
+    const tokens = typeof input === "string" ? new Lexer(input).tokenize() : input;
+
     this.ctx = {
       stream: new TokenStream(tokens),
       definedTerms: new Set(),

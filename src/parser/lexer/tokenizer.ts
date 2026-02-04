@@ -69,46 +69,6 @@ export class Lexer {
 
     const char = this.peek();
 
-    // Explicit block terminator (closes innermost open block)
-    // Must be a standalone line: optional leading whitespace + `@;` + optional trailing whitespace
-    if (char === "@" && this.peek(1) === ";") {
-      const startCol = this.column;
-      this.advance(); // @
-      this.advance(); // ;
-
-      // Only allow trailing whitespace before newline/EOF
-      while (this.pos < this.input.length && (this.peek() === " " || this.peek() === "\t")) {
-        this.advance();
-      }
-
-      if (this.pos < this.input.length && this.peek() !== "\n") {
-        const context = this.input.slice(Math.max(0, this.pos - 10), this.pos + 20);
-        throw new Error(
-          `Invalid @; terminator: unexpected characters before newline at line ${this.line}, column ${startCol}. ` +
-            `Context: "${context.replace(/\n/g, "\\n")}"`
-        );
-      }
-
-      this.tokens.push({
-        type: TokenType.END_BLOCK,
-        value: "@;",
-        line: this.line,
-        column: startCol,
-        indent: this.indentation.currentIndent(),
-      });
-
-      // Flush any deferred dedents for this terminator line
-      if (this.indentation.hasPendingDedents()) {
-        let target = this.indentation.popPendingDedent();
-        while (target !== null) {
-          this.indentation.popIndent();
-          this.tokens.push(this.makeToken(TokenType.DEDENT, "", target));
-          target = this.indentation.popPendingDedent();
-        }
-      }
-      return;
-    }
-
     // Comments
     if (char === "/" && this.peek(1) === "/") {
       this.scanLineComment();
@@ -129,10 +89,55 @@ export class Lexer {
       return;
     }
 
+    // Horizontal rule (---)
+    if (char === "-" && this.peek(1) === "-" && this.peek(2) === "-") {
+      const startCol = this.column;
+      this.advance();
+      this.advance();
+      this.advance();
+      
+      // Consume any extra dashes
+      while (this.peek() === "-") {
+        this.advance();
+      }
+      
+      this.tokens.push({
+        type: TokenType.HORIZONTAL_RULE,
+        value: "---",
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+      return;
+    }
+
+    // Blockquote (> text)
+    if (char === ">") {
+      const startCol = this.column;
+      this.advance();
+      
+      // Optional space after >
+      if (this.peek() === " ") {
+        this.advance();
+      }
+      
+      this.tokens.push({
+        type: TokenType.BLOCKQUOTE,
+        value: ">",
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+      return;
+    }
+
     // Headers (markdown style) - allow after modifiers too
+    // Also allow when at the start of line content (lineHasContent is false)
     if (char === "#") {
       const lastToken = this.tokens[this.tokens.length - 1];
-      if (this.column === 1 || lastToken?.type === TokenType.INDENT || lastToken?.type === TokenType.MODIFIER) {
+      if (this.column === 1 || !this.lineHasContent || lastToken?.type === TokenType.INDENT || lastToken?.type === TokenType.MODIFIER) {
         this.scanHeader();
         return;
       }
@@ -153,11 +158,59 @@ export class Lexer {
       return;
     }
 
-    // Cross-references [[...]]
-    if (char === "[" && this.peek(1) === "[") {
-      this.scanCrossRef();
+    // Image ![alt](src)
+    if (char === "!" && this.peek(1) === "[") {
+      this.scanImage();
       return;
     }
+
+    // Link [text](url)
+    if (char === "[") {
+      // Check for [[ (Cross ref)
+      if (this.peek(1) === "[") {
+        this.scanCrossRef();
+        return;
+      }
+
+      // If at start of line content, try Table Row first
+      // This allows [^, ...] to be parsed as table row with rowspan marker
+      if (!this.lineHasContent) {
+        this.scanTableRow();
+        return;
+      }
+
+      // Check for [^ (Footnote) - only if not at start of line (table row takes precedence)
+      if (this.peek(1) === "^") {
+        this.scanFootnote();
+        return;
+      }
+
+      // Check for Link [text](url)
+      // We need to look ahead for `](`
+      // This is O(N) for the line length, but lines are short.
+      const isLink = this.lookaheadIsLink();
+
+      if (isLink) {
+        this.scanLink();
+        return;
+      }
+
+      // Otherwise, just text
+      // We need to consume [ as text.
+      this.tokens.push({
+        type: TokenType.TEXT,
+        value: "[",
+        line: this.line,
+        column: this.column,
+        indent: this.indentation.currentIndent(),
+      });
+      this.advance();
+      this.lineHasContent = true;
+      return;
+    }
+
+    // Cross-references [[...]]
+    // Handled above inside `if (char === "[")`
 
     // Defined terms "Term"
     if (char === '"') {
@@ -171,15 +224,21 @@ export class Lexer {
       return;
     }
 
-    // Blanks (underscores)
-    if (char === "_" && this.peek(1) === "_" && this.peek(2) === "_") {
-      this.scanBlank();
+    // Strikethrough (~~)
+    if (char === "~" && this.peek(1) === "~") {
+      this.scanStrikethrough();
       return;
     }
 
-    // Table row [...] - only at start of line content (after indentation)
-    if (char === "[" && !this.lineHasContent) {
-      this.scanTableRow();
+    // Inline Code (`)
+    if (char === "`") {
+      this.scanInlineCode();
+      return;
+    }
+
+    // Blanks (underscores)
+    if (char === "_" && this.peek(1) === "_" && this.peek(2) === "_") {
+      this.scanBlank();
       return;
     }
 
@@ -194,8 +253,6 @@ export class Lexer {
       this.advance();
     }
 
-    const isEndBlockLine = this.peek() === "@" && this.peek(1) === ";";
-
     // Skip empty lines
     if (this.peek() === "\n" || this.pos >= this.input.length) {
       return;
@@ -207,15 +264,6 @@ export class Lexer {
       this.indentation.pushIndent(indent);
       this.tokens.push(this.makeToken(TokenType.INDENT, "", indent));
     } else if (indent < currentIndent) {
-      // If this line is an explicit end-block terminator, emit the END_BLOCK token
-      // before any DEDENT tokens. We do that by deferring DEDENT emission until after
-      // scanToken() consumes the @;.
-      if (isEndBlockLine) {
-        const count = this.indentation.calculateDedents(indent);
-        this.indentation.setPendingDedents(count, indent);
-        return;
-      }
-
       while (this.indentation.shouldDedent(indent)) {
         this.indentation.popIndent();
         this.tokens.push(this.makeToken(TokenType.DEDENT, "", indent));
@@ -509,6 +557,152 @@ export class Lexer {
     this.lineHasContent = true;
   }
 
+  private lookaheadIsLink(): boolean {
+    let i = this.pos + 1;
+    // Scan for ]
+    while (i < this.input.length && this.input[i] !== "]") {
+      if (this.input[i] === "\n") return false; // Links can't span lines (usually)
+      i++;
+    }
+    
+    if (i >= this.input.length) return false; // No closing ]
+    
+    // Check for ( after ]
+    if (this.input[i + 1] === "(") {
+      return true;
+    }
+    
+    return false;
+  }
+
+  private scanFootnote(): void {
+    const startCol = this.column;
+    this.advance(); // [
+    this.advance(); // ^
+
+    const labelStart = this.pos;
+    while (this.pos < this.input.length && this.peek() !== "]") {
+      this.advance();
+    }
+    const label = this.input.slice(labelStart, this.pos);
+    this.advance(); // ]
+
+    // Check for definition syntax: [^label]:
+    if (this.peek() === ":") {
+      this.advance(); // :
+      
+      // Optional space
+      if (this.peek() === " ") this.advance();
+
+      this.tokens.push({
+        type: TokenType.FOOTNOTE_DEF,
+        value: label,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    } else {
+      // Reference
+      this.tokens.push({
+        type: TokenType.FOOTNOTE_REF,
+        value: label,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    }
+  }
+
+  private scanImage(): void {
+    const startCol = this.column;
+    this.advance(); // !
+    this.advance(); // [
+
+    const altStart = this.pos;
+    while (this.pos < this.input.length && this.peek() !== "]") {
+      this.advance();
+    }
+    const alt = this.input.slice(altStart, this.pos);
+    this.advance(); // ]
+
+    if (this.peek() === "(") {
+      this.advance(); // (
+      const srcStart = this.pos;
+      while (this.pos < this.input.length && this.peek() !== ")") {
+        this.advance();
+      }
+      const src = this.input.slice(srcStart, this.pos);
+      this.advance(); // )
+
+      this.tokens.push({
+        type: TokenType.IMAGE,
+        value: `${alt}|${src}`,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    } else {
+      // Not an image, treat as text
+      this.tokens.push({
+        type: TokenType.TEXT,
+        value: `![${alt}]`,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    }
+  }
+
+  private scanLink(): void {
+    const startCol = this.column;
+    this.advance(); // [
+
+    const textStart = this.pos;
+    while (this.pos < this.input.length && this.peek() !== "]") {
+      this.advance();
+    }
+    const text = this.input.slice(textStart, this.pos);
+    this.advance(); // ]
+
+    if (this.peek() === "(") {
+      this.advance(); // (
+      const urlStart = this.pos;
+      while (this.pos < this.input.length && this.peek() !== ")") {
+        this.advance();
+      }
+      const url = this.input.slice(urlStart, this.pos);
+      this.advance(); // )
+
+      this.tokens.push({
+        type: TokenType.LINK,
+        value: `${text}|${url}`,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    } else {
+      // Not a link, treat as text
+      // Backtrack? Or just emit text tokens?
+      // For simplicity, emit as TEXT for now, but this is tricky without backtracking.
+      // Actually, we consumed [text]. If no (, it's just text.
+      // But we already advanced past ].
+      // Let's just emit TEXT token for "[text]"
+      this.tokens.push({
+        type: TokenType.TEXT,
+        value: `[${text}]`,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    }
+  }
+
   private scanCrossRef(): void {
     const startCol = this.column;
     this.advance(); // [
@@ -635,6 +829,104 @@ export class Lexer {
     this.lineHasContent = true;
   }
 
+  private scanStrikethrough(): void {
+    const startCol = this.column;
+    this.advance(); // ~
+    this.advance(); // ~
+
+    const textStart = this.pos;
+    while (this.pos < this.input.length) {
+      if (this.peek() === "~" && this.peek(1) === "~") {
+        break;
+      }
+      if (this.peek() === "\n") {
+        // Strikethrough cannot span lines (standard markdown)
+        // Treat as text
+        // Backtrack? Or just emit text.
+        // For simplicity, let's assume it fails and emit text tokens?
+        // Actually, let's just stop and let the parser handle it or fail.
+        // Better: treat as text if no closing found on same line.
+        break;
+      }
+      this.advance();
+    }
+
+    if (this.peek() === "~" && this.peek(1) === "~") {
+      const text = this.input.slice(textStart, this.pos);
+      this.advance(); // ~
+      this.advance(); // ~
+      
+      this.tokens.push({
+        type: TokenType.STRIKETHROUGH,
+        value: text,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    } else {
+      // Failed to find closing ~~, treat as text
+      // We consumed the opening ~~.
+      // This is tricky without backtracking.
+      // Let's just emit TEXT for the whole thing including opening ~~
+      // But we already advanced past them.
+      // We can emit a TEXT token for "~~" and then reset pos to textStart?
+      // No, we can just emit TEXT for "~~" + textSoFar
+      const textSoFar = this.input.slice(textStart, this.pos);
+      this.tokens.push({
+        type: TokenType.TEXT,
+        value: "~~" + textSoFar,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    }
+  }
+
+  private scanInlineCode(): void {
+    const startCol = this.column;
+    this.advance(); // `
+
+    const textStart = this.pos;
+    while (this.pos < this.input.length) {
+      if (this.peek() === "`") {
+        break;
+      }
+      if (this.peek() === "\n") {
+        // Inline code usually doesn't span lines in simple parsers, 
+        // though GFM allows it. Let's restrict to single line for now.
+        break;
+      }
+      this.advance();
+    }
+
+    if (this.peek() === "`") {
+      const text = this.input.slice(textStart, this.pos);
+      this.advance(); // `
+      
+      this.tokens.push({
+        type: TokenType.INLINE_CODE,
+        value: text,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    } else {
+      // Failed to find closing `, treat as text
+      const textSoFar = this.input.slice(textStart, this.pos);
+      this.tokens.push({
+        type: TokenType.TEXT,
+        value: "`" + textSoFar,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    }
+  }
+
   private scanBlank(): void {
     const startCol = this.column;
     let count = 0;
@@ -658,19 +950,28 @@ export class Lexer {
     const startCol = this.column;
     this.advance(); // [
 
-    const content: string[] = [];
+    const content: { value: string; quoted: boolean }[] = [];
     let current = "";
     let inQuotes = false;
+    let cellQuoted = false;
 
     while (this.pos < this.input.length && this.peek() !== "]") {
       const char = this.peek();
 
       if (char === '"') {
-        inQuotes = !inQuotes;
+        if (!inQuotes) {
+          // Starting a quoted section
+          inQuotes = true;
+          cellQuoted = true;
+        } else {
+          // Ending a quoted section
+          inQuotes = false;
+        }
         this.advance();
       } else if (char === "," && !inQuotes) {
-        content.push(current.trim());
+        content.push({ value: current.trim(), quoted: cellQuoted });
         current = "";
+        cellQuoted = false;
         this.advance();
       } else {
         current += char;
@@ -678,7 +979,7 @@ export class Lexer {
       }
     }
 
-    content.push(current.trim());
+    content.push({ value: current.trim(), quoted: cellQuoted });
     this.advance(); // ]
 
     this.tokens.push({
@@ -712,13 +1013,35 @@ export class Lexer {
 
     const text = this.input.slice(textStart, this.pos);
     if (text) {
-      this.tokens.push({
-        type: TokenType.TEXT,
-        value: text,
-        line: this.line,
-        column: startCol,
-        indent: this.indentation.currentIndent(),
-      });
+      // Check for hard break (2+ spaces at end)
+      // Only if followed by a newline (which is why we stopped here usually)
+      if (text.endsWith("  ") && this.peek() === "\n") {
+        const trimmed = text.trimEnd();
+        if (trimmed) {
+          this.tokens.push({
+            type: TokenType.TEXT,
+            value: trimmed,
+            line: this.line,
+            column: startCol,
+            indent: this.indentation.currentIndent(),
+          });
+        }
+        this.tokens.push({
+          type: TokenType.HARD_BREAK,
+          value: "  ",
+          line: this.line,
+          column: startCol + trimmed.length,
+          indent: this.indentation.currentIndent(),
+        });
+      } else {
+        this.tokens.push({
+          type: TokenType.TEXT,
+          value: text,
+          line: this.line,
+          column: startCol,
+          indent: this.indentation.currentIndent(),
+        });
+      }
       this.lineHasContent = true;
     }
   }
@@ -769,7 +1092,7 @@ export class Lexer {
   }
 
   private isSpecialChar(char: string): boolean {
-    return ["@", "{", "[", '"', "*", "_", "/", "#"].includes(char);
+    return ["@", "{", "[", '"', "*", "_", "/", "#", "~", "`"].includes(char);
   }
 
   private keywordToTokenType(keyword: string): TokenType {
@@ -788,6 +1111,8 @@ export class Lexer {
         return TokenType.TABLE;
       case "pagebreak":
         return TokenType.PAGEBREAK;
+      case "break":
+        return TokenType.COLUMN_BREAK;
       case "header":
         return TokenType.DOC_HEADER;
       case "footer":
@@ -812,6 +1137,8 @@ export class Lexer {
         return TokenType.REPEAT;
       case "foreach":
         return TokenType.FOREACH;
+      case "set":
+        return TokenType.SET;
       case "todo":
         return TokenType.TODO;
       default:

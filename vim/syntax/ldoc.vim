@@ -16,6 +16,8 @@ syn match ldocImportPath    "[^\n]*" contained
 
 syn match ldocDefine        "@define\s\+" nextgroup=ldocDefineName
 syn match ldocDefineName    "\w\+" contained
+syn match ldocSet           "@set\s\+" nextgroup=ldocSetVar
+syn match ldocSetVar        "[a-zA-Z0-9_.]\+" contained
 syn match ldocUse           "@use\s\+" nextgroup=ldocUseName
 syn match ldocUseName       "\w\+" contained
 
@@ -57,13 +59,14 @@ syn match ldocBlank         "_\{3,\}"
 " Tables
 syn match ldocTable         "@table"
 syn region ldocTableRow     start="\[" end="\]" contains=ldocTableCell
-syn match ldocTableCell     "[^,\[\]]\+" contained
+syn match ldocTableCell     "[^,\[\]]\+" contained contains=ldocTableMerge
+syn match ldocTableMerge    "[>^]" contained
 
 " Comments
 syn match ldocLineComment   "//.*$"
 syn region ldocBlockComment start="/\*" end="\*/"
 syn match ldocTodo          "@todo.*$"
-syn match ldocEndBlock      "^\s*@;\s*$"
+syn match ldocEndBlock      "^\s*@end\s*$"
 
 " Meta entries
 syn match ldocMetaKey       "^\s\+\w\+:" contains=ldocMetaColon
@@ -77,6 +80,8 @@ hi def link ldocImport        Include
 hi def link ldocImportPath    String
 hi def link ldocDefine        Keyword
 hi def link ldocDefineName    Function
+hi def link ldocSet           Keyword
+hi def link ldocSetVar        Identifier
 hi def link ldocUse           Keyword
 hi def link ldocUseName       Function
 
@@ -106,7 +111,7 @@ hi def link ldocBlank         Special
 
 hi def link ldocTable         Keyword
 hi def link ldocTableRow      Normal
-hi def link ldocTableCell     String
+hi def link ldocTableMerge    Special
 
 hi def link ldocLineComment   Comment
 hi def link ldocBlockComment  Comment

@@ -1,4 +1,3 @@
-import { TokenType } from "./lexer";
 import type { Node } from "./ast";
 import type { ParserContext } from "./parsers/inline";
 
@@ -12,16 +11,6 @@ export function pushBlankLines(target: Node[], line: number, column: number, new
       count: newlineCount - 1,
     } as any);
   }
-}
-
-export function consumeEndBlockOrThrow(ctx: ParserContext, context: string): boolean {
-  if (!ctx.stream.check(TokenType.END_BLOCK)) return false;
-
-  ctx.stream.advance();
-  // Eat the rest of the terminator line
-  if (ctx.stream.check(TokenType.NEWLINE)) ctx.stream.advance();
-  // Leave additional newlines for normal blank-line handling
-  return true;
 }
 
 export function parseLengthToTwip(raw: string, line: number): number {
@@ -54,6 +43,14 @@ export function parseLiteral(raw: string): any {
   // quoted string
   if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
     return s.slice(1, -1);
+  }
+  // JSON array/object
+  if (s.startsWith("[") || s.startsWith("{")) {
+    try {
+      return JSON.parse(s);
+    } catch (e) {
+      // ignore, treat as string
+    }
   }
   return s;
 }

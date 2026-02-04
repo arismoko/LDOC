@@ -8,6 +8,21 @@ export interface HeaderNode extends BaseNode {
   content: InlineNode[];
 }
 
+export interface BlockquoteNode extends BaseNode {
+  type: "blockquote";
+  content: Node[];
+}
+
+export interface HorizontalRuleNode extends BaseNode {
+  type: "horizontal_rule";
+}
+
+export interface FootnoteDefinitionNode extends BaseNode {
+  type: "footnote_def";
+  label: string;
+  content: Node[];
+}
+
 export type NumberingStyle =
   | { type: "decimal"; start?: number }
   | { type: "decimal_sub"; pattern: string } // "1.1", "1.1.1"
@@ -69,9 +84,17 @@ export interface EmptyParagraphNode extends BaseNode {
   count: number;
 }
 
+export interface TableCellNode extends BaseNode {
+  type: "table_cell";
+  content: InlineNode[];
+  colspan: number;
+  rowspan: number;
+  vMerge?: "restart" | "continue";
+}
+
 export interface TableRowNode extends BaseNode {
   type: "table_row";
-  cells: InlineNode[][];
+  cells: TableCellNode[];
   isHeader: boolean;
 }
 
@@ -88,4 +111,8 @@ export interface CommentNode extends BaseNode {
   type: "comment";
   value: string;
   isTodo: boolean;
+}
+
+export interface ColumnBreakNode extends BaseNode {
+  type: "column_break";
 }

@@ -3,6 +3,8 @@ import { xmlParser, findFirst, attrVal, getOnlyKey, type XmlNode } from "../xml"
 export type RunStyle = {
   bold: boolean;
   italic: boolean;
+  strike?: boolean;
+  code?: boolean;
 };
 
 export type ParagraphStyleInfo = {

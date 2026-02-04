@@ -1,0 +1,25 @@
+# Document Title
+
+## Section One
+
+This is a plain paragraph with **bold** and *italic* text.
+
+@1 First numbered item
+@@a Nested alpha item
+@@b Another alpha item
+@2 Second numbered item
+
+@- Bullet point one
+@@- Nested bullet
+@- Bullet point two
+
+@center Centered paragraph
+
+@bold This text is bold via modifier
+
+@table
+	[Header A, Header B, Header C]
+	[Value 1 , Value 2 , Value 3 ]
+	[Cell A  , Cell B  , Cell C  ]
+
+Here is a [link](https://example.com) in a paragraph.

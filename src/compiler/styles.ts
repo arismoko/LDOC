@@ -6,6 +6,8 @@ export interface TextStyle {
   italics?: boolean;
   allCaps?: boolean;
   smallCaps?: boolean;
+  strike?: boolean;
+  doubleStrike?: boolean;
   size?: number;
   font?: string;
   color?: string; // 6-hex without '#'

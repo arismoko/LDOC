@@ -24,7 +24,8 @@ export function processChildren(
   numInfo: NumberingInfo,
   paragraphStyles: ParagraphStyleMap,
   options?: DecompilerOptions,
-  indent: string = ""
+  indent: string = "",
+  rels?: Map<string, string>
 ): string[] {
   const result: string[] = [];
   const emitIndentDirectives = shouldEmitIndent(options);
@@ -34,7 +35,7 @@ export function processChildren(
   for (const child of children) {
     const key = getOnlyKey(child);
     if (key === "w:p") {
-      items.push({ type: "paragraph", info: paragraphToLdoc(child, numInfo, paragraphStyles, options) });
+      items.push({ type: "paragraph", info: paragraphToLdoc(child, numInfo, paragraphStyles, options, rels) });
     } else if (key === "w:tbl") {
       items.push({ type: "table", content: tableToLdoc(child) });
     }
@@ -75,6 +76,10 @@ export function processChildren(
               continue;
             }
 
+            // Emit anchors before content line (inside the block)
+            for (const anchor of p.anchors ?? []) {
+              out.push(`${baseIndent}  @anchor ${anchor}`);
+            }
             out.push(`${baseIndent}  ${p.line}`);
 
             // In LDOC, a single newline is a soft wrap for plain paragraphs.
@@ -87,6 +92,10 @@ export function processChildren(
         }
       }
 
+      // Emit anchors before the line
+      for (const anchor of info.anchors ?? []) {
+        out.push(`${baseIndent}@anchor ${anchor}`);
+      }
       let line = info.line;
       if (info.alignment === "center" && !info.isEmpty) line = `@center ${line}`;
       else if (info.alignment === "right" && !info.isEmpty) line = `@right ${line}`;
@@ -108,6 +117,10 @@ export function processChildren(
 
     // Lists should not be wrapped in @indent; they carry indentation via numbering.
     if (item.info.isList) {
+      // Emit anchors before list item
+      for (const anchor of item.info.anchors ?? []) {
+        result.push(indent + `@anchor ${anchor}`);
+      }
       result.push(indent + item.info.line);
       i++;
       continue;
@@ -154,8 +167,13 @@ export function processChildren(
       const only = run[0]!;
       const alignNeedsNesting = only.alignment === "center" || only.alignment === "right";
       if (!only.isEmpty && !alignNeedsNesting) {
+        // Emit anchors before the @indent line (inline form)
+        for (const anchor of only.anchors ?? []) {
+          result.push(`${indent}@anchor ${anchor}`);
+        }
         result.push(`${indent}@indent=${len} ${only.line}`);
       } else {
+        // emitAligned will handle anchors
         result.push(`${indent}@indent=${len}`);
         result.push(...emitAligned(run, `${indent}  `));
       }

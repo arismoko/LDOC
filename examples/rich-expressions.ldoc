@@ -38,6 +38,7 @@ Grand Total: ${{cart.total + cart.shipping}}
 
 ## Complex Math
 Calculation (5 * 10 + 2): {{5 * 10 + 2}}
+
 Grouping (5 * (10 + 2)): {{5 * (10 + 2)}}
 
 ## Nested Logic

@@ -13,6 +13,7 @@ export enum TokenType {
   END = "END",
   REPEAT = "REPEAT",
   FOREACH = "FOREACH",
+  SET = "SET",
 
   // Numbered items: @, @@, @@@, @@@@
   NUMBERED_ITEM = "NUMBERED_ITEM",
@@ -25,9 +26,12 @@ export enum TokenType {
 
   // Content
   HEADER = "HEADER",
+  BLOCKQUOTE = "BLOCKQUOTE",
+  HORIZONTAL_RULE = "HORIZONTAL_RULE",
   TEXT = "TEXT",
   VARIABLE = "VARIABLE",
   DEFINED_TERM = "DEFINED_TERM",
+  LINK = "LINK",
   CROSS_REF = "CROSS_REF",
   BLANK = "BLANK",
 
@@ -35,6 +39,12 @@ export enum TokenType {
   BOLD = "BOLD",
   ITALIC = "ITALIC",
   BOLD_ITALIC = "BOLD_ITALIC",
+  STRIKETHROUGH = "STRIKETHROUGH",
+  INLINE_CODE = "INLINE_CODE",
+  FOOTNOTE_REF = "FOOTNOTE_REF",
+  FOOTNOTE_DEF = "FOOTNOTE_DEF",
+  IMAGE = "IMAGE",
+  HARD_BREAK = "HARD_BREAK",
 
   // Table
   TABLE = "TABLE",
@@ -42,13 +52,13 @@ export enum TokenType {
 
   // Control
   PAGEBREAK = "PAGEBREAK",
+  COLUMN_BREAK = "COLUMN_BREAK",
   DOC_HEADER = "DOC_HEADER",
   DOC_FOOTER = "DOC_FOOTER",
   DOC_FIRSTPAGE = "DOC_FIRSTPAGE",
   DOC_EVENPAGE = "DOC_EVENPAGE",
   DOC_COLUMNS = "DOC_COLUMNS",
   DOC_ANCHOR = "DOC_ANCHOR",
-  END_BLOCK = "END_BLOCK",
   COMMENT = "COMMENT",
   TODO = "TODO",
 
@@ -97,7 +107,7 @@ export const MODIFIERS = new Set([
   "h4",
   "h5",
   "h6",
-  "yield",
+  "slot",
 ]);
 
 // Legacy directives that are now errors (must use @document block)
@@ -117,6 +127,7 @@ export const KEYWORDS = new Set([
   "use",
   "table",
   "pagebreak",
+  "break",
   "todo",
   "header",
   "footer",
@@ -130,6 +141,7 @@ export const KEYWORDS = new Set([
   "end",
   "repeat",
   "foreach",
+  "set",
   "params",
   "template",
 ]);

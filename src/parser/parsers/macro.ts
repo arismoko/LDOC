@@ -1,7 +1,7 @@
 import { TokenType } from "../lexer";
 import type { Node } from "../ast";
 import { type ParserContext, parseRestOfLineRaw } from "./inline";
-import { pushBlankLines, consumeEndBlockOrThrow } from "../utils";
+import { pushBlankLines } from "../utils";
 
 function parseDefineSignature(
   raw: string,
@@ -215,11 +215,6 @@ export function parseDefine(ctx: ParserContext): Node {
   ctx.stream.advance(); // INDENT
 
   while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-    if (ctx.stream.check(TokenType.END_BLOCK)) {
-      consumeEndBlockOrThrow(ctx, "define");
-      break;
-    }
-
     if (ctx.stream.check(TokenType.NEWLINE)) {
       const start = ctx.stream.peek();
       const n = ctx.stream.consumeNewlines();
@@ -264,11 +259,6 @@ export function parseUse(ctx: ParserContext): Node {
       ctx.stream.advance();
       
       while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-        if (ctx.stream.check(TokenType.END_BLOCK)) {
-          consumeEndBlockOrThrow(ctx, "use");
-          break;
-        }
-
         if (ctx.stream.check(TokenType.NEWLINE)) {
           const start = ctx.stream.peek();
           const n = ctx.stream.consumeNewlines();

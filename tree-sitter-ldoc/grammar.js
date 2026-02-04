@@ -31,7 +31,7 @@ module.exports = grammar({
         $.landscape,
         $.columns,
         $.anchor,
-        $.end_block,
+        $.end_directive,
         $.comment,
         $.paragraph,
         $._newline
@@ -164,6 +164,24 @@ module.exports = grammar({
     // @pagebreak
     pagebreak: ($) => "@pagebreak",
 
+    // Document header/footer directives
+    doc_header: ($) => seq("@header", optional(/[^\n]+/)),
+    doc_footer: ($) => seq("@footer", optional(/[^\n]+/)),
+    firstpage: ($) => seq("@firstpage", optional(/[^\n]+/)),
+    evenpage: ($) => seq("@evenpage", optional(/[^\n]+/)),
+
+    // Document layout directives
+    margins: ($) => seq("@margins", optional(/[^\n]+/)),
+    spacing: ($) => seq("@spacing", optional(/[^\n]+/)),
+    landscape: ($) => seq("@landscape", optional(/[^\n]+/)),
+    columns: ($) => seq("@columns", optional(/[^\n]+/)),
+
+    // @anchor
+    anchor: ($) => seq("@anchor", optional(/[^\n]+/)),
+
+    // @end directive (replaces @;)
+    end_directive: ($) => "@end",
+
     // Comments
     comment: ($) =>
       choice(
@@ -219,7 +237,7 @@ module.exports = grammar({
     blank: ($) => /_{3,}/,
 
     // Regular text
-    text: ($) => /[^\n@#{}\[\]"*_\/]+/,
+    text: ($) => /[^\n@#{}[\]"*_\/]+/,
 
     // Helpers
     identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
@@ -231,15 +249,3 @@ module.exports = grammar({
     _newline: ($) => /\n/,
   },
 });
-    doc_header: ($) => seq("@header", optional(/[^\n]+/)),
-    doc_footer: ($) => seq("@footer", optional(/[^\n]+/)),
-    firstpage: ($) => seq("@firstpage", optional(/[^\n]+/)),
-    evenpage: ($) => seq("@evenpage", optional(/[^\n]+/)),
-
-    margins: ($) => seq("@margins", optional(/[^\n]+/)),
-    spacing: ($) => seq("@spacing", optional(/[^\n]+/)),
-    landscape: ($) => seq("@landscape", optional(/[^\n]+/)),
-    columns: ($) => seq("@columns", optional(/[^\n]+/)),
-
-    anchor: ($) => seq("@anchor", optional(/[^\n]+/)),
-    end_block: ($) => "@;",

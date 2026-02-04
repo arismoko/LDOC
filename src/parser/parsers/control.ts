@@ -25,10 +25,6 @@ export function parseIf(ctx: ParserContext): Node {
     ctx.stream.advance();
 
     while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-      if (ctx.stream.check(TokenType.END_BLOCK)) {
-        throw new Error(`@; cannot close @if. Use @end (line ${ctx.stream.peek().line})`);
-      }
-
       if (ctx.stream.check(TokenType.NEWLINE)) {
         const start = ctx.stream.peek();
         const n = ctx.stream.consumeNewlines();
@@ -137,10 +133,6 @@ export function parseRepeat(ctx: ParserContext): Node {
   ctx.stream.advance();
 
   while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-    if (ctx.stream.check(TokenType.END_BLOCK)) {
-      throw new Error(`@; cannot close @repeat. Use @end (line ${ctx.stream.peek().line})`);
-    }
-
     if (ctx.stream.check(TokenType.NEWLINE)) {
       const start = ctx.stream.peek();
       const nn = ctx.stream.consumeNewlines();
@@ -212,10 +204,6 @@ export function parseForeach(ctx: ParserContext): Node {
   ctx.stream.advance();
 
   while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-    if (ctx.stream.check(TokenType.END_BLOCK)) {
-      throw new Error(`@; cannot close @foreach. Use @end (line ${ctx.stream.peek().line})`);
-    }
-
     if (ctx.stream.check(TokenType.NEWLINE)) {
       const start = ctx.stream.peek();
       const nn = ctx.stream.consumeNewlines();
@@ -253,5 +241,32 @@ export function parseForeach(ctx: ParserContext): Node {
     item,
     iterable,
     body,
+  } as any;
+}
+
+export function parseSet(ctx: ParserContext): Node {
+  const token = ctx.stream.advance();
+  const raw = parseRestOfLineRaw(ctx);
+  if (!raw) {
+    throw new Error(`@set requires syntax: @set <variable> = <expression> (line ${token.line})`);
+  }
+
+  const m = raw.match(/^([a-zA-Z_][a-zA-Z0-9_.]*)\s*=\s*(.+)$/);
+  if (!m) {
+    throw new Error(`Invalid @set syntax at line ${token.line}. Expected: @set <variable> = <expression>. Got: ${raw}`);
+  }
+
+  const name = m[1]!;
+  const expression = (m[2] ?? "").trim();
+  if (!expression) {
+    throw new Error(`@set missing expression at line ${token.line}`);
+  }
+
+  return {
+    type: "set",
+    line: token.line,
+    column: token.column,
+    name,
+    expression,
   } as any;
 }

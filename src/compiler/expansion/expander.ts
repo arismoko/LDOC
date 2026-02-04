@@ -3,6 +3,29 @@ import { resolveDefinesFromImports } from "../../import/resolver";
 import { clone, applyScope, hasAnchorNodes } from "./utils";
 import { rewriteParams } from "./substitutor";
 import { pruneControls } from "./control-flow";
+import { evalCond } from "../conditions";
+
+/**
+ * Set a value at a dot-path in a target object.
+ * If the path has dots, traverses and creates nested objects as needed.
+ */
+function setPathValue(target: Record<string, any>, path: string, value: any): void {
+  const parts = path.split(".");
+  if (parts.length === 1) {
+    target[path] = value;
+    return;
+  }
+
+  let cur = target;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const key = parts[i]!;
+    if (!(key in cur) || typeof cur[key] !== "object" || cur[key] === null) {
+      cur[key] = {};
+    }
+    cur = cur[key];
+  }
+  cur[parts[parts.length - 1]!] = value;
+}
 
 type Def = { params: string[]; optionalParams?: Record<string, any>; template: Node[]; sourcePath?: string };
 
@@ -63,13 +86,21 @@ export class MacroExpander {
     const out: Node[] = [];
 
     for (const node of nodes) {
-      // Handle @yield
-      if ((node as any).type === "modifier" && (node as any).modifier === "yield") {
+      // Handle @slot
+      if ((node as any).type === "modifier" && (node as any).modifier === "slot") {
         const injected = locals["__children__"] as Node[] | undefined;
         if (injected) {
           out.push(...injected);
         }
         continue;
+      }
+
+      // Handle @set
+      if ((node as any).type === "set") {
+        const setNode = node as any;
+        const value = evalCond(setNode.expression, locals, this.globals);
+        setPathValue(locals, setNode.name, value);
+        continue; // @set produces no output nodes
       }
 
       // Handle Control Flow

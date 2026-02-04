@@ -17,6 +17,7 @@ import type {
   DocumentNode,
   DocHeaderFooterNode,
   ColumnsRegionNode,
+  ImageNode,
 } from "../parser/ast";
 
 // Import from extracted modules
@@ -46,6 +47,7 @@ import type { CompilationContext } from "./context";
 import { createContext } from "./context";
 import { DocxNodeVisitor } from "./visitors";
 import { SectionBuilder } from "./section-builder";
+import { walkTree } from "../parser/ast";
 
 export class DocxCompiler {
   private ctx: CompilationContext;
@@ -96,6 +98,57 @@ export class DocxCompiler {
 
     // Expand @define/@use, resolve @import, and prune control flow before indexing anchors and compiling
     const expandedAst = await expandDefinesAndUses(ast, this.ctx.variables);
+
+    // Index footnotes and pre-fetch images
+    // We need to find all FootnoteDefinitionNodes in the AST and map them to IDs.
+    // Footnote definitions are usually at the top level of the body.
+    // We assign IDs starting from 1.
+    let footnoteId = 1;
+    
+    // Filter definitions from body and index them
+    const filteredBody: Node[] = [];
+    for (const node of expandedAst.body) {
+      if (node.type === "footnote_def") {
+        const defNode = node as any; // Cast to avoid type issues if not fully propagated
+        this.ctx.footnoteMap.set(defNode.label, footnoteId++);
+        if (!this.ctx.footnoteDefinitions) {
+          this.ctx.footnoteDefinitions = new Map();
+        }
+        this.ctx.footnoteDefinitions.set(defNode.label, defNode);
+      } else {
+        filteredBody.push(node);
+      }
+    }
+    expandedAst.body = filteredBody;
+
+    // Pre-fetch images (URLs)
+    const imageUrls: string[] = [];
+    walkTree(expandedAst, (node) => {
+      if (node.type === "image") {
+        const img = node as ImageNode;
+        if (img.src.startsWith("http://") || img.src.startsWith("https://")) {
+          imageUrls.push(img.src);
+        }
+      }
+    });
+
+    if (imageUrls.length > 0) {
+      log(`compile:prefetching ${imageUrls.length} images`);
+      await Promise.all(
+        imageUrls.map(async (url) => {
+          try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.statusText}`);
+            const buffer = await res.arrayBuffer();
+            this.ctx.imageCache.set(url, Buffer.from(buffer));
+          } catch (e) {
+            console.error(`[ldoc] Failed to pre-fetch image ${url}:`, e);
+            // We'll handle the missing image in the visitor
+          }
+        })
+      );
+      log(`compile:prefetch-complete`);
+    }
 
     log(`compile:expanded body=${expandedAst.body.length}`);
 
@@ -256,6 +309,7 @@ export class DocxCompiler {
       keywords: typeof docKeywords === "string" ? docKeywords : undefined,
       styles: docStyles,
       sections,
+      footnotes: this.buildFootnotes(),
     });
 
     log("compile:doc-constructed");
@@ -263,6 +317,41 @@ export class DocxCompiler {
     const buf = await Packer.toBuffer(doc);
     log(`compile:packed bytes=${buf.length}`);
     return buf;
+  }
+
+  private buildFootnotes(): Record<string, { children: Paragraph[] }> | undefined {
+    if (!this.ctx.footnoteDefinitions || this.ctx.footnoteDefinitions.size === 0) {
+      return undefined;
+    }
+
+    const footnotes: Record<string, { children: Paragraph[] }> = {};
+    const bodyStyle = getBodyStyle(this.ctx.styleConfig);
+
+    for (const [label, node] of this.ctx.footnoteDefinitions) {
+      const id = this.ctx.footnoteMap.get(label);
+      if (id === undefined) continue;
+
+      const paragraphs: Paragraph[] = [];
+      const visitor = new DocxNodeVisitor(this.ctx, undefined, bodyStyle);
+
+      for (const child of node.content) {
+        const results = visitor.visit(child);
+        for (const res of results) {
+          if (res instanceof Paragraph) {
+            paragraphs.push(res);
+          }
+        }
+      }
+      
+      // Ensure at least one paragraph
+      if (paragraphs.length === 0) {
+        paragraphs.push(new Paragraph({}));
+      }
+
+      footnotes[id.toString()] = { children: paragraphs };
+    }
+
+    return footnotes;
   }
 
   private extractHeadersFooters(body: Node[]): {

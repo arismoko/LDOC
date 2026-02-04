@@ -3,8 +3,15 @@ import {
   Table,
   Bookmark,
   PageBreak,
+  ColumnBreak,
   AlignmentType,
   convertInchesToTwip,
+  BorderStyle,
+  TableCell,
+  TableRow,
+  WidthType,
+  TableLayoutType,
+  VerticalAlign,
   type IParagraphOptions,
 } from "docx";
 
@@ -22,11 +29,14 @@ import type {
   TableNode,
   BlankNode,
   PageBreakNode,
+  ColumnBreakNode,
   CommentNode,
   DocHeaderFooterNode,
   DefineNode,
   ColumnsRegionNode,
   InlineNode,
+  BlockquoteNode,
+  HorizontalRuleNode,
 } from "../../parser/ast";
 
 import type { CompilationContext } from "../context";
@@ -42,7 +52,8 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
     private forcedBookmarks?: string[],
     private currentStyle: TextStyle = {},
     private currentAlignment: (typeof AlignmentType)[keyof typeof AlignmentType] = AlignmentType.LEFT,
-    private currentIndent?: number
+    private currentIndent?: number,
+    private paragraphOptions?: IParagraphOptions
   ) {}
 
   // Helper to wrap content in bookmarks
@@ -83,7 +94,8 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
           forcedBookmarks,
           { ...this.currentStyle, ...style },
           alignment || this.currentAlignment,
-          indent || this.currentIndent
+          indent || this.currentIndent,
+          this.paragraphOptions
         );
         return v.visit(node);
       }
@@ -119,6 +131,7 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       alignment: this.currentAlignment,
       indent: this.currentIndent ? { left: this.currentIndent } : undefined,
       spacing: this.ctx.defaultSpacing,
+      ...this.paragraphOptions,
     });
     
     return [paragraph];
@@ -164,6 +177,7 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       },
       alignment: this.currentAlignment,
       spacing: this.ctx.defaultSpacing,
+      ...this.paragraphOptions,
     });
 
     const results: (Paragraph | Table)[] = [paragraph];
@@ -175,7 +189,8 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
         undefined, 
         this.currentStyle, 
         this.currentAlignment, 
-        this.currentIndent
+        this.currentIndent,
+        this.paragraphOptions
       );
       const childResults = visitor.visit(child);
       results.push(...childResults);
@@ -204,6 +219,7 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       },
       alignment: this.currentAlignment,
       spacing: this.ctx.defaultSpacing,
+      ...this.paragraphOptions,
     });
 
     const results: (Paragraph | Table)[] = [paragraph];
@@ -214,7 +230,8 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
         undefined,
         this.currentStyle,
         this.currentAlignment,
-        this.currentIndent
+        this.currentIndent,
+        this.paragraphOptions
       );
       results.push(...visitor.visit(child));
     }
@@ -240,6 +257,7 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       alignment: this.currentAlignment,
       indent: this.currentIndent ? { left: this.currentIndent } : undefined,
       spacing: this.ctx.defaultSpacing,
+      ...this.paragraphOptions,
     });
 
     return [paragraph];
@@ -307,10 +325,66 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
         bookmarksToPass,
         nextStyle,
         nextAlignment,
-        nextIndent
+        nextIndent,
+        this.paragraphOptions
       );
       // Only pass bookmarks to the first child
       bookmarksToPass = undefined;
+      
+      results.push(...v.visit(child));
+    }
+    
+    return results;
+  }
+
+  visitHorizontalRule(node: HorizontalRuleNode): (Paragraph | Table)[] {
+    return [
+      new Paragraph({
+        border: {
+          bottom: {
+            color: "000000",
+            space: 1,
+            style: "single",
+            size: 6,
+          },
+        },
+        spacing: this.ctx.defaultSpacing,
+      }),
+    ];
+  }
+
+  visitBlockquote(node: BlockquoteNode): (Paragraph | Table)[] {
+    const results: (Paragraph | Table)[] = [];
+    
+    // Increase indent
+    const indentTwip = convertInchesToTwip(0.5);
+    const nextIndent = (this.currentIndent ?? 0) + indentTwip;
+    
+    // Define border style
+    const borderOptions: IParagraphOptions = {
+      border: {
+        left: {
+          color: "000000",
+          space: 12, // 12pt offset
+          style: BorderStyle.SINGLE,
+          size: 24, // 3pt thickness
+        },
+      },
+    };
+    
+    // Visit children
+    for (const child of node.content) {
+      // Apply indentation, italics, and border
+      const italicStyle = { ...this.currentStyle, italics: true };
+      
+      const v = new DocxNodeVisitor(
+        this.ctx,
+        undefined,
+        italicStyle,
+        this.currentAlignment,
+        nextIndent,
+        borderOptions
+      );
       
       results.push(...v.visit(child));
     }
@@ -363,6 +437,22 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
     return [pb];
   }
 
+  visitColumnBreak(node: ColumnBreakNode): (Paragraph | Table)[] {
+    // At top-level, emit a docx ColumnBreak
+    const cb = new Paragraph({ children: [new ColumnBreak()] });
+    if (this.forcedBookmarks && this.forcedBookmarks.length > 0) {
+      return [
+        this.makeBookmarkParagraph(
+          this.forcedBookmarks,
+          this.currentIndent,
+          (opts) => { if (this.ctx.defaultSpacing) (opts as any).spacing = this.ctx.defaultSpacing; }
+        ),
+        cb,
+      ];
+    }
+    return [cb];
+  }
+
   visitComment(node: CommentNode): (Paragraph | Table)[] {
     return [];
   }
@@ -376,7 +466,119 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
   }
 
   visitColumnsRegion(node: ColumnsRegionNode): (Paragraph | Table)[] {
-    throw new Error(`Misplaced @columns. Must be at top level.`);
+    // When visited via DocxNodeVisitor, we're inside another block (nested).
+    // Render as a Table with invisible borders (Word doesn't support nested sections).
+    const { columnCount, gapTwip, separator } = node;
+
+    // Distribute children into columns using "fill until break" strategy
+    // Content goes into current column until @break is encountered
+    const columnContents: (Paragraph | Table)[][] = Array.from(
+      { length: columnCount },
+      () => []
+    );
+
+    let colIdx = 0;
+    for (const child of node.children) {
+      // Check for column break - switch to next column
+      if (child.type === "column_break") {
+        colIdx = (colIdx + 1) % columnCount;
+        continue;
+      }
+
+      const visitor = new DocxNodeVisitor(
+        this.ctx,
+        undefined,
+        this.currentStyle,
+        this.currentAlignment,
+        undefined, // No indent inside table cells
+        this.paragraphOptions
+      );
+      const compiled = visitor.visit(child);
+      if (compiled.length > 0) {
+        columnContents[colIdx]!.push(...compiled);
+      }
+    }
+
+    // Build table cells
+    const cells = columnContents.map((content, index) => {
+      // Ensure at least one paragraph per cell
+      if (content.length === 0) {
+        content.push(new Paragraph({}));
+      }
+
+      // Outer edges flush with parent container; gap only between columns
+      const left = index === 0 ? 0 : Math.round(gapTwip / 2);
+      const right = index === columnCount - 1 ? 0 : Math.round(gapTwip / 2);
+      return new TableCell({
+        children: content,
+        verticalAlign: VerticalAlign.TOP,
+        // Set explicit cell width to distribute columns evenly
+        // We use PERCENTAGE (pct) which is relative to the table width
+        // Value is in fiftieths of a percent (e.g. 50% = 2500)
+        width: {
+          size: Math.floor((100 / columnCount) * 50),
+          type: WidthType.PERCENTAGE,
+        },
+        margins: {
+          left,
+          right,
+          top: 0,
+          bottom: 0,
+        },
+        // Invisible borders by default; use separator for visible
+        borders: separator
+          ? {
+              left: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
+              right: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
+            }
+          : {
+              top: { style: BorderStyle.NIL },
+              bottom: { style: BorderStyle.NIL },
+              left: { style: BorderStyle.NIL },
+              right: { style: BorderStyle.NIL },
+            },
+      });
+    });
+
+    // Create the row and table
+    const row = new TableRow({ children: cells });
+    const table = new Table({
+      rows: [row],
+      // Use PERCENTAGE width (100%) to fill the container.
+      // 'auto' caused the table to collapse to near-zero width in some contexts.
+      width: { size: 5000, type: WidthType.PERCENTAGE },
+      layout: TableLayoutType.AUTOFIT,
+      indent: this.currentIndent
+        ? { size: this.currentIndent, type: WidthType.DXA }
+        : undefined,
+      borders: {
+        top: { style: BorderStyle.NIL },
+        bottom: { style: BorderStyle.NIL },
+        left: { style: BorderStyle.NIL },
+        right: { style: BorderStyle.NIL },
+        insideHorizontal: { style: BorderStyle.NIL },
+        insideVertical: separator
+          ? { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" }
+          : { style: BorderStyle.NIL },
+      },
+    });
+
+    // Handle forced bookmarks
+    if (this.forcedBookmarks && this.forcedBookmarks.length > 0) {
+      return [
+        this.makeBookmarkParagraph(
+          this.forcedBookmarks,
+          this.currentIndent,
+          (opts) => {
+            if (this.ctx.defaultSpacing)
+              (opts as any).spacing = this.ctx.defaultSpacing;
+          }
+        ),
+        table,
+      ];
+    }
+
+    return [table];
   }
 
   visit(node: Node): (Paragraph | Table)[] {
@@ -390,11 +592,14 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       case "empty_paragraph": return this.visitEmptyParagraph(node);
       case "blank": return this.visitBlank(node);
       case "page_break": return this.visitPageBreak(node);
+      case "column_break": return this.visitColumnBreak(node);
       case "comment": return this.visitComment(node);
       case "doc_header": return this.visitDocHeaderFooter(node);
       case "doc_footer": return this.visitDocHeaderFooter(node);
       case "define": return this.visitDefine(node);
       case "columns_region": return this.visitColumnsRegion(node);
+      case "horizontal_rule": return this.visitHorizontalRule(node);
+      case "blockquote": return this.visitBlockquote(node);
       default:
         console.warn(`Unknown node type: ${(node as any).type}`);
         return [];
