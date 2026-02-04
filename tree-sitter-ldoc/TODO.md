@@ -1,61 +1,57 @@
 # Tree-sitter LDOC Status
 
-## Current State
+## Current State ✅
 
-All 11 tree-sitter tests pass. The grammar covers the main LDOC syntax for syntax highlighting purposes.
+All 11 tree-sitter tests pass. The grammar covers the main LDOC syntax for syntax highlighting.
 
-## Known Grammar Limitations (Low Priority)
+## Features
 
-These are edge cases that produce ERROR nodes but don't significantly impact syntax highlighting. The TypeScript parser handles all of these correctly.
+### Syntax Highlighting - COMPLETE
+- All directives (`@document`, `@meta`, `@define`, `@use`, `@if`, `@foreach`, etc.)
+- Inline formatting (bold, italic, strikethrough, code)
+- Variables `{{name}}` and cross-references `[[target]]`
+- Tables, lists, headers, modifiers
+- Comments (line `//`, block `/* */`, todo `@todo`)
 
-### 1. Single-brace variables in content
-- **Issue**: `{page}` single braces produce errors (LDOC uses `{{page}}`)
-- **Impact**: Low - text is still parsed, just with inline ERROR nodes
-- **Status**: Expected behavior - single braces are invalid in LDOC
+### Invalid Variable Detection - COMPLETE
+- Single-brace `{page}` now highlights as `@error` instead of generic ERROR
+- Provides clear visual feedback that `{{page}}` is required
 
-### 2. Nested emphasis in tree-sitter
-- **Issue**: `**bold with *nested italic* inside**` doesn't parse correctly in tree-sitter
-- **Impact**: Low - basic emphasis works; the TypeScript parser handles nesting correctly
-- **Status**: Tree-sitter limitation (would require lookahead)
-
-### 3. ~~Links inside table cells~~ FIXED
-- **Status**: Fixed - `table_cell_content` now handles balanced brackets
-
-### 4. Header/footer blocks with indented content
-- **Issue**: Multi-line headers/footers with indented content in tree-sitter
-- **Impact**: Low - single-line form works; TypeScript parser handles multi-line correctly
-- **Status**: Tree-sitter is for highlighting only; parser handles this
-
-## Completed Features
-
-### locals.scm (variable scoping) - DONE
+### Variable Scoping (locals.scm) - COMPLETE
 - `@local.scope` for `@define`, `@foreach`, `@if`, `@repeat` blocks
 - `@local.definition` for `@set`, `@define`, parameters, loop variables
 - `@local.reference` for `{{variable}}`, `@use`, identifiers
 
-### folds.scm - DONE
-- Works with current block structure
+### Code Folding (folds.scm) - COMPLETE
+- All block constructs fold correctly
 
-### indents.scm - DONE
-- Works with current block structure
+### Indentation (indents.scm) - COMPLETE
+- Proper indent/dedent for blocks
 
-### highlights.scm - DONE
-- Full highlighting for all LDOC constructs
+## Known Limitations (Won't Fix)
+
+### Nested emphasis in tree-sitter
+- **Issue**: `**bold with *italic* inside**` doesn't highlight nested parts
+- **Reason**: Tree-sitter doesn't support lookahead; would require external scanner
+- **Workaround**: TypeScript parser handles this correctly for actual parsing
+- **Impact**: Low - basic emphasis works, nesting is rare in legal documents
 
 ## Testing
 
-Current test coverage:
-- 11 tree-sitter tests passing (100%)
-- TypeScript parser: 290 tests passing
-
-To run tests:
 ```bash
 cd tree-sitter-ldoc
 tree-sitter generate
-tree-sitter test
+tree-sitter test        # 11/11 tests pass
 ```
 
-To test against corpus:
+## Neovim Integration
+
+Parser and queries are installed to:
+- `~/.local/share/nvim/site/parser/ldoc.so`
+- `~/.local/share/nvim/site/queries/ldoc/*.scm`
+
+To refresh after changes:
 ```bash
-tree-sitter parse ../tests/corpus/structure.ldoc
+cp tree-sitter-ldoc/ldoc.so ~/.local/share/nvim/site/parser/
+cp tree-sitter-ldoc/queries/*.scm ~/.local/share/nvim/site/queries/ldoc/
 ```
