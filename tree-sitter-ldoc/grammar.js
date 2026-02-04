@@ -511,6 +511,7 @@ module.exports = grammar({
     _inline: ($) =>
       choice(
         $.variable,
+        $.invalid_variable,  // Must come after variable for correct precedence
         $.cross_reference,
         $.defined_term,
         $.emphasis,
@@ -531,6 +532,13 @@ module.exports = grammar({
       seq("{{", $.variable_content, "}}"),
 
     variable_content: ($) => /[^}]+/,
+
+    // =========================================================================
+    // Invalid variable: {variable} - single braces are wrong, should be {{}}
+    // This provides better error highlighting than generic ERROR nodes
+    // =========================================================================
+    invalid_variable: ($) =>
+      seq("{", /[^{}\n]+/, "}"),
 
     // =========================================================================
     // Cross references: [[reference]]

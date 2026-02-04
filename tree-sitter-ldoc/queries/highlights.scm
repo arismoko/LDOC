@@ -83,6 +83,9 @@
   (variable_content) @variable
   "}}" @punctuation.bracket)
 
+; Invalid variable: single braces instead of double - highlight as error
+(invalid_variable) @error
+
 (cross_reference
   "[[" @punctuation.bracket
   "]]" @punctuation.bracket) @markup.link

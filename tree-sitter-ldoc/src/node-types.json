@@ -1527,6 +1527,11 @@
     "fields": {}
   },
   {
+    "type": "invalid_variable",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "iterable_expression",
     "named": true,
     "fields": {},
@@ -1709,6 +1714,10 @@
         },
         {
           "type": "inline_code",
+          "named": true
+        },
+        {
+          "type": "invalid_variable",
           "named": true
         },
         {
@@ -2464,7 +2473,15 @@
     "named": true
   },
   {
+    "type": "{",
+    "named": false
+  },
+  {
     "type": "{{",
+    "named": false
+  },
+  {
+    "type": "}",
     "named": false
   },
   {

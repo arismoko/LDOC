@@ -1677,6 +1677,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "invalid_variable"
+        },
+        {
+          "type": "SYMBOL",
           "name": "cross_reference"
         },
         {
@@ -1741,6 +1745,23 @@
     "variable_content": {
       "type": "PATTERN",
       "value": "[^}]+"
+    },
+    "invalid_variable": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "{"
+        },
+        {
+          "type": "PATTERN",
+          "value": "[^{}\\n]+"
+        },
+        {
+          "type": "STRING",
+          "value": "}"
+        }
+      ]
     },
     "cross_reference": {
       "type": "SEQ",
