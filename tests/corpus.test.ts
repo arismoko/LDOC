@@ -43,11 +43,8 @@ describe("Corpus", () => {
 
   // NOTE: Format round-trip test disabled due to known formatter limitations:
   // - Leading/trailing whitespace handling in macro templates and YAML blocks
-  // - Nested list content gets flattened
-  // - Table cell content with commas gets reinterpreted
-  // These are non-critical for v1 since format-on-save still works (just not idempotent)
-  // Fix tracked in: formatter needs a "preserve original whitespace" mode
-  describe.skip("Format Round-Trip", () => {
+  // Format round-trip: format -> parse should work
+  describe("Format Round-Trip", () => {
     test("formatted corpus files re-parse successfully", async () => {
       const files = await readdir(CORPUS_DIR);
       const ldocFiles = files.filter((f) => f.endsWith(".ldoc"));
