@@ -65,11 +65,6 @@ export class Lexer {
       this.handleIndentation();
     }
 
-    // Skip whitespace (not at start of line)
-    if (this.column > 1) {
-      this.skipInlineWhitespace();
-    }
-
     if (this.pos >= this.input.length) return;
 
     const char = this.peek();
@@ -569,6 +564,20 @@ export class Lexer {
       this.advance();
     }
 
+    // If followed by whitespace, it's not an emphasis start (treat as text)
+    // This fixes ambiguity with math multiplication like "5 * 10"
+    if (this.peek() === " " || this.peek() === "\t") {
+      this.tokens.push({
+        type: TokenType.TEXT,
+        value: "*".repeat(stars),
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+      return;
+    }
+
     const textStart = this.pos;
     let textEnd = this.pos;
     let found = false;
@@ -576,6 +585,12 @@ export class Lexer {
     // Find closing stars - only within the same line
     while (this.pos < this.input.length && this.peek() !== "\n") {
       if (this.peek() === "*") {
+        // If preceded by whitespace, it's not an emphasis end
+        if (this.input[this.pos - 1] === " " || this.input[this.pos - 1] === "\t") {
+          this.advance();
+          continue;
+        }
+
         let closingStars = 0;
         const potentialEnd = this.pos;
         while (this.peek() === "*" && this.pos < this.input.length) {
