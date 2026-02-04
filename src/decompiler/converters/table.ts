@@ -1,9 +1,14 @@
 import { getOnlyKey, type XmlNode } from "../xml";
 import { normalizeWs } from "./run";
-import { paragraphText } from "./paragraph";
+import { paragraphText, paragraphToLdoc, type DecompilerOptions, type ParagraphInfo } from "./paragraph";
+import { joinBlockContent, stringsToBlockContent } from "./block-content";
+import { processChildren } from "../generator";
+import type { NumberingInfo } from "../parsers/numbering";
+import type { ParagraphStyleMap } from "../parsers/styles";
 
 interface CellInfo {
-  text: string;
+  paragraphNodes: XmlNode[]; // Store raw nodes for delegation
+  text: string; // Keep for simple cells
   colspan: number;
   vMerge: "restart" | "continue" | null;
   // Computed
@@ -48,7 +53,32 @@ function stripHeaderBold(text: string): string {
   return match ? match[1]! : text;
 }
 
-export function tableToLdoc(tblNode: XmlNode): string {
+// Helper to check if a paragraph is "simple" (no alignment, no special styles)
+function isSimpleCell(info: ParagraphInfo): boolean {
+  // Check if spacing is just the default { after: 0 } which tables imply
+  const isDefaultSpacing = !info.spacing || (
+    info.spacing.after === 0 && 
+    info.spacing.before === undefined
+  );
+
+  return (
+    !info.alignment &&
+    !info.isHeading &&
+    !info.isList &&
+    !info.isBlockquote &&
+    !info.styleAttrs &&
+    isDefaultSpacing &&
+    (info.indentLeftTwips ?? 0) === 0
+  );
+}
+
+export function tableToLdoc(
+  tblNode: XmlNode,
+  numInfo: NumberingInfo,
+  paragraphStyles: ParagraphStyleMap,
+  options?: DecompilerOptions,
+  rels?: Map<string, string>
+): string {
   const tblChildren = tblNode["w:tbl"] as XmlNode[];
   const grid: CellInfo[][] = [];
   let isFirstRow = true;
@@ -67,20 +97,24 @@ export function tableToLdoc(tblNode: XmlNode): string {
 
       const { colspan, vMerge } = parseCellProperties(tcChildren);
 
+      const paragraphNodes: XmlNode[] = [];
       const paras: string[] = [];
       for (const p of tcChildren ?? []) {
         const pk = getOnlyKey(p);
         if (pk === "w:p") {
+          paragraphNodes.push(p);
           const t = paragraphText(p);
           paras.push(t);
         }
       }
-      const cellText = normalizeWs(paras.join("\n\n")); // Double newline for paragraphs
+      
+      const cellText = normalizeWs(joinBlockContent(stringsToBlockContent(paras)));
 
       // Strip bold from header row cells (first row)
       const finalText = isFirstRow ? stripHeaderBold(cellText) : cellText;
 
       const cell: CellInfo = {
+        paragraphNodes,
         text: finalText,
         colspan,
         vMerge,
@@ -151,19 +185,38 @@ export function tableToLdoc(tblNode: XmlNode): string {
       
       const text = cell.text;
       const isMultiline = text.includes("\n");
+      const paragraphs = cell.paragraphNodes;
       
       // Use shorthand for simple single-line cells
-      if (!isMultiline && text.length < 80) {
+      // Must be single paragraph, simple (no alignment), and short enough
+      let isSimple = false;
+      if (paragraphs.length === 1 && !isMultiline && text.length < 80) {
+        const firstParaInfo = paragraphToLdoc(paragraphs[0]!, numInfo, paragraphStyles, options, rels);
+        isSimple = isSimpleCell(firstParaInfo);
+      }
+
+      if (isSimple) {
          output.push(`    @cell${attrs}: ${text}`);
       } else {
-         // Block form
+         // Block form: delegate to processChildren
          output.push(`    @cell${attrs}`);
-         if (text.trim()) {
-           // Indent text
-           const lines = text.split("\n");
-           for (const line of lines) {
-             output.push(`      ${line}`);
-           }
+         
+         // If we have content, delegate to processChildren
+         if (paragraphs.length > 0) {
+           const cellLines = processChildren(
+             paragraphs,
+             numInfo,
+             paragraphStyles,
+             options,
+             "      ", // 6 spaces indentation
+             rels
+           );
+           
+           // If processChildren returns lines, add them
+           // But wait, processChildren adds indentation to the lines.
+           // We passed "      " as base indent.
+           // So cellLines are already indented.
+           output.push(...cellLines);
          }
       }
     }
