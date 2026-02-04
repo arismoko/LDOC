@@ -58,6 +58,18 @@ export function parseNumberedItem(ctx: ParserContext): NumberedItemNode {
     if (ctx.stream.getPosition() === before) break;
   }
 
+  // Trim leading whitespace from the first token
+  const firstToken = contentTokens[0];
+  if (firstToken && firstToken.type === TokenType.TEXT) {
+    const first = { ...firstToken };
+    first.value = first.value.trimStart();
+    if (first.value === "") {
+      contentTokens.shift();
+    } else {
+      contentTokens[0] = first;
+    }
+  }
+
   let content = tokensToInlineNodes(contentTokens, ctx.definedTerms);
   const children: Node[] = [];
 
@@ -129,6 +141,18 @@ export function parseBulletItem(ctx: ParserContext): BulletItemNode {
     const before = ctx.stream.getPosition();
     ctx.stream.consumeSoftWrappedLine(contentTokens);
     if (ctx.stream.getPosition() === before) break;
+  }
+
+  // Trim leading whitespace from the first token
+  const firstToken = contentTokens[0];
+  if (firstToken && firstToken.type === TokenType.TEXT) {
+    const first = { ...firstToken };
+    first.value = first.value.trimStart();
+    if (first.value === "") {
+      contentTokens.shift();
+    } else {
+      contentTokens[0] = first;
+    }
   }
 
   let content = tokensToInlineNodes(contentTokens, ctx.definedTerms);

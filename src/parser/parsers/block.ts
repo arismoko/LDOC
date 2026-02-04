@@ -56,6 +56,19 @@ export function parseParagraph(ctx: ParserContext): ParagraphNode | null {
     contentTokens.push(ctx.stream.advance());
   }
 
+  // Trim leading whitespace from the first token (fixes spacing after modifiers)
+  const firstToken = contentTokens[0];
+  if (firstToken && firstToken.type === TokenType.TEXT) {
+    // Create a copy to avoid mutating the stream token directly
+    const first = { ...firstToken };
+    first.value = first.value.trimStart();
+    if (first.value === "") {
+      contentTokens.shift();
+    } else {
+      contentTokens[0] = first;
+    }
+  }
+
   if (contentTokens.length === 0) {
     return null;
   }

@@ -11,54 +11,16 @@ export function parseIf(ctx: ParserContext): Node {
   }
 
   const thenBranch: Node[] = [];
-  const elseBranch: Node[] = [];
+  const rootElseBranch: Node[] = [];
 
-  const la = ctx.stream.lookaheadNewlinesThenIndent();
-  if (!la.indentAfter) {
-    throw new Error(`@if must be followed by an indented block (line ${token.line})`);
-  }
-
-  // consume newline(s) up to indent
-  ctx.stream.consumeNewlines();
-  if (!ctx.stream.check(TokenType.INDENT)) {
-    throw new Error(`@if expected an indented block (line ${token.line})`);
-  }
-  ctx.stream.advance();
-
-  while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
-    if (ctx.stream.check(TokenType.END_BLOCK)) {
-      throw new Error(`@; cannot close @if. Use @end (line ${ctx.stream.peek().line})`);
-    }
-
-    if (ctx.stream.check(TokenType.NEWLINE)) {
-      const start = ctx.stream.peek();
-      const n = ctx.stream.consumeNewlines();
-      pushBlankLines(thenBranch, start.line, start.column, n);
-      continue;
-    }
-
-    if (ctx.stream.check(TokenType.DEDENT)) break;
-    const child = ctx.parseNode();
-    if (child) thenBranch.push(child);
-  }
-
-  if (!ctx.stream.check(TokenType.DEDENT)) {
-    throw new Error(`@if missing block end (line ${token.line})`);
-  }
-  ctx.stream.advance();
-
-  // Optional else
-  ctx.stream.skipNewlines();
-  if (ctx.stream.check(TokenType.ELSE)) {
-    ctx.stream.advance();
-
-    const la2 = ctx.stream.lookaheadNewlinesThenIndent();
-    if (!la2.indentAfter) {
-      throw new Error(`@else must be followed by an indented block (line ${token.line})`);
+  const parseBlock = (target: Node[], blockName: string) => {
+    const la = ctx.stream.lookaheadNewlinesThenIndent();
+    if (!la.indentAfter) {
+      throw new Error(`${blockName} must be followed by an indented block (line ${ctx.stream.peek().line})`);
     }
     ctx.stream.consumeNewlines();
     if (!ctx.stream.check(TokenType.INDENT)) {
-      throw new Error(`@else expected an indented block (line ${token.line})`);
+      throw new Error(`${blockName} expected an indented block (line ${ctx.stream.peek().line})`);
     }
     ctx.stream.advance();
 
@@ -70,19 +32,56 @@ export function parseIf(ctx: ParserContext): Node {
       if (ctx.stream.check(TokenType.NEWLINE)) {
         const start = ctx.stream.peek();
         const n = ctx.stream.consumeNewlines();
-        pushBlankLines(elseBranch, start.line, start.column, n);
+        pushBlankLines(target, start.line, start.column, n);
         continue;
       }
 
       if (ctx.stream.check(TokenType.DEDENT)) break;
       const child = ctx.parseNode();
-      if (child) elseBranch.push(child);
+      if (child) target.push(child);
     }
 
     if (!ctx.stream.check(TokenType.DEDENT)) {
-      throw new Error(`@else missing block end (line ${token.line})`);
+      throw new Error(`${blockName} missing block end`);
     }
     ctx.stream.advance();
+  };
+
+  // Parse @if block
+  parseBlock(thenBranch, "@if");
+
+  ctx.stream.skipNewlines();
+  let currentElseBranch = rootElseBranch;
+
+  // Parse @elseif blocks (transform to nested @if)
+  while (ctx.stream.check(TokenType.ELSEIF)) {
+    const elseifToken = ctx.stream.advance();
+    const elseifCond = parseRestOfLineRaw(ctx);
+    if (!elseifCond) {
+      throw new Error(`@elseif requires a condition at line ${elseifToken.line}, column ${elseifToken.column}`);
+    }
+
+    const elseifThen: Node[] = [];
+    parseBlock(elseifThen, "@elseif");
+
+    const nestedIf: any = {
+      type: "if",
+      line: elseifToken.line,
+      column: elseifToken.column,
+      condition: elseifCond,
+      thenBranch: elseifThen,
+      elseBranch: [],
+    };
+
+    currentElseBranch.push(nestedIf);
+    currentElseBranch = nestedIf.elseBranch;
+    ctx.stream.skipNewlines();
+  }
+
+  // Parse @else block
+  if (ctx.stream.check(TokenType.ELSE)) {
+    ctx.stream.advance();
+    parseBlock(currentElseBranch, "@else");
   }
 
   ctx.stream.skipNewlines();
@@ -91,7 +90,7 @@ export function parseIf(ctx: ParserContext): Node {
     throw new Error(`@if missing @end (line ${t.line}, column ${t.column})`);
   }
   ctx.stream.advance();
-  // enforce no inline content after @end
+  
   if (!ctx.stream.check(TokenType.NEWLINE) && !ctx.stream.check(TokenType.EOF)) {
     const rest = parseRestOfLineRaw(ctx);
     if (rest) {
@@ -105,7 +104,7 @@ export function parseIf(ctx: ParserContext): Node {
     column: token.column,
     condition,
     thenBranch,
-    elseBranch,
+    elseBranch: rootElseBranch,
   } as any;
 }
 

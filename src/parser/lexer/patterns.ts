@@ -8,6 +8,7 @@ export enum TokenType {
 
   // Control flow
   IF = "IF",
+  ELSEIF = "ELSEIF",
   ELSE = "ELSE",
   END = "END",
   REPEAT = "REPEAT",
@@ -123,6 +124,7 @@ export const KEYWORDS = new Set([
   "columns",
   "anchor",
   "if",
+  "elseif",
   "else",
   "end",
   "repeat",

@@ -144,7 +144,20 @@ export const pruneControls = (
       };
 
       for (let i = 0; i < items.length; i++) {
-        const env = { ...locals, [item]: items[i], index: i + 1, [`${item}_index`]: i + 1 };
+        const loop = {
+          index: i,
+          count: i + 1,
+          first: i === 0,
+          last: i === items.length - 1,
+          length: items.length,
+        };
+        const env = {
+          ...locals,
+          [item]: items[i],
+          loop,
+          index: i + 1,
+          [`${item}_index`]: i + 1,
+        };
 
         const cloned = body.map((x) => clone(x));
         const rewritten = cloned.map((x) => substituteLocalsInNode(x, env));

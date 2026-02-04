@@ -802,6 +802,8 @@ export class Lexer {
         return TokenType.DOC_ANCHOR;
       case "if":
         return TokenType.IF;
+      case "elseif":
+        return TokenType.ELSEIF;
       case "else":
         return TokenType.ELSE;
       case "end":
