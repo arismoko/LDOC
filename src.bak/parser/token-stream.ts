@@ -14,6 +14,8 @@ export class TokenStream {
 
   advance(): Token {
     if (!this.isAtEnd()) {
+      const t = this.tokens[this.pos]!;
+      console.log(`[TokenStream] advance: ${t.type} at ${t.line}:${t.column} value=${JSON.stringify(t.value)}`);
       this.pos++;
     }
     return this.tokens[this.pos - 1]!;

@@ -1,181 +1,153 @@
 /**
- * Shared unit conversion constants and functions.
- * Centralizes DRY violations across parser, compiler, and decompiler.
+ * Unit conversion constants and functions.
+ * All DOCX measurements use twips (1/1440 inch).
  */
 
-// ============================================================================
-// Unit Conversion Constants (to/from twips)
-// ============================================================================
+// =============================================================================
+// Constants
+// =============================================================================
 
 /** Twips per inch (1 inch = 1440 twips) */
 export const TWIPS_PER_INCH = 1440;
 
-/** Twips per centimeter (1 cm = 1440 / 2.54 twips) */
+/** Twips per centimeter */
 export const TWIPS_PER_CM = TWIPS_PER_INCH / 2.54;
 
-/** Twips per millimeter (1 mm = 1440 / 25.4 twips) */
+/** Twips per millimeter */
 export const TWIPS_PER_MM = TWIPS_PER_INCH / 25.4;
 
 /** Twips per point (1 pt = 20 twips) */
 export const TWIPS_PER_PT = 20;
 
 /** Line spacing unit (240 = single space in Word's lineRule="auto") */
-export const TWIPS_PER_LINE_UNIT = 240;
+export const LINE_SPACING_SINGLE = 240;
 
 /** Half-points per point (DOCX w:sz uses half-points) */
 export const HALF_POINTS_PER_PT = 2;
 
-/** Regex for parsing point values like "12pt" or "12" */
-export const PT_VALUE_REGEX = /^(\d+(?:\.\d+)?)(pt)?$/i;
+/** EMUs per inch (for images) */
+export const EMUS_PER_INCH = 914400;
 
-// ============================================================================
-// Options for length parsing
-// ============================================================================
+// =============================================================================
+// Length Parsing
+// =============================================================================
 
-export interface ParseLengthOptions {
-  /**
-   * If true, allows numeric values without units (defaults to inches).
-   * If false, throws an error for values without units.
-   * Default: false (strict mode)
-   */
-  lenient?: boolean;
+export type LengthUnit = "in" | "cm" | "mm" | "pt" | "px" | "twip";
 
-  /**
-   * Line number for error messages (optional).
-   */
-  line?: number;
+export interface ParsedLength {
+  value: number;
+  unit: LengthUnit;
+  twips: number;
 }
-
-// ============================================================================
-// Length Parsing Functions
-// ============================================================================
 
 /**
  * Parse a length string (e.g., "1in", "2cm", "12pt") to twips.
- *
- * @param raw - The raw length string to parse
- * @param options - Parsing options
- * @returns The length in twips
- * @throws Error if the format is invalid (in strict mode)
+ * Throws on invalid input in strict mode.
  */
-export function parseLengthToTwip(raw: string | number, options: ParseLengthOptions = {}): number {
-  const { lenient = false, line } = options;
-
-  // Handle numeric input (lenient mode assumes inches)
+export function parseLengthToTwips(
+  raw: string | number,
+  options: { lenient?: boolean } = {}
+): number {
   if (typeof raw === "number") {
-    if (lenient) {
+    if (options.lenient) {
       return Math.round(raw * TWIPS_PER_INCH);
     }
-    const lineInfo = line !== undefined ? ` at line ${line}` : "";
-    throw new Error(`Invalid length: ${raw}${lineInfo}. Use units like 1in, 2cm, 12pt.`);
+    throw new Error(`Invalid length: ${raw}. Use units like 1in, 2cm, 12pt.`);
   }
 
   const trimmed = String(raw).trim();
-
-  // Try to match with units (supports negative values for character spacing etc.)
-  const withUnits = trimmed.match(/^(-?[0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt|twip)$/i);
-  if (withUnits) {
-    const value = parseFloat(withUnits[1]!);
-    const unit = withUnits[2]!.toLowerCase();
-    switch (unit) {
-      case "in":
-        return Math.round(value * TWIPS_PER_INCH);
-      case "cm":
-        return Math.round(value * TWIPS_PER_CM);
-      case "mm":
-        return Math.round(value * TWIPS_PER_MM);
-      case "pt":
-        return Math.round(value * TWIPS_PER_PT);
-      case "twip":
-        return Math.round(value);
-      default:
-        throw new Error(`Unsupported unit: ${unit}`);
-    }
+  const match = trimmed.match(/^(-?[\d.]+)(in|cm|mm|pt|px|twip)?$/i);
+  
+  if (!match) {
+    if (options.lenient) return TWIPS_PER_INCH;
+    throw new Error(`Invalid length: "${raw}". Use units like 1in, 2cm, 12pt.`);
   }
 
-  // Lenient mode: try to match without units (assume inches)
-  if (lenient) {
-    const withoutUnits = trimmed.match(/^(-?[0-9]+(?:\.[0-9]+)?)$/);
-    if (withoutUnits) {
-      const value = parseFloat(withoutUnits[1]!);
-      return Math.round(value * TWIPS_PER_INCH);
-    }
-    // Default fallback in lenient mode
-    return TWIPS_PER_INCH; // 1in
+  const value = parseFloat(match[1]!);
+  const unit = (match[2]?.toLowerCase() ?? (options.lenient ? "in" : null)) as LengthUnit | null;
+
+  if (!unit) {
+    throw new Error(`Invalid length: "${raw}". Missing unit (in, cm, mm, pt).`);
   }
 
-  // Strict mode: throw error
-  const lineInfo = line !== undefined ? ` at line ${line}` : "";
-  throw new Error(`Invalid length: ${raw}${lineInfo}. Use units like 1in, 2cm, 12pt.`);
+  return lengthToTwips(value, unit);
 }
 
-// ============================================================================
-// Twip Conversion Helpers
-// ============================================================================
-
 /**
- * Convert twips to inches.
+ * Convert a numeric value with unit to twips.
  */
+export function lengthToTwips(value: number, unit: LengthUnit): number {
+  switch (unit) {
+    case "in":
+      return Math.round(value * TWIPS_PER_INCH);
+    case "cm":
+      return Math.round(value * TWIPS_PER_CM);
+    case "mm":
+      return Math.round(value * TWIPS_PER_MM);
+    case "pt":
+      return Math.round(value * TWIPS_PER_PT);
+    case "px":
+      // Assume 96 DPI for pixels
+      return Math.round(value * (TWIPS_PER_INCH / 96));
+    case "twip":
+      return Math.round(value);
+  }
+}
+
+// =============================================================================
+// Conversion Helpers
+// =============================================================================
+
 export function twipsToInches(twips: number): number {
   return twips / TWIPS_PER_INCH;
 }
 
-/**
- * Convert inches to twips.
- */
 export function inchesToTwips(inches: number): number {
   return Math.round(inches * TWIPS_PER_INCH);
 }
 
-/**
- * Format a value in inches as a string for LDOC output.
- * Rounds to 2 decimal places and removes trailing zeros.
- */
-export function formatInches(inches: number): string {
-  const rounded = Math.round(inches * 100) / 100;
-  return rounded.toString();
+export function twipsToPt(twips: number): number {
+  return twips / TWIPS_PER_PT;
 }
 
-/**
- * Format twips as an LDOC-friendly length string with "in" suffix.
- */
-export function formatTwipsAsInches(twips: number): string {
-  return `${formatInches(twipsToInches(twips))}in`;
+export function ptToTwips(pt: number): number {
+  return Math.round(pt * TWIPS_PER_PT);
 }
 
-/**
- * Convert a line spacing multiplier to twips (for Word's lineRule="auto").
- * Single spacing = 240, double = 480, 1.5 = 360, etc.
- */
-export function lineMultiplierToTwips(multiplier: number): number {
-  return Math.round(multiplier * TWIPS_PER_LINE_UNIT);
-}
-
-/**
- * Convert twips to a line spacing multiplier.
- */
-export function twipsToLineMultiplier(twips: number): number {
-  return twips / TWIPS_PER_LINE_UNIT;
-}
-
-/**
- * Convert points to half-points (for w:sz in docx).
- */
 export function ptToHalfPoints(pt: number): number {
   return Math.round(pt * HALF_POINTS_PER_PT);
 }
 
-/**
- * Convert half-points to points (from w:sz in docx).
- */
 export function halfPointsToPt(halfPoints: number): number {
   return halfPoints / HALF_POINTS_PER_PT;
 }
 
+export function lineMultiplierToTwips(multiplier: number): number {
+  return Math.round(multiplier * LINE_SPACING_SINGLE);
+}
+
+export function twipsToLineMultiplier(twips: number): number {
+  return twips / LINE_SPACING_SINGLE;
+}
+
+// =============================================================================
+// Formatting
+// =============================================================================
+
 /**
- * Format twips as a pt string (e.g., "12pt", "10.5pt").
+ * Format twips as an LDOC-friendly length string.
+ */
+export function formatTwipsAsInches(twips: number): string {
+  const inches = twipsToInches(twips);
+  const rounded = Math.round(inches * 100) / 100;
+  return `${rounded}in`;
+}
+
+/**
+ * Format twips as points.
  */
 export function formatTwipsAsPt(twips: number): string {
-  const pt = twips / TWIPS_PER_PT;
-  return `${pt.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}pt`;
+  const pt = twipsToPt(twips);
+  const formatted = pt % 1 === 0 ? pt.toString() : pt.toFixed(1);
+  return `${formatted}pt`;
 }

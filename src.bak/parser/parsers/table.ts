@@ -35,6 +35,7 @@ function argsToAttributes(args: any): Record<string, string> {
 }
 
 export function parseTable(ctx: ParserContext): TableNode {
+  console.log(`[parseTable] START at line ${ctx.stream.peek().line}`);
   const token = ctx.stream.advance();
   const rows: TableRowNode[] = [];
   let lastToken = token;
@@ -65,6 +66,7 @@ export function parseTable(ctx: ParserContext): TableNode {
 
     let isFirst = true;
     while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
+      console.log(`[parseTable] table loop peek: ${ctx.stream.peek().type} at ${ctx.stream.peek().line}:${ctx.stream.peek().column}`);
       ctx.stream.skipNewlines();
       if (ctx.stream.check(TokenType.DEDENT)) break;
 
@@ -83,8 +85,10 @@ export function parseTable(ctx: ParserContext): TableNode {
         ctx.stream.skipNewlines();
         if (ctx.stream.check(TokenType.INDENT)) {
           ctx.stream.advance();
+          console.log(`[parseTable] row loop START at line ${ctx.stream.peek().line}`);
           
           while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
+            console.log(`[parseTable] row loop peek: ${ctx.stream.peek().type} at ${ctx.stream.peek().line}:${ctx.stream.peek().column}`);
             ctx.stream.skipNewlines();
             if (ctx.stream.check(TokenType.DEDENT)) break;
             

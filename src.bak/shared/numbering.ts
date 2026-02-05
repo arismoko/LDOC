@@ -1,11 +1,11 @@
 /**
- * List numbering utilities.
+ * Shared numbering types and utilities.
  * Used by both compiler and decompiler for consistent list formatting.
  */
 
-// =============================================================================
-// Types
-// =============================================================================
+// ============================================================================
+// Number Format Types
+// ============================================================================
 
 /**
  * Word-compatible number format types.
@@ -21,6 +21,10 @@ export type NumberFormat =
 
 /**
  * Default level formats for legal-style numbering.
+ * Level 0: decimal (1, 2, 3)
+ * Level 1: lowerLetter (a, b, c)
+ * Level 2: lowerRoman (i, ii, iii)
+ * Level 3: upperLetter (A, B, C)
  */
 export const DEFAULT_LEVEL_FORMATS: NumberFormat[] = [
   "decimal",
@@ -36,11 +40,11 @@ export function getDefaultFormat(level: number): NumberFormat {
   return DEFAULT_LEVEL_FORMATS[level % DEFAULT_LEVEL_FORMATS.length]!;
 }
 
-// =============================================================================
-// Roman Numerals
-// =============================================================================
+// ============================================================================
+// Roman Numeral Conversion
+// ============================================================================
 
-const ROMAN_MAP: [number, string][] = [
+const ROMAN_NUMERALS: [number, string][] = [
   [1000, "M"],
   [900, "CM"],
   [500, "D"],
@@ -58,11 +62,14 @@ const ROMAN_MAP: [number, string][] = [
 
 /**
  * Convert an integer to uppercase Roman numerals.
+ *
+ * @param num - The number to convert (should be positive)
+ * @returns The Roman numeral representation (uppercase)
  */
 export function toRoman(num: number): string {
   let result = "";
   let n = num;
-  for (const [value, numeral] of ROMAN_MAP) {
+  for (const [value, numeral] of ROMAN_NUMERALS) {
     while (n >= value) {
       result += numeral;
       n -= value;
@@ -78,12 +85,12 @@ export function toRomanLower(num: number): string {
   return toRoman(num).toLowerCase();
 }
 
-// =============================================================================
-// Letters
-// =============================================================================
+// ============================================================================
+// Letter Conversion
+// ============================================================================
 
 /**
- * Convert an integer to lowercase letter (1→a, 2→b, ..., 27→aa).
+ * Convert an integer to lowercase letter (1->a, 2->b, ..., 26->z, 27->aa).
  */
 export function toLowerLetter(num: number): string {
   let result = "";
@@ -97,7 +104,7 @@ export function toLowerLetter(num: number): string {
 }
 
 /**
- * Convert an integer to uppercase letter (1→A, 2→B, ..., 27→AA).
+ * Convert an integer to uppercase letter (1->A, 2->B, ..., 26->Z, 27->AA).
  */
 export function toUpperLetter(num: number): string {
   let result = "";
@@ -110,14 +117,18 @@ export function toUpperLetter(num: number): string {
   return result || "A";
 }
 
-// =============================================================================
-// Formatting
-// =============================================================================
+// ============================================================================
+// Format Value by Type
+// ============================================================================
 
 /**
  * Format a count value according to the specified number format.
+ *
+ * @param count - The count (1-based)
+ * @param format - The number format type
+ * @returns The formatted string
  */
-export function formatNumber(count: number, format: NumberFormat): string {
+export function formatNumberValue(count: number, format: NumberFormat): string {
   switch (format) {
     case "decimal":
       return String(count);
@@ -130,6 +141,8 @@ export function formatNumber(count: number, format: NumberFormat): string {
     case "upperRoman":
       return toRoman(count);
     case "bullet":
-      return "•";
+      return "-";
+    default:
+      return String(count);
   }
 }
