@@ -23,6 +23,9 @@ export interface EmissionContext {
 
   /** Relationship ID to URL mapping for images/hyperlinks */
   rels?: Map<string, string>;
+
+  /** Whether to emit @indent directives for indented paragraphs */
+  emitIndent?: boolean;
 }
 
 /**
@@ -34,6 +37,7 @@ export function createContext(overrides?: Partial<EmissionContext>): EmissionCon
     dominantStyle: {},
     inTable: false,
     rels: undefined,
+    emitIndent: false,
     ...overrides,
   };
 }

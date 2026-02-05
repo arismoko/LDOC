@@ -1901,9 +1901,9 @@ describe("DOCX -> LDOC TOC handling", () => {
     const out = (await docxToLdoc(buffer)).source;
 
     // TOC paragraphs should NOT have list markers
-    // Tabs are preserved in TOC output for readable title+page format
-    expect(out).toContain("Introduction\t1");
-    expect(out).toContain("Background\t2");
+    // Tabs are preserved as @tab directive in output
+    expect(out).toContain("Introduction@tab1");
+    expect(out).toContain("Background@tab2");
     expect(out).not.toMatch(/@ Introduction/);
     expect(out).not.toMatch(/@@ Background/);
 

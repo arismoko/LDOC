@@ -84,6 +84,7 @@ export function processBodyElementsV2(
     dominantStyle: options?.dominantStyle ?? {},
     inTable: options?.inTable ?? false,
     rels,
+    emitIndent: semanticOptions.emitIndent,
   });
 
   return emitNodes(semanticTree, ctx);
@@ -110,6 +111,7 @@ export function processExtractedElements(
     dominantStyle: options?.dominantStyle ?? {},
     inTable: options?.inTable ?? false,
     rels,
+    emitIndent: semanticOptions.emitIndent,
   });
 
   return emitNodes(semanticTree, ctx);

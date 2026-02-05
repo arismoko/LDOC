@@ -122,7 +122,7 @@ function emitListItem(para: SemanticParagraph, ctx: EmissionContext): string[] {
 }
 
 /**
- * Emit a normal paragraph.
+ * Emit a normal (non-heading, non-list, non-empty) paragraph.
  */
 function emitNormalParagraph(para: SemanticParagraph, ctx: EmissionContext): string[] {
   const lines: string[] = [];
@@ -131,6 +131,27 @@ function emitNormalParagraph(para: SemanticParagraph, ctx: EmissionContext): str
   lines.push(...emitAnchors(para.anchors, ctx));
 
   const content = emitInlineContent(para.extracted.content, ctx);
+
+  // Handle single indented paragraph when emitIndent is enabled
+  if (ctx.emitIndent && para.indentLeftTwips > 0) {
+    const len = formatTwipsAsPt(para.indentLeftTwips);
+    
+    // Check if we need nested alignment
+    if (para.alignment) {
+      lines.push(`${ctx.indent}@indent(length: ${len})`);
+      const childCtx = indentContext(ctx);
+      lines.push(`${childCtx.indent}@style(align: ${para.alignment})`);
+      const innerCtx = indentContext(childCtx);
+      for (const line of content.split("\n")) {
+        lines.push(`${innerCtx.indent}${line}`);
+      }
+      return lines;
+    }
+    
+    // Simple inline form: @indent(length: X): content
+    lines.push(`${ctx.indent}@indent(length: ${len}): ${content}`);
+    return lines;
+  }
 
   // Handle alignment for single paragraphs (not in alignment group)
   if (para.alignment && !para.isEmpty) {

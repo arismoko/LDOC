@@ -5,11 +5,12 @@ import { parseSpacingFromStylesXml, parseParagraphStyles, parseDocumentDefaults,
 import { collectFontStatistics, computeDominantStyle, type FontSizeStats } from "./statistics";
 import { parseDocumentRels, parseLayoutFromSectPr, parseHeaderFooterRefs, parseSectionProps, findFinalSectPr, findParagraphSectPr, type LayoutInfo, type HeaderFooterRefs, type SectionProps } from "./parsers/layout";
 import { parseFootnotes, type FootnoteInfo } from "./parsers/footnotes";
-import { type DecompilerOptions } from "./converters/paragraph";
-import { processChildren } from "./generator";
+import { processBodyElementsV2, type PipelineOptions } from "./pipeline";
 import { twipsToInches, formatInches, formatTwipsAsPt } from "../shared/units";
 
-export type { DecompilerOptions };
+export type DecompilerOptions = PipelineOptions;
+
+
 
 export type DecompileResult = {
   source: string;
@@ -43,8 +44,8 @@ async function parseHeaderFooterContent(
 
   const rootChildren = (hdr ? root["w:hdr"] : root["w:ftr"]) as XmlNode[];
   
-  // Use unified processChildren pipeline for proper alignment/spacing/anchor support
-  return processChildren(rootChildren ?? [], numInfo, styles, options, "", docRels);
+  // Use new V2 pipeline for extraction → semantic → emission
+  return processBodyElementsV2(rootChildren ?? [], numInfo, styles, options, "", docRels);
 }
 
 async function extractMediaAssets(zip: JSZip): Promise<Map<string, Uint8Array>> {
@@ -342,14 +343,14 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
       const columnsLine = `@columns(${parts.join(", ")})`;
 
       // Collect content lines for columns block
-      const contentLines = processChildren(section.children, numInfo, paragraphStyles, enhancedOptions, "  ", rels);
-      const nonEmptyLines = contentLines.filter((l) => l.trim());
+      const contentLines = processBodyElementsV2(section.children, numInfo, paragraphStyles, enhancedOptions, "  ", rels);
+      const nonEmptyLines = contentLines.filter((l: string) => l.trim());
 
       // Emit as a single block
       blocks.push(columnsLine + "\n" + nonEmptyLines.join("\n") + "\n@end");
     } else {
       // Normal section - emit blocks with alignment grouping
-      const lines = processChildren(section.children, numInfo, paragraphStyles, enhancedOptions, "", rels);
+      const lines = processBodyElementsV2(section.children, numInfo, paragraphStyles, enhancedOptions, "", rels);
       blocks.push(...lines);
     }
   }

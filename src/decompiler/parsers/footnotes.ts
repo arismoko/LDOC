@@ -1,8 +1,7 @@
 import { xmlParser, findFirst, getOnlyKey, attrVal, type XmlNode } from "../xml";
-import { processChildren } from "../generator";
+import { processBodyElementsV2, type PipelineOptions } from "../pipeline";
 import type { NumberingInfo } from "./numbering";
 import type { ParagraphStyleMap } from "./styles";
-import type { DecompilerOptions } from "../converters/paragraph";
 
 export interface FootnoteInfo {
   id: string;
@@ -13,13 +12,13 @@ export interface FootnoteInfo {
  * Parse footnotes from word/footnotes.xml content.
  * Returns a map of footnote ID to FootnoteInfo.
  * 
- * Delegates to processChildren for full rich text support (tables, alignment, styles).
+ * Delegates to processBodyElementsV2 for full rich text support (tables, alignment, styles).
  */
 export function parseFootnotes(
   footnotesXml: string | undefined,
   numInfo: NumberingInfo,
   styles: ParagraphStyleMap,
-  options?: DecompilerOptions,
+  options?: PipelineOptions,
   rels?: Map<string, string>
 ): Map<string, FootnoteInfo> {
   const map = new Map<string, FootnoteInfo>();
@@ -37,9 +36,9 @@ export function parseFootnotes(
       // Skip separator footnotes (id 0, -1)
       if (!id || id === "0" || id === "-1") continue;
 
-      // Use unified processChildren pipeline for rich text support
+      // Use new V2 pipeline for rich text support
       const fnChildren = child["w:footnote"] as XmlNode[];
-      const contentLines = processChildren(fnChildren ?? [], numInfo, styles, options, "", rels);
+      const contentLines = processBodyElementsV2(fnChildren ?? [], numInfo, styles, options, "", rels);
       
       // Filter out empty lines and trim
       const nonEmptyLines = contentLines.filter(line => line.trim());
