@@ -433,11 +433,11 @@ export class Lexer {
   private scanBracket(): void {
     const startLine = this.line;
     const startCol = this.column;
-    this.advance(); // [
 
     // Check for footnote [^...]
-    if (this.peek() === "^") {
-      this.advance();
+    if (this.peek(1) === "^") {
+      this.advance(); // [
+      this.advance(); // ^
       let label = "";
       while (!this.isAtEnd() && this.peek() !== "]") {
         label += this.advance();
@@ -448,8 +448,9 @@ export class Lexer {
     }
 
     // Check for cross-ref [@...]
-    if (this.peek() === "@") {
-      this.advance();
+    if (this.peek(1) === "@") {
+      this.advance(); // [
+      this.advance(); // @
       let target = "";
       while (!this.isAtEnd() && this.peek() !== "]") {
         target += this.advance();
@@ -459,8 +460,60 @@ export class Lexer {
       return;
     }
 
-    // Regular link [text](url)
-    this.emit(TokenType.LINK_START, "[");
+    // Check for link [text](url) - lookahead for ](
+    if (this.lookaheadIsLink()) {
+      this.scanLink();
+      return;
+    }
+
+    // Not a special bracket - emit as text
+    this.tokens.push(token(TokenType.TEXT, "[", startLine, startCol, this.line, this.column + 1));
+    this.advance();
+  }
+
+  /**
+   * Look ahead to see if this is a link [text](url)
+   */
+  private lookaheadIsLink(): boolean {
+    let i = this.pos + 1;
+    // Scan for ]
+    while (i < this.input.length && this.input[i] !== "]") {
+      if (this.input[i] === "\n") return false; // Links can't span lines
+      i++;
+    }
+    
+    if (i >= this.input.length) return false; // No closing ]
+    
+    // Check for ( after ]
+    return this.input[i + 1] === "(";
+  }
+
+  /**
+   * Scan a link [text](url)
+   */
+  private scanLink(): void {
+    const startLine = this.line;
+    const startCol = this.column;
+    this.advance(); // [
+
+    // Read text until ]
+    let text = "";
+    while (!this.isAtEnd() && this.peek() !== "]") {
+      text += this.advance();
+    }
+    this.advance(); // ]
+
+    // Read URL from (...)
+    let url = "";
+    if (this.peek() === "(") {
+      this.advance(); // (
+      while (!this.isAtEnd() && this.peek() !== ")") {
+        url += this.advance();
+      }
+      this.advance(); // )
+    }
+
+    this.tokens.push(token(TokenType.LINK, `${text}|${url}`, startLine, startCol, this.line, this.column));
   }
 
   private scanImage(): void {

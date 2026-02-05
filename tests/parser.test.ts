@@ -4,7 +4,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { parseSource } from "../src/parse/index.ts";
-import type { CSTDirective, CSTHeader, CSTParagraph, CSTList } from "../src/types/cst.ts";
+import type { CSTDirective, CSTHeader, CSTParagraph, CSTList, CSTLink, CSTImage } from "../src/types/cst.ts";
 
 describe("Parser", () => {
   describe("documents", () => {
@@ -123,6 +123,50 @@ describe("Parser", () => {
     test("parses blockquote", () => {
       const result = parseSource("> Quote text");
       expect(result.cst.children[0]!.type).toBe("Blockquote");
+    });
+  });
+
+  describe("links and images", () => {
+    test("parses markdown links", () => {
+      const result = parseSource("[Click here](https://example.com)");
+      const para = result.cst.children[0] as CSTParagraph;
+      const link = para.content[0] as CSTLink;
+      expect(link.type).toBe("Link");
+      expect(link.url).toBe("https://example.com");
+    });
+
+    test("parses images", () => {
+      const result = parseSource("![Alt text](image.png)");
+      const para = result.cst.children[0] as CSTParagraph;
+      const image = para.content[0] as CSTImage;
+      expect(image.type).toBe("Image");
+      expect(image.alt).toBe("Alt text");
+      expect(image.src).toBe("image.png");
+    });
+
+    test("parses links with surrounding text", () => {
+      const result = parseSource("See [the docs](https://docs.example.com) for more.");
+      const para = result.cst.children[0] as CSTParagraph;
+      const link = para.content.find(c => c.type === "Link") as CSTLink;
+      expect(link).toBeDefined();
+      expect(link.url).toBe("https://docs.example.com");
+    });
+  });
+
+  describe("tables (via directives)", () => {
+    test("parses @table directive", () => {
+      const result = parseSource("@table\n  @row\n    @cell Content");
+      const table = result.cst.children[0] as CSTDirective;
+      expect(table.type).toBe("Directive");
+      expect(table.name).toBe("table");
+      expect(table.body).not.toBeNull();
+    });
+
+    test("parses table with column widths", () => {
+      const result = parseSource("@table(widths: [1in, 2in])");
+      const table = result.cst.children[0] as CSTDirective;
+      expect(table.name).toBe("table");
+      expect(table.arguments.length).toBeGreaterThan(0);
     });
   });
 });

@@ -26,6 +26,8 @@ import type {
   CSTHardBreak,
   CSTFootnoteRef,
   CSTCrossRef,
+  CSTLink,
+  CSTImage,
   ParseResult,
   CSTPositionalArg,
   CSTNamedArg,
@@ -499,6 +501,34 @@ export class Parser {
           target: token.value,
           loc: loc(token.line, token.column),
         } as CSTCrossRef;
+
+      case TokenType.LINK: {
+        this.advance();
+        // Value is "text|url"
+        const pipeIdx = token.value.indexOf("|");
+        const text = pipeIdx >= 0 ? token.value.slice(0, pipeIdx) : token.value;
+        const url = pipeIdx >= 0 ? token.value.slice(pipeIdx + 1) : "";
+        return {
+          type: "Link",
+          text: [{ type: "Text", value: text, loc: loc(token.line, token.column) } as CSTText],
+          url,
+          loc: loc(token.line, token.column),
+        } as CSTLink;
+      }
+
+      case TokenType.IMAGE: {
+        this.advance();
+        // Value is "alt|src"
+        const pipeIdx = token.value.indexOf("|");
+        const alt = pipeIdx >= 0 ? token.value.slice(0, pipeIdx) : token.value;
+        const src = pipeIdx >= 0 ? token.value.slice(pipeIdx + 1) : "";
+        return {
+          type: "Image",
+          alt,
+          src,
+          loc: loc(token.line, token.column),
+        } as CSTImage;
+      }
 
       case TokenType.DIRECTIVE:
         // Inline directive

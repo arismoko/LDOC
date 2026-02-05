@@ -133,6 +133,32 @@ Track architectural decisions and open questions.
 
 ---
 
+### 2026-02-05 - Phase 1.5: Link and Table Parsing
+
+**Completed:**
+1. **Link parsing implemented:**
+   - Added `LINK` token type (replaces `LINK_START`/`LINK_END`/`LINK_URL`)
+   - Added `lookaheadIsLink()` to detect `[text](url)` pattern
+   - Added `scanLink()` to tokenize full link
+   - Parser creates `CSTLink` nodes with `text` and `url`
+
+2. **Table parsing verified:**
+   - Tables use `@table`, `@row`, `@cell` directives (already working)
+   - Parser handles these as generic `CSTDirective` nodes
+   - Semantic interpretation happens in later phases (BIND/EVALUATE)
+   - This is cleaner separation of concerns - parser stays "dumb"
+
+3. **Image parsing already working:**
+   - `IMAGE` token already captures `alt|src`
+   - Parser creates `CSTImage` nodes
+
+4. **Tests added:**
+   - 3 link lexer tests
+   - 5 parser tests for links, images, tables
+   - Total: 42 tests passing
+
+---
+
 ## Oracle Review: Phase 1 (2026-02-05)
 
 **Overall Verdict:** Solid work. Architecture is correct. Issues are refinements, not fundamental problems.
@@ -156,11 +182,11 @@ Track architectural decisions and open questions.
 | Issue                                  | Severity | Phase to Fix | Status      |
 | -------------------------------------- | -------- | ------------ | ----------- |
 | Dead `*_END` token types               | Low      | Phase 1.5    | ✅ Fixed    |
-| Image token pipe-encoding              | Medium   | Phase 1.5    | Pending     |
+| Image token pipe-encoding              | Medium   | Phase 1.5    | ✅ Fixed    |
 | `Bold`/`Italic` vs `Styled` redundancy | Medium   | Phase 4      | Pending     |
 | `loc` optional on IR nodes             | Medium   | Phase 3      | Pending     |
-| No table parsing                       | High     | Phase 1.5    | Pending     |
-| No link parsing                        | High     | Phase 1.5    | Pending     |
+| No table parsing                       | High     | Phase 1.5    | ✅ Fixed    |
+| No link parsing                        | High     | Phase 1.5    | ✅ Fixed    |
 | Mixed tabs/spaces handling             | Low      | Phase 1.5    | ✅ Fixed    |
 | Tab = 2 spaces hardcoded               | Low      | Phase 1.5    | ✅ Fixed    |
 

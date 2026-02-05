@@ -127,4 +127,23 @@ describe("Lexer", () => {
       expect(result.tokens[0]!.type).toBe(TokenType.COMMENT);
     });
   });
+
+  describe("links", () => {
+    test("tokenizes markdown links", () => {
+      const result = tokenize("[Click here](https://example.com)");
+      expect(result.tokens[0]!.type).toBe(TokenType.LINK);
+      expect(result.tokens[0]!.value).toBe("Click here|https://example.com");
+    });
+
+    test("tokenizes links with text only", () => {
+      const result = tokenize("[text](url)");
+      expect(result.tokens[0]!.type).toBe(TokenType.LINK);
+      expect(result.tokens[0]!.value).toBe("text|url");
+    });
+
+    test("treats non-link brackets as text", () => {
+      const result = tokenize("[not a link]");
+      expect(result.tokens[0]!.type).toBe(TokenType.TEXT);
+    });
+  });
 });

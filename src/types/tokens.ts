@@ -44,12 +44,10 @@ export enum TokenType {
   HIGHLIGHT_MARKER = "HIGHLIGHT_MARKER", // ==
   
   // Links and references
-  LINK_START = "LINK_START",     // [
-  LINK_END = "LINK_END",         // ]
-  LINK_URL = "LINK_URL",         // (url)
-  IMAGE = "IMAGE",               // ![alt](src)
-  FOOTNOTE_REF = "FOOTNOTE_REF", // [^name]
-  CROSS_REF = "CROSS_REF",       // [@ref]
+  LINK = "LINK",                   // [text](url) - value is "text|url"
+  IMAGE = "IMAGE",                 // ![alt](src) - value is "alt|src"
+  FOOTNOTE_REF = "FOOTNOTE_REF",   // [^name]
+  CROSS_REF = "CROSS_REF",         // [@ref]
   
   // Block markers
   HEADER_MARKER = "HEADER_MARKER", // #, ##, ###, etc.
