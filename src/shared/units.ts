@@ -72,8 +72,8 @@ export function parseLengthToTwip(raw: string | number, options: ParseLengthOpti
 
   const trimmed = String(raw).trim();
 
-  // Try to match with units
-  const withUnits = trimmed.match(/^([0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt|twip)$/i);
+  // Try to match with units (supports negative values for character spacing etc.)
+  const withUnits = trimmed.match(/^(-?[0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt|twip)$/i);
   if (withUnits) {
     const value = parseFloat(withUnits[1]!);
     const unit = withUnits[2]!.toLowerCase();
@@ -95,7 +95,7 @@ export function parseLengthToTwip(raw: string | number, options: ParseLengthOpti
 
   // Lenient mode: try to match without units (assume inches)
   if (lenient) {
-    const withoutUnits = trimmed.match(/^([0-9]+(?:\.[0-9]+)?)$/);
+    const withoutUnits = trimmed.match(/^(-?[0-9]+(?:\.[0-9]+)?)$/);
     if (withoutUnits) {
       const value = parseFloat(withoutUnits[1]!);
       return Math.round(value * TWIPS_PER_INCH);
