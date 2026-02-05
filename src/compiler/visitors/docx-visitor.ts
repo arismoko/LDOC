@@ -45,6 +45,7 @@ import { getNumberingReference, getListTextIndentTwip } from "../numbering";
 import { compileTable, compileBox, type TableCompilerContext } from "../table";
 import { inlineText } from "../text";
 import { compileInlineNodes } from "./inline-visitor";
+import { ptToHalfPoints, PT_VALUE_REGEX } from "../../shared/units";
 
 export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
   constructor(
@@ -264,14 +265,6 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       ? undefined
       : this.currentAlignment;
 
-    // DEBUG: Check alignment for underscore line
-    /*
-    const textContent = node.content.map(c => c.type === 'text' ? c.value : '').join('');
-    if (textContent.includes("_____")) {
-       console.log(`DEBUG: Paragraph with underscores. currentAlignment=${this.currentAlignment}, alignment=${alignment}`);
-    }
-    */
-
     const paragraph = new Paragraph({
       children: wrappedChildren,
       heading: headingLevel,
@@ -298,10 +291,7 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
 
     let nextAlignment = this.currentAlignment;
     if (node.modifier === "center") nextAlignment = AlignmentType.CENTER;
-    if (node.modifier === "right") {
-      nextAlignment = AlignmentType.RIGHT;
-      // console.log("DEBUG: Found right modifier, setting alignment to RIGHT");
-    }
+    if (node.modifier === "right") nextAlignment = AlignmentType.RIGHT;
     if (node.modifier === "justify" as any) nextAlignment = AlignmentType.JUSTIFIED;
     
     // Handle indent/outdent modifiers
@@ -338,6 +328,15 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
     let nextParagraphOptions = this.paragraphOptions;
 
     if (node.modifier === "style" && node.attributes) {
+      // Apply alignment
+      if (node.attributes.align) {
+        const alignVal = String(node.attributes.align).toLowerCase();
+        if (alignVal === "center") nextAlignment = AlignmentType.CENTER;
+        else if (alignVal === "right") nextAlignment = AlignmentType.RIGHT;
+        else if (alignVal === "justify") nextAlignment = AlignmentType.JUSTIFIED;
+        else if (alignVal === "left") nextAlignment = AlignmentType.LEFT;
+      }
+
       // Apply font
       if (node.attributes.font) {
         nextStyle.font = node.attributes.font;
@@ -345,10 +344,10 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       
       // Apply size (parse pt value to half-points for docx)
       if (node.attributes.size) {
-        const sizeMatch = node.attributes.size.match(/^(\d+(?:\.\d+)?)(pt)?$/i);
+        const sizeMatch = node.attributes.size.match(PT_VALUE_REGEX);
         if (sizeMatch) {
           const pt = parseFloat(sizeMatch[1]!);
-          nextStyle.size = Math.round(pt * 2); // docx uses half-points
+          nextStyle.size = ptToHalfPoints(pt); // docx uses half-points
         }
       }
       
@@ -358,6 +357,32 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
         if (colorMatch) {
           nextStyle.color = colorMatch[1]!.toUpperCase();
         }
+      }
+
+      // Apply text formatting flags
+      if (node.attributes.bold !== undefined) {
+        nextStyle.bold = node.attributes.bold === "true" || node.attributes.bold === "";
+      }
+      if (node.attributes.italic !== undefined) {
+        nextStyle.italics = node.attributes.italic === "true" || node.attributes.italic === "";
+      }
+      if (node.attributes.underline !== undefined) {
+        nextStyle.underline = node.attributes.underline === "true" || node.attributes.underline === "";
+      }
+      if (node.attributes.strike !== undefined) {
+        nextStyle.strike = node.attributes.strike === "true" || node.attributes.strike === "";
+      }
+      if (node.attributes.caps !== undefined) {
+        nextStyle.allCaps = node.attributes.caps === "true" || node.attributes.caps === "";
+      }
+      if (node.attributes["small-caps"] !== undefined) {
+        nextStyle.smallCaps = node.attributes["small-caps"] === "true" || node.attributes["small-caps"] === "";
+      }
+      if (node.attributes.subscript !== undefined) {
+        nextStyle.subscript = node.attributes.subscript === "true" || node.attributes.subscript === "";
+      }
+      if (node.attributes.superscript !== undefined) {
+        nextStyle.superscript = node.attributes.superscript === "true" || node.attributes.superscript === "";
       }
 
       // Apply spacing

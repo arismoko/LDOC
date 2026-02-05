@@ -7,7 +7,7 @@ describe("Compiler Robustness & Bugs", () => {
   test("throws error for nested @define", async () => {
     const input = `
 @center
-  @define MyMacro
+  @define(MyMacro)
     Hello
 `;
     const ast = parse(input);
@@ -18,7 +18,7 @@ describe("Compiler Robustness & Bugs", () => {
   test("compiles nested @columns as table with @break", async () => {
     const input = `
 @center
-  @columns 2
+  @columns(2)
     Col 1
     @break
     Col 2
@@ -32,10 +32,10 @@ describe("Compiler Robustness & Bugs", () => {
 
   test("compiles @columns within @columns (deeply nested) with @break", async () => {
     const input = `
-@columns 2
+@columns(2)
   Left column
   @break
-  @columns 2 gap=0.5in separator
+  @columns(2, gap: 0.5in, separator)
     Nested col 1
     @break
     Nested col 2
@@ -50,7 +50,7 @@ describe("Compiler Robustness & Bugs", () => {
 
   test("compiles top-level @break as column break", async () => {
     const input = `
-@columns 2
+@columns(2)
   First column content
   @break
   Second column content
@@ -63,11 +63,11 @@ describe("Compiler Robustness & Bugs", () => {
 
   test("expands @use inside modifiers", async () => {
     const input = `
-@define MyText
+@define(MyText)
   Expanded Text
 
 @center
-  @use MyText
+  @use(MyText)
 `;
     const ast = parse(input);
     const expanded = await expandDefinesAndUses(ast, {});
@@ -86,11 +86,11 @@ describe("Compiler Robustness & Bugs", () => {
 
   test("expands @use inside @if", async () => {
     const input = `
-@define MyText
+@define(MyText)
   Expanded Text
 
-@if true
-  @use MyText
+@if(true)
+  @use(MyText)
 @end
 `;
     const ast = parse(input);

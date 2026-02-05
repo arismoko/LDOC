@@ -7,7 +7,7 @@ import { Table, TableLayoutType } from "docx";
 describe("Nested Columns Layout", () => {
   test("columns region serializes with AUTOFIT layout attribute", () => {
     const input = `
-@columns 2
+@columns(2)
 Column 1 content
 @break
 Column 2 content
@@ -104,7 +104,7 @@ Column 2 content
 
   test("3 columns region compiles to a Table with AUTOFIT layout", () => {
     const input = `
-@columns 3
+@columns(3)
 Col 1
 @break
 Col 2
@@ -168,7 +168,7 @@ Col 3
 
   test("4 columns region compiles to a Table with AUTOFIT layout", () => {
     const input = `
-@columns 4
+@columns(4)
 Col 1
 @break
 Col 2

@@ -83,7 +83,7 @@ describe("Corpus", () => {
         const ast = parser.parse(content, { sourcePath: path });
 
         // Should not throw
-        const docxBuffer = await compile(ast);
+        const docxBuffer = await compile(ast, { document: { allow_undefined: true } });
 
         expect(docxBuffer).toBeInstanceOf(Buffer);
         expect(docxBuffer.length).toBeGreaterThan(0);

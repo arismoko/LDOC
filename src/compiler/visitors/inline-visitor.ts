@@ -1,10 +1,12 @@
 import { TextRun, InternalHyperlink, ExternalHyperlink, PageNumber, Tab, FootnoteReferenceRun, ImageRun } from "docx";
-import type { InlineNode, NodeVisitor, TextNode, VariableNode, CrossRefNode, DefinedTermNode, BlankNode, EmphasisNode, LinkNode, StrikethroughNode, InlineCodeNode, FootnoteReferenceNode, ImageNode, InlineStyleNode } from "../../parser/ast";
+import type { InlineNode, NodeVisitor, TextNode, VariableNode, CrossRefNode, DefinedTermNode, BlankNode, EmphasisNode, LinkNode, StrikethroughNode, InlineCodeNode, FootnoteReferenceNode, ImageNode, InlineStyleNode, HighlightNode } from "../../parser/ast";
 import sizeOf from "image-size";
 import fs from "node:fs";
 import type { CompilationContext } from "../context";
 import { resolveVariable, createTextRuns } from "../text";
 import type { TextStyle } from "../styles";
+import { ptToHalfPoints, PT_VALUE_REGEX } from "../../shared/units";
+import { isHighlightColor, DEFAULT_HIGHLIGHT_COLOR } from "../../shared/highlight";
 
 export class InlineNodeVisitor implements NodeVisitor<any[]> {
   constructor(
@@ -142,13 +144,8 @@ export class InlineNodeVisitor implements NodeVisitor<any[]> {
     // Render as monospaced text with a light gray background?
     // DOCX doesn't do inline code background easily without shading.
     // Let's just use Courier New font.
-    return [
-      new TextRun({
-        text: node.value,
-        font: "Courier New",
-        ...this.baseStyle,
-      }),
-    ];
+    const codeStyle = { ...this.baseStyle, font: "Courier New" };
+    return createTextRuns(node.value, codeStyle);
   }
 
   visitFootnoteReference(node: FootnoteReferenceNode): any[] {
@@ -159,7 +156,8 @@ export class InlineNodeVisitor implements NodeVisitor<any[]> {
     if (id === undefined) {
       // Missing definition
       this.ctx.missingVariables.set(`Footnote: ${node.label}`, { line: node.line, column: node.column });
-      return [new TextRun({ text: `[^${node.label}]`, ...this.baseStyle, color: "FF0000" })];
+      const errorStyle = { ...this.baseStyle, color: "FF0000" };
+      return createTextRuns(`[^${node.label}]`, errorStyle);
     }
 
     return [new FootnoteReferenceRun(id)];
@@ -198,9 +196,9 @@ export class InlineNodeVisitor implements NodeVisitor<any[]> {
 
     // Size (convert pt to half-points)
     if (node.attributes.size) {
-      const sizeMatch = node.attributes.size.match(/^(\d+(?:\.\d+)?)(pt)?$/i);
+      const sizeMatch = node.attributes.size.match(PT_VALUE_REGEX);
       if (sizeMatch && sizeMatch[1]) {
-        styleOverrides.size = Math.round(parseFloat(sizeMatch[1]) * 2);
+        styleOverrides.size = ptToHalfPoints(parseFloat(sizeMatch[1]));
       }
     }
 
@@ -212,18 +210,45 @@ export class InlineNodeVisitor implements NodeVisitor<any[]> {
       }
     }
 
-    // Bold
-    if (node.attributes.bold === "true") {
-      styleOverrides.bold = true;
+    // Text formatting flags
+    if (node.attributes.bold !== undefined) {
+      styleOverrides.bold = node.attributes.bold === "true" || node.attributes.bold === "";
     }
-
-    // Italic
-    if (node.attributes.italic === "true") {
-      styleOverrides.italics = true;
+    if (node.attributes.italic !== undefined) {
+      styleOverrides.italics = node.attributes.italic === "true" || node.attributes.italic === "";
+    }
+    if (node.attributes.underline !== undefined) {
+      styleOverrides.underline = node.attributes.underline === "true" || node.attributes.underline === "";
+    }
+    if (node.attributes.strike !== undefined) {
+      styleOverrides.strike = node.attributes.strike === "true" || node.attributes.strike === "";
+    }
+    if (node.attributes.caps !== undefined) {
+      styleOverrides.allCaps = node.attributes.caps === "true" || node.attributes.caps === "";
+    }
+    if (node.attributes["small-caps"] !== undefined) {
+      styleOverrides.smallCaps = node.attributes["small-caps"] === "true" || node.attributes["small-caps"] === "";
+    }
+    if (node.attributes.subscript !== undefined) {
+      styleOverrides.subscript = node.attributes.subscript === "true" || node.attributes.subscript === "";
+    }
+    if (node.attributes.superscript !== undefined) {
+      styleOverrides.superscript = node.attributes.superscript === "true" || node.attributes.superscript === "";
     }
 
     // Create new visitor with merged style
     const visitor = new InlineNodeVisitor(this.ctx, styleOverrides, this.scope);
+    return node.content.flatMap(child => visitor.visit(child));
+  }
+
+  visitHighlight(node: HighlightNode): any[] {
+    // Map color or default to yellow
+    const highlightColor = node.color && isHighlightColor(node.color) 
+      ? node.color 
+      : DEFAULT_HIGHLIGHT_COLOR;
+    
+    const highlightStyle = { ...this.baseStyle, highlight: highlightColor };
+    const visitor = new InlineNodeVisitor(this.ctx, highlightStyle, this.scope);
     return node.content.flatMap(child => visitor.visit(child));
   }
 
@@ -242,6 +267,7 @@ export class InlineNodeVisitor implements NodeVisitor<any[]> {
       case "footnote_ref": return this.visitFootnoteReference(node);
       case "cross_ref": return this.visitCrossRef(node);
       case "inline_style": return this.visitInlineStyle(node);
+      case "highlight": return this.visitHighlight(node);
       default: return [];
     }
   }

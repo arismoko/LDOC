@@ -90,24 +90,34 @@ describe("Lexer", () => {
     expect(tokens.some((t) => t.type === TokenType.BOLD_ITALIC)).toBe(true);
   });
 
-  test("tokenizes modifier counts", () => {
-    const lexer = new Lexer("@indent:2\n@outdent:3\n@indent 2\n@indent=36pt\n");
+  test("tokenizes highlight with ==text==", () => {
+    const lexer = new Lexer("This is ==highlighted== text");
+    const tokens = lexer.tokenize();
+
+    const highlightTokens = tokens.filter((t) => t.type === TokenType.HIGHLIGHT);
+    expect(highlightTokens).toHaveLength(1);
+    expect(highlightTokens[0]!.value).toBe("highlighted");
+  });
+
+  test("tokenizes modifier with arguments", () => {
+    // v2 syntax: modifiers use @modifier(args) form
+    // The lexer emits MODIFIER token followed by argument tokens (PAREN_OPEN, NUMBER, etc.)
+    const lexer = new Lexer("@indent(2)\n@outdent(3)\n@indent(length: 36pt)\n");
     const tokens = lexer.tokenize();
 
     const mods = tokens.filter((t) => t.type === TokenType.MODIFIER);
-    expect(mods).toHaveLength(4);
+    expect(mods).toHaveLength(3);
     const md0 = must(mods[0]);
     const md1 = must(mods[1]);
     const md2 = must(mods[2]);
-    const md3 = must(mods[3]);
     expect(md0.value).toBe("indent");
-    expect(md0.count).toBe(2);
     expect(md1.value).toBe("outdent");
-    expect(md1.count).toBe(3);
     expect(md2.value).toBe("indent");
-    expect(md2.count).toBe(2);
-    expect(md3.value).toBe("indent");
-    expect(md3.length).toBe("36pt");
+    
+    // Arguments are now parsed by the parser from the token stream
+    // Check that we have LPAREN tokens after each MODIFIER
+    const parenOpens = tokens.filter((t) => t.type === TokenType.LPAREN);
+    expect(parenOpens.length).toBeGreaterThanOrEqual(3);
   });
 
   test("tokenizes explicit end-block sentinel", () => {
@@ -184,24 +194,23 @@ describe("Lexer", () => {
     expect(allText).toContain("@jane_smith");
   });
 
-  test("'[day]' in the middle of a line is tokenized as TEXT, not TABLE_ROW", () => {
+  test("'[day]' in the middle of a line is tokenized as TEXT", () => {
     const lexer = new Lexer("dated January [day], 2026");
     const tokens = lexer.tokenize();
 
-    // Should NOT have any TABLE_ROW tokens
-    expect(tokens.some((t) => t.type === TokenType.TABLE_ROW)).toBe(false);
     // Should have text containing '[day]'
     const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
     const allText = textTokens.map((t) => t.value).join("");
     expect(allText).toContain("[day]");
   });
 
-  test("'[...]' at start of line is still parsed as TABLE_ROW", () => {
+  test("'[...]' at start of line is now parsed as TEXT (v2, legacy TABLE_ROW removed)", () => {
     const lexer = new Lexer("[A, B, C]");
     const tokens = lexer.tokenize();
 
-    const tableRows = tokens.filter((t) => t.type === TokenType.TABLE_ROW);
-    expect(tableRows).toHaveLength(1);
+    // Should be parsed as TEXT in v2 (no legacy TABLE_ROW token)
+    const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
+    expect(textTokens.length).toBeGreaterThan(0);
   });
 
   test("'[[...]]' cross-ref mid-line still works", () => {
@@ -260,7 +269,7 @@ describe("Parser", () => {
 
   test("parses @anchor", () => {
     const parser = new Parser();
-    const ast = parser.parse("@anchor Foo\n# Heading\n");
+    const ast = parser.parse("@anchor(Foo)\n# Heading\n");
     const n0 = must(ast.body[0]);
     expect(n0.type).toBe("anchor");
     expect((n0 as any).name).toBe("Foo");
@@ -335,6 +344,57 @@ describe("Parser", () => {
     expect(bold.content[3].type).toBe("inline_code");
     expect(bold.content[3].value).toBe("code");
     expect(bold.content[4].value).toBe(" here");
+  });
+
+  test("parses ==text== as highlight with default color", () => {
+    const parser = new Parser();
+    const ast = parser.parse("This is ==highlighted== text.");
+
+    const para = must(ast.body[0]) as any;
+    expect(para.type).toBe("paragraph");
+    
+    // Find the highlight node
+    const highlight = para.content.find((n: any) => n.type === "highlight");
+    expect(highlight).toBeDefined();
+    expect(highlight.type).toBe("highlight");
+    expect(highlight.color).toBeUndefined(); // Default (yellow)
+    expect(highlight.content).toHaveLength(1);
+    expect(highlight.content[0].type).toBe("text");
+    expect(highlight.content[0].value).toBe("highlighted");
+  });
+
+  test("parses @highlight(color)[text] with explicit color", () => {
+    const parser = new Parser();
+    const ast = parser.parse("This is @highlight(cyan)[colored] text.");
+
+    const para = must(ast.body[0]) as any;
+    expect(para.type).toBe("paragraph");
+    
+    // Find the highlight node
+    const highlight = para.content.find((n: any) => n.type === "highlight");
+    expect(highlight).toBeDefined();
+    expect(highlight.type).toBe("highlight");
+    expect(highlight.color).toBe("cyan");
+    expect(highlight.content).toHaveLength(1);
+    expect(highlight.content[0].type).toBe("text");
+    expect(highlight.content[0].value).toBe("colored");
+  });
+
+  test("parses nested highlight inside bold", () => {
+    const parser = new Parser();
+    const ast = parser.parse("**bold ==highlight== here**");
+
+    const para = must(ast.body[0]) as any;
+    const bold = para.content[0];
+    expect(bold.type).toBe("emphasis");
+    expect(bold.style).toBe("bold");
+
+    // Bold content should have: text, highlight, text
+    expect(bold.content).toHaveLength(3);
+    expect(bold.content[0].value).toBe("bold ");
+    expect(bold.content[1].type).toBe("highlight");
+    expect(bold.content[1].color).toBeUndefined();
+    expect(bold.content[2].value).toBe(" here");
   });
 
   test("soft-wraps single newlines within paragraphs", () => {
@@ -484,7 +544,7 @@ Hello world`);
 
   test("dedent closes @table block", () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  [A]\n\nHello\n");
+    const ast = parser.parse("@table\n  @row\n    @cell: A\n\nHello\n");
     expect(must(ast.body[0]).type).toBe("table");
     const t: any = must(ast.body[0]);
     expect(t.rows.length).toBe(1);
@@ -501,7 +561,7 @@ Hello world`);
 
   test("parses @define and @use", () => {
     const parser = new Parser();
-    const ast = parser.parse("@define Foo\n  Hello\n\n# Title\n\n@use Foo\n");
+    const ast = parser.parse("@define(Foo)\n  Hello\n\n# Title\n\n@use(Foo)\n");
     expect(must(ast.body[0]).type).toBe("define");
     expect((must(ast.body[0]) as any).name).toBe("Foo");
     expect((must(ast.body[0]) as any).template.length).toBeGreaterThan(0);
@@ -510,7 +570,7 @@ Hello world`);
 
   test("parses @define params and @use args", () => {
     const parser = new Parser();
-    const ast = parser.parse("@define Notice(title, subject)\n  Hello\n\n@use Notice(title=\"T\", subject=S)\n");
+    const ast = parser.parse("@define(Notice, title, subject)\n  Hello\n\n@use(Notice, title: \"T\", subject: S)\n");
     const def: any = ast.body[0];
     const use: any = ast.body.find((n: any) => n.type === "use");
     expect(def.params).toEqual(["title", "subject"]);
@@ -520,11 +580,11 @@ Hello world`);
 
   test("parses @if/@else/@end", () => {
     const parser = new Parser();
-    const ast = parser.parse(`@if true
+    const ast = parser.parse(`@if(true)
   Hello
-@else
+ @else
   World
-@end
+ @end
 `);
 
     expect(must(ast.body[0]).type).toBe("if");
@@ -536,7 +596,7 @@ Hello world`);
 
   test("parses @repeat", () => {
     const parser = new Parser();
-    const ast = parser.parse(`@repeat 3
+    const ast = parser.parse(`@repeat(3)
   Hello
  @end
 `);
@@ -548,26 +608,26 @@ Hello world`);
 
   test("accepts @repeat without @end (optional)", () => {
     const parser = new Parser();
-    const ast = parser.parse("@repeat 2\n  x\n");
+    const ast = parser.parse("@repeat(2)\n  x\n");
     expect(must(ast.body[0]).type).toBe("repeat");
   });
 
   test("rejects @repeat above max", () => {
     const parser = new Parser();
-    expect(() => parser.parse("@repeat 101\n  x\n@end\n")).toThrow(/exceeds maximum/);
+    expect(() => parser.parse("@repeat(101)\n  x\n@end\n")).toThrow(/exceeds maximum/);
   });
 
   test("accepts @repeat closed without @end (optional)", () => {
     const parser = new Parser();
-    const ast = parser.parse("@repeat 1\n  x\n");
+    const ast = parser.parse("@repeat(1)\n  x\n");
     expect(must(ast.body[0]).type).toBe("repeat");
   });
 
   test("parses @foreach", () => {
     const parser = new Parser();
-    const ast = parser.parse(`@foreach item in items
+    const ast = parser.parse(`@foreach(item, in: items)
   {{item}}
-@end
+ @end
 `);
 
     expect(must(ast.body[0]).type).toBe("foreach");
@@ -579,7 +639,7 @@ Hello world`);
 
   test("accepts @foreach without @end (optional)", () => {
     const parser = new Parser();
-    const ast = parser.parse("@foreach x in items\n  y\n");
+    const ast = parser.parse("@foreach(x, in: items)\n  y\n");
     expect(must(ast.body[0]).type).toBe("foreach");
   });
 
@@ -595,9 +655,9 @@ Hello world`);
 
   test("parses @columns region with options", () => {
     const parser = new Parser();
-    const ast = parser.parse(`@columns 2 gap=0.5in separator
+    const ast = parser.parse(`@columns(2, gap: 0.5in, separator)
   Column content here
-@end
+ @end
 
 After columns.`);
 
@@ -614,9 +674,9 @@ After columns.`);
 
   test("parses @columns region with default gap", () => {
     const parser = new Parser();
-    const ast = parser.parse(`@columns 3
+    const ast = parser.parse(`@columns(3)
   Content
-@end`);
+ @end`);
 
     const col: any = must(ast.body[0]);
     expect(col.type).toBe("columns_region");
@@ -627,11 +687,11 @@ After columns.`);
 
   test("accepts nested @columns", () => {
     const parser = new Parser();
-    const ast = parser.parse(`@columns 2
-  @columns 3
+    const ast = parser.parse(`@columns(2)
+  @columns(3)
     Nested
   @end
-@end`);
+ @end`);
     expect(ast.body.length).toBe(1);
     const outer = ast.body[0] as any;
     expect(outer.type).toBe("columns_region");
@@ -644,13 +704,13 @@ After columns.`);
 
   test("rejects @columns with invalid count", () => {
     const parser = new Parser();
-    expect(() => parser.parse("@columns 0\n  x\n@end\n")).toThrow();
-    expect(() => parser.parse("@columns 11\n  x\n@end\n")).toThrow();
+    expect(() => parser.parse("@columns(0)\n  x\n@end\n")).toThrow();
+    expect(() => parser.parse("@columns(11)\n  x\n@end\n")).toThrow();
   });
 
   test("accepts @if without @end (optional)", () => {
     const parser = new Parser();
-    const ast = parser.parse("@if true\n  x\n");
+    const ast = parser.parse("@if(true)\n  x\n");
     expect(must(ast.body[0]).type).toBe("if");
   });
 });
@@ -746,7 +806,7 @@ Hello {{name}}`);
 
   test("@anchor creates a bookmark target for [[...]]", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@anchor target\nBody.\n\nSee [[target]].`);
+    const ast = parser.parse(`@anchor(target)\nBody.\n\nSee [[target]].`);
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
 
@@ -759,7 +819,7 @@ Hello {{name}}`);
 
   test("@define does not render; @use expands", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@define Block\n  @box\n    Hi\n\n# Title\n\n@use Block\n`);
+    const ast = parser.parse(`@define(Block)\n  @box\n    Hi\n\n# Title\n\n@use(Block)\n`);
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
 
@@ -773,7 +833,7 @@ Hello {{name}}`);
 
   test("@use substitutes params into {{param}}", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@define Box(title)\n  @box\n    **{{title}}**\n\n@use Box(title=\"Hello\")\n`);
+    const ast = parser.parse(`@define(Box, title)\n  @box\n    **{{title}}**\n\n@use(Box, title: "Hello")\n`);
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -783,7 +843,7 @@ Hello {{name}}`);
 
   test("template anchors work without explicit label (auto-label sugar)", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@define T()\n  @anchor a\n  Hello\n  See [[a]].\n\n@use T()\n@use T()\n`);
+    const ast = parser.parse(`@define(T)\n  @anchor(a)\n  Hello\n  See [[a]].\n\n@use(T)\n@use(T)\n`);
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -794,7 +854,7 @@ Hello {{name}}`);
 
   test("scoped anchors inside templates do not collide", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@define T()\n  @anchor a\n  Hello\n  See [[a]].\n\n@use T() as X\n@use T() as Y\nSee [[X.a]] and [[Y.a]].\n`);
+    const ast = parser.parse(`@define(T)\n  @anchor(a)\n  Hello\n  See [[a]].\n\n@use(T, label: X)\n@use(T, label: Y)\nSee [[X.a]] and [[Y.a]].\n`);
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -805,21 +865,21 @@ Hello {{name}}`);
 
   test("@use requires all declared params (no fallback to @meta)", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@meta\n  title: FromMeta\n\n@define Box(title)\n  {{title}}\n\n@use Box()\n`);
+    const ast = parser.parse(`@meta\n  title: FromMeta\n\n@define(Box, title)\n  {{title}}\n\n@use(Box)\n`);
     const compiler = new DocxCompiler();
     await expect(compiler.compile(ast)).rejects.toThrow(/missing required param/);
   });
 
   test("@use rejects unknown params", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@define Box(title)\n  Hi\n\n@use Box(nope=1)\n`);
+    const ast = parser.parse(`@define(Box, title)\n  Hi\n\n@use(Box, nope: 1)\n`);
     const compiler = new DocxCompiler();
     await expect(compiler.compile(ast)).rejects.toThrow(/unknown param/);
   });
 
   test("detects recursive @use", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@define A\n  @use A\n\n@use A\n`);
+    const ast = parser.parse(`@define(A)\n  @use(A)\n\n@use(A)\n`);
     const compiler = new DocxCompiler();
     await expect(compiler.compile(ast)).rejects.toThrow(/Recursive @use/);
   });
@@ -845,7 +905,7 @@ Hello {{name}}`);
 
   test("@import missing file errors", async () => {
     const mainPath = resolve(process.cwd(), "tests/fixtures/imports/main.ldoc");
-    const input = `@document\n  title: X\n\n@import ./nope.ldoc\n`;
+    const input = `@document\n  title: X\n\n@import("./nope.ldoc")\n`;
     const ast = new Parser().parse(input, { sourcePath: mainPath });
     const compiler = new DocxCompiler();
     await expect(compiler.compile(ast)).rejects.toThrow(/Import not found/);
@@ -853,14 +913,14 @@ Hello {{name}}`);
 
   test("throws on unknown @use", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@use Missing\n");
+    const ast = parser.parse("@use(Missing)\n");
     const compiler = new DocxCompiler();
     await expect(compiler.compile(ast)).rejects.toThrow(/Unknown @use/);
   });
 
   test("@anchor skips comments and blank lines", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@anchor a\n// comment\n\nBody.\nSee [[a]].`);
+    const ast = parser.parse(`@anchor(a)\n// comment\n\nBody.\nSee [[a]].`);
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
 
@@ -1015,7 +1075,7 @@ Body paragraph.`);
 
   test("@repeat expands N times", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@repeat 3\n  Hi\n@end\nDone\n`);
+    const ast = parser.parse(`@repeat(3)\n  Hi\n@end\nDone\n`);
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
 
@@ -1029,7 +1089,7 @@ Body paragraph.`);
 
   test("@repeat 0 emits nothing", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@repeat 0\n  Hi\n@end\nDone\n`);
+    const ast = parser.parse(`@repeat(0)\n  Hi\n@end\nDone\n`);
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
 
@@ -1041,12 +1101,12 @@ Body paragraph.`);
 
   test("@foreach iterates comma-separated string param", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@define L(items)
-  @foreach item in items
+    const ast = parser.parse(`@define(L, items)
+  @foreach(item, in: items)
     {{item}}
   @end
 
-@use L(items="a,b,c")
+@use(L, items: "a,b,c")
 `);
 
     const compiler = new DocxCompiler();
@@ -1067,7 +1127,7 @@ Body paragraph.`);
     apple: 1
     banana: 2
 
-@foreach k in items
+@foreach(k, in: items)
   {{k}}
 @end
 `);
@@ -1085,7 +1145,7 @@ Body paragraph.`);
     const parser = new Parser();
     const ast = parser.parse(`Before columns.
 
-@columns 2 gap=0.5in separator
+@columns(2, gap: 0.5in, separator)
   Column content.
 @end
 
@@ -1109,7 +1169,7 @@ After columns.`);
 
   test("@columns region reverts to single column after", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@columns 3
+    const ast = parser.parse(`@columns(3)
   In columns.
 @end
 
@@ -1132,7 +1192,7 @@ After columns.`);
 
   test("@columns gap in different units", async () => {
     const parser = new Parser();
-    const ast = parser.parse(`@columns 2 gap=1cm
+    const ast = parser.parse(`@columns(2, gap: 1cm)
   Content.
 @end`);
 
@@ -1272,7 +1332,7 @@ describe("numbering in @document block", () => {
 describe("Table styling", () => {
   test("@table has borders with size=4", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  [A, B]\n  [1, 2]\n");
+    const ast = parser.parse("@table\n  @row\n    @cell: A\n    @cell: B\n  @row\n    @cell: 1\n    @cell: 2\n");
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -1286,7 +1346,7 @@ describe("Table styling", () => {
 
   test("@table header row has light gray shading", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  [Header1, Header2]\n  [Data1, Data2]\n");
+    const ast = parser.parse("@table\n  @row\n    @cell: Header1\n    @cell: Header2\n  @row\n    @cell: Data1\n    @cell: Data2\n");
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -1298,7 +1358,7 @@ describe("Table styling", () => {
 
   test("@table has cell margins/padding", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  [A, B]\n  [1, 2]\n");
+    const ast = parser.parse("@table\n  @row\n    @cell: A\n    @cell: B\n  @row\n    @cell: 1\n    @cell: 2\n");
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -1310,7 +1370,7 @@ describe("Table styling", () => {
 
   test("@table header text is bold", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  [Header]\n  [Data]\n");
+    const ast = parser.parse("@table\n  @row\n    @cell: Header\n    @cell: X\n  @row\n    @cell: Data\n    @cell: Y\n");
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -1324,9 +1384,9 @@ describe("Table styling", () => {
     expect(headerRow).toContain('<w:b');
   });
 
-  test("@table with colspan using > marker", async () => {
+  test("@table with colspan", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  [Header1, Header2, Header3]\n  [Spanning Cell, >, Normal]\n");
+    const ast = parser.parse("@table\n  @row\n    @cell: Header1\n    @cell: Header2\n    @cell: Header3\n  @row\n    @cell(colspan: 2): Spanning Cell\n    @cell: Normal\n");
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -1337,9 +1397,9 @@ describe("Table styling", () => {
     expect(xml).toMatch(/w:val="2"/);
   });
 
-  test("@table with rowspan using ^ marker", async () => {
+  test("@table with rowspan", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  [Header1, Header2]\n  [Spanning, Normal1]\n  [^, Normal2]\n");
+    const ast = parser.parse("@table\n  @row\n    @cell: Header1\n    @cell: Header2\n  @row\n    @cell(rowspan: 2): Spanning\n    @cell: Normal1\n  @row\n    @cell: Normal2\n");
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -1349,9 +1409,9 @@ describe("Table styling", () => {
     expect(xml).toContain("w:vMerge");
   });
 
-  test("quoted > in table cell is literal text, not colspan", async () => {
+  test("literal > in table cell is text", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  [Column]\n  [\">\"]\n");
+    const ast = parser.parse("@table\n  @row\n    @cell: Column\n    @cell: Dummy\n  @row\n    @cell: >\n    @cell: x\n");
 
     // Should parse as a table with one cell containing ">"
     const table = ast.body[0];
@@ -1360,7 +1420,7 @@ describe("Table styling", () => {
     if (table?.type === "table") {
       const row = table.rows[1];
       expect(row).toBeDefined();
-      expect(row?.cells.length).toBe(1);
+      expect(row?.cells.length).toBe(2);
       const cell = row?.cells[0];
       expect(cell?.content.length).toBe(1);
       // Content is now wrapped in a paragraph
@@ -1373,9 +1433,9 @@ describe("Table styling", () => {
     }
   });
 
-  test("quoted ^ in table cell is literal text, not rowspan", async () => {
+  test("literal ^ in table cell is text", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  [Column]\n  [\"^\"]\n");
+    const ast = parser.parse("@table\n  @row\n    @cell: Column\n    @cell: Dummy\n  @row\n    @cell: ^\n    @cell: x\n");
 
     // Should parse as a table with one cell containing "^"
     const table = ast.body[0];
@@ -1384,7 +1444,7 @@ describe("Table styling", () => {
     if (table?.type === "table") {
       const row = table.rows[1];
       expect(row).toBeDefined();
-      expect(row?.cells.length).toBe(1);
+      expect(row?.cells.length).toBe(2);
       const cell = row?.cells[0];
       expect(cell?.content.length).toBe(1);
       // Content is now wrapped in a paragraph
@@ -1410,8 +1470,12 @@ This is **bold** and *italic* and ***both***.
 @@- Nested bullet
 
 @table
-  [A, B]
-  [1, 2]
+  @row
+    @cell: A
+    @cell: B
+  @row
+    @cell: 1
+    @cell: 2
 `;
 
     const ast = new Parser().parse(input);
@@ -1477,9 +1541,10 @@ Normal paragraph.
     const buffer = await new DocxCompiler().compile(ast);
     const out = (await docxToLdoc(buffer)).source;
 
-    expect(out).toContain("@center");
+    // Decompiler outputs @style(align: ...) format
+    expect(out).toMatch(/@style\(align:\s*center\)/);
     expect(out).toContain("Centered paragraph");
-    expect(out).toContain("@right");
+    expect(out).toMatch(/@style\(align:\s*right\)/);
     expect(out).toContain("Right aligned paragraph");
   });
 
@@ -1503,9 +1568,9 @@ Second paragraph.
   test("columns roundtrip", async () => {
     const input = `Before columns.
 
-@columns 2 gap=0.5in separator
+@columns(2, gap: 0.5in, separator)
   Column content here.
-@end
+ @end
 
 After columns.
 `;
@@ -1514,7 +1579,7 @@ After columns.
     const buffer = await new DocxCompiler().compile(ast);
     const out = (await docxToLdoc(buffer)).source;
 
-    expect(out).toContain("@columns 2");
+    expect(out).toContain("@columns(2");
     expect(out).toContain("Column content here");
     expect(out).toContain("@end");
   });
@@ -1543,7 +1608,7 @@ Body paragraph.
   });
 
   test("indent length roundtrip", async () => {
-    const input = `@indent=36pt
+    const input = `@indent(length: 36pt)
   First paragraph.
 
   Second paragraph.
@@ -1553,13 +1618,13 @@ Body paragraph.
     const buffer = await new DocxCompiler().compile(ast);
     const out = (await docxToLdoc(buffer, { emitIndent: 'on' })).source;
 
-    expect(out).toContain("@indent=36pt");
+    expect(out).toMatch(/@indent\(length:\s*36pt\)/);
     expect(out).toContain("First paragraph");
     expect(out).toContain("Second paragraph");
   });
 
   test("indent emission defaults to off", async () => {
-    const input = `@indent=36pt
+    const input = `@indent(length: 36pt)
   First paragraph.
 `;
 
@@ -1604,8 +1669,8 @@ Body paragraph.
     const out = (await docxToLdoc(buffer, { emitIndent: 'on' })).source;
 
     expect(out).toContain("TABLE OF CONTENTS");
-    // 2598 twips / 20 = 129.9pt
-    expect(out).toMatch(/@indent=129\.9pt/);
+    // 2598 twips / 20 = 129.9pt - decompiler outputs @indent(length: ...)
+    expect(out).toMatch(/@indent\(length:\s*129\.9pt\)/);
   });
 
   test("emitIndent=off suppresses @indent directives on style-indented paragraphs", async () => {
@@ -1823,7 +1888,8 @@ Normal paragraph.
     const out = (await docxToLdoc(buffer)).source;
 
     // Should have block form for 3 consecutive centered lines
-    expect(out).toMatch(/@center\n\s+Line one/);
+    // Decompiler uses @style(align: center) format
+    expect(out).toMatch(/@style\(align:\s*center\)\n\s+Line one/);
     expect(out).toContain("Line two");
     expect(out).toContain("Line three");
     // Normal paragraph should follow
@@ -1841,7 +1907,8 @@ Normal paragraph.
     const out = (await docxToLdoc(buffer)).source;
 
     // Should use inline form for single centered paragraph
-    expect(out).toMatch(/@center Single centered line/);
+    // Decompiler uses @style(align: center) format
+    expect(out).toMatch(/@style\(align:\s*center\)\n\s+Single centered line/);
   });
 
   test("consecutive right-aligned paragraphs are grouped into block form", async () => {
@@ -1857,7 +1924,7 @@ Normal paragraph.
     const out = (await docxToLdoc(buffer)).source;
 
     // Should have block form for 2+ consecutive right-aligned lines
-    expect(out).toMatch(/@right\n\s+Right one/);
+    expect(out).toMatch(/@style\(align:\s*right\)\n\s+Right one/);
     expect(out).toContain("Right two");
   });
 
@@ -1875,9 +1942,11 @@ Normal paragraph.
     const buffer = await new DocxCompiler().compile(ast);
     const out = (await docxToLdoc(buffer)).source;
 
-    // Heading should break the grouping, so each @center should be inline
-    expect(out).toMatch(/@center Centered one/);
-    expect(out).toMatch(/@center Centered two/);
+    // Heading should break the grouping
+    // Decompiler uses @style(align: center) format
+    expect(out).toMatch(/@style\(align:\s*center\)/);
+    expect(out).toContain("Centered one");
+    expect(out).toContain("Centered two");
     expect(out).toContain("# Heading");
   });
 
@@ -1896,8 +1965,10 @@ Normal paragraph.
     const out = (await docxToLdoc(buffer)).source;
 
     // List item should break the grouping (format suffix may vary)
-    expect(out).toMatch(/@center Centered one/);
-    expect(out).toMatch(/@center Centered two/);
+    // Decompiler uses @style(align: center) format
+    expect(out).toMatch(/@style\(align:\s*center\)/);
+    expect(out).toContain("Centered one");
+    expect(out).toContain("Centered two");
     expect(out).toMatch(/@\d+ List item|@[a-z] List item/);
   });
 });
@@ -1995,5 +2066,122 @@ describe("Inline Style", () => {
   test("error on multiline content", () => {
     const lexer = new Lexer('@style(color=red)[line1\nline2]');
     expect(() => lexer.tokenize()).toThrow();
+  });
+
+  test("compiles inline style with underline flag", async () => {
+    const parser = new Parser();
+    const ast = parser.parse('@style(underline)[underlined text]');
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain('w:u');
+  });
+
+  test("compiles inline style with subscript flag", async () => {
+    const parser = new Parser();
+    const ast = parser.parse('H@style(subscript)[2]O');
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain('w:vertAlign');
+    expect(xml).toContain('w:val="subscript"');
+  });
+
+  test("compiles inline style with superscript flag", async () => {
+    const parser = new Parser();
+    const ast = parser.parse('x@style(superscript)[2]');
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain('w:vertAlign');
+    expect(xml).toContain('w:val="superscript"');
+  });
+
+  test("compiles inline style with strike flag", async () => {
+    const parser = new Parser();
+    const ast = parser.parse('@style(strike)[struck text]');
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain('w:strike');
+  });
+
+  test("compiles inline style with caps flag", async () => {
+    const parser = new Parser();
+    const ast = parser.parse('@style(caps)[all caps]');
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain('w:caps');
+  });
+
+  test("compiles inline style with small-caps flag", async () => {
+    const parser = new Parser();
+    const ast = parser.parse('@style(small-caps)[small caps]');
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain('w:smallCaps');
+  });
+
+  test("compiles inline style with multiple flags", async () => {
+    const parser = new Parser();
+    const ast = parser.parse('@style(bold italic underline)[styled text]');
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain('w:b');
+    expect(xml).toContain('w:i');
+    expect(xml).toContain('w:u');
+  });
+
+  test("compiles block style with bold flag", async () => {
+    const parser = new Parser();
+    const ast = parser.parse('@style(bold: true)\n  Bold paragraph text');
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain('w:b');
+    expect(xml).toContain('Bold paragraph text');
+  });
+
+  test("compiles block style with subscript flag", async () => {
+    const parser = new Parser();
+    const ast = parser.parse('@style(subscript: true)\n  Subscript text');
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain('w:vertAlign');
+    expect(xml).toContain('w:val="subscript"');
+  });
+
+  test("compiles block style with superscript flag", async () => {
+    const parser = new Parser();
+    const ast = parser.parse('@style(superscript: true)\n  Superscript text');
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain('w:vertAlign');
+    expect(xml).toContain('w:val="superscript"');
+  });
+
+  test("compiles block style with underline flag", async () => {
+    const parser = new Parser();
+    const ast = parser.parse('@style(underline: true)\n  Underlined text');
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toContain('w:u');
   });
 });

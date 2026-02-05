@@ -7,6 +7,7 @@ import { parseDocumentRels, parseLayoutFromSectPr, parseHeaderFooterRefs, parseS
 import { parseFootnotes, type FootnoteInfo } from "./parsers/footnotes";
 import { type DecompilerOptions } from "./converters/paragraph";
 import { processChildren } from "./generator";
+import { twipsToInches, formatInches } from "../shared/units";
 
 export type { DecompilerOptions };
 
@@ -14,16 +15,6 @@ export type DecompileResult = {
   source: string;
   assets: Map<string, Uint8Array>;
 };
-
-function twipsToInches(twips: number): number {
-  return twips / 1440;
-}
-
-function formatInches(inches: number): string {
-  // Format to up to 2 decimal places, remove trailing zeros
-  const rounded = Math.round(inches * 100) / 100;
-  return rounded.toString();
-}
 
 async function parseHeaderFooterContent(
   zip: JSZip,
@@ -282,16 +273,18 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
     if (isColumnsSection) {
       // Emit @columns block
       const cols = section.props!.cols!;
-      let columnsLine = `@columns ${cols}`;
+      const parts: string[] = [String(cols)];
 
       if (section.props!.colSpace !== undefined) {
         const gapIn = formatInches(twipsToInches(section.props!.colSpace));
-        columnsLine += ` gap=${gapIn}in`;
+        parts.push(`gap: ${gapIn}in`);
       }
 
       if (section.props!.colSep) {
-        columnsLine += " separator";
+        parts.push("separator");
       }
+
+      const columnsLine = `@columns(${parts.join(", ")})`;
 
       // Collect content lines for columns block
       const contentLines = processChildren(section.children, numInfo, paragraphStyles, enhancedOptions, "  ", rels);

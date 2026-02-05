@@ -12,120 +12,264 @@ This file exercises all table LDOC features.
 Simple table with header row (first row) and data rows:
 
 @table
-	[Header 1, Header 2, Header 3]
-	[Cell A1, Cell A2, Cell A3]
-	[Cell B1, Cell B2, Cell B3]
-	[Cell C1, Cell C2, Cell C3]
+	@row
+		@cell: Header 1
+		@cell: Header 2
+		@cell: Header 3
+	@row
+		@cell: Cell A1
+		@cell: Cell A2
+		@cell: Cell A3
+	@row
+		@cell: Cell B1
+		@cell: Cell B2
+		@cell: Cell B3
+	@row
+		@cell: Cell C1
+		@cell: Cell C2
+		@cell: Cell C3
 
 ## Horizontal Merge (Colspan)
 
-Use `>` in a cell to merge with the cell to its left:
+Use colspan to merge cells horizontally:
 
 @table
-	[Column A, Column B, Column C]
-	[Spans two columns, >, Normal cell]
-	[Normal, Spans two columns, >]
-	[All three columns span, >, >]
-	[A, B, C]
+	@row
+		@cell: Column A
+		@cell: Column B
+		@cell: Column C
+	@row
+		@cell(colspan: 2): Spans two columns
+		@cell: Normal cell
+	@row
+		@cell: Normal
+		@cell(colspan: 2): Spans two columns
+	@row
+		@cell(colspan: 3): All three columns span
+	@row
+		@cell: A
+		@cell: B
+		@cell: C
 
 ## Vertical Merge (Rowspan)
 
-Use `^` in a cell to merge with the cell above it:
+Use rowspan to merge cells vertically:
 
 @table
-	[Header A, Header B, Header C]
-	[Spans down, Value 1, Value 2]
-	[^, Value 3, Value 4]
-	[^, Value 5, Value 6]
-	[Normal, Normal, Normal]
+	@row
+		@cell: Header A
+		@cell: Header B
+		@cell: Header C
+	@row
+		@cell(rowspan: 3): Spans down
+		@cell: Value 1
+		@cell: Value 2
+	@row
+		@cell: Value 3
+		@cell: Value 4
+	@row
+		@cell: Value 5
+		@cell: Value 6
+	@row
+		@cell: Normal
+		@cell: Normal
+		@cell: Normal
 
 ## Combined Horizontal and Vertical Merge
 
 Both colspan and rowspan in the same table:
 
 @table
-	[A, B, C, D]
-	[Spans 2x2, >, Normal C, Normal D]
-	[^, >, More C, More D]
-	[Bottom A, Bottom B, Bottom C, Bottom D]
+	@row
+		@cell: A
+		@cell: B
+		@cell: C
+		@cell: D
+	@row
+		@cell(colspan: 2, rowspan: 2): Spans 2x2
+		@cell: Normal C
+		@cell: Normal D
+	@row
+		@cell: More C
+		@cell: More D
+	@row
+		@cell: Bottom A
+		@cell: Bottom B
+		@cell: Bottom C
+		@cell: Bottom D
 
 @table
-	[Col 1, Col 2, Col 3]
-	[Wide cell, >, Tall cell]
-	[Regular 1, Regular 2, ^]
-	[Regular 3, Regular 4, ^]
+	@row
+		@cell: Col 1
+		@cell: Col 2
+		@cell: Col 3
+	@row
+		@cell(colspan: 2): Wide cell
+		@cell(rowspan: 3): Tall cell
+	@row
+		@cell: Regular 1
+		@cell: Regular 2
+	@row
+		@cell: Regular 3
+		@cell: Regular 4
 
 ## Inline Formatting in Cells
 
 Cells can contain **bold**, *italic*, and other inline formatting:
 
 @table
-	[**Bold Header**, *Italic Header*, Normal Header]
-	[**bold text**, *italic text*, normal text]
-	[mixed **bold** and *italic*, plain, more plain]
-	[`inline code`, plain, more plain]
+	@row
+		@cell: **Bold Header**
+		@cell: *Italic Header*
+		@cell: Normal Header
+	@row
+		@cell: **bold text**
+		@cell: *italic text*
+		@cell: normal text
+	@row
+		@cell: mixed **bold** and *italic*
+		@cell: plain
+		@cell: more plain
+	@row
+		@cell: `inline code`
+		@cell: plain
+		@cell: more plain
 
 ## Variables in Cells
 
 Cells can contain variable references (defined at top of file):
 
 @table
-	[Field, Value]
-	[Company Name, {{company}}]
-	[Contract Amount, {{amount}}]
-	[Description, Payment to {{company}} for {{amount}}]
+	@row
+		@cell: Field
+		@cell: Value
+	@row
+		@cell: Company Name
+		@cell: {{company}}
+	@row
+		@cell: Contract Amount
+		@cell: {{amount}}
+	@row
+		@cell: Description
+		@cell: Payment to {{company}} for {{amount}}
 
 ## Quoting Cell Values
 
-Special characters and merge markers can be quoted:
+Special characters work directly in v2 syntax:
 
 @table
-	[Header, Special Values]
-	[Comma in cell, "Hello, World"]
-	[Greater than literal, ">"]
-	[Caret literal, "^"]
-	[Leading space, " starts with space"]
-	[Trailing space, "ends with space "]
-	[Quote marks, "He said ""hello"""]
+	@row
+		@cell: Header
+		@cell: Special Values
+	@row
+		@cell: Comma in cell
+		@cell: Hello, World
+	@row
+		@cell: Greater than literal
+		@cell: >
+	@row
+		@cell: Caret literal
+		@cell: ^
+	@row
+		@cell: Leading space
+		@cell:  starts with space
+	@row
+		@cell: Trailing space
+		@cell: ends with space 
+	@row
+		@cell: Quote marks
+		@cell: He said "hello"
 
 ## Single Column Table
 
 @table
-	[Single Column Header]
-	[Row 1]
-	[Row 2]
-	[Row 3]
+	@row
+		@cell: Single Column Header
+	@row
+		@cell: Row 1
+	@row
+		@cell: Row 2
+	@row
+		@cell: Row 3
 
 ## Single Row Table (Header Only)
 
 @table
-	[Column A, Column B, Column C]
+	@row
+		@cell: Column A
+		@cell: Column B
+		@cell: Column C
 
 ## Empty Cells
 
 @table
-	[Header A, Header B, Header C]
-	[, Value 2, Value 3]
-	[Value 1, , Value 3]
-	[Value 1, Value 2, ]
-	[, , ]
+	@row
+		@cell: Header A
+		@cell: Header B
+		@cell: Header C
+	@row
+		@cell:
+		@cell: Value 2
+		@cell: Value 3
+	@row
+		@cell: Value 1
+		@cell:
+		@cell: Value 3
+	@row
+		@cell: Value 1
+		@cell: Value 2
+		@cell:
+	@row
+		@cell:
+		@cell:
+		@cell:
 
 ## Complex Merge Pattern
 
 @table
-	[A, B, C, D, E]
-	[Span 3 cols, >, >, D1, E1]
-	[A2, B2, C2, Span 2 rows, E2]
-	[A3, B3, C3, ^, E3]
-	[Span 2x2, >, C4, D4, E4]
-	[^, >, C5, D5, E5]
+	@row
+		@cell: A
+		@cell: B
+		@cell: C
+		@cell: D
+		@cell: E
+	@row
+		@cell(colspan: 3): Span 3 cols
+		@cell: D1
+		@cell: E1
+	@row
+		@cell: A2
+		@cell: B2
+		@cell: C2
+		@cell(rowspan: 2): Span 2 rows
+		@cell: E2
+	@row
+		@cell: A3
+		@cell: B3
+		@cell: C3
+		@cell: E3
+	@row
+		@cell(colspan: 2, rowspan: 2): Span 2x2
+		@cell: C4
+		@cell: D4
+		@cell: E4
+	@row
+		@cell: C5
+		@cell: D5
+		@cell: E5
 
 ## Table with @end Marker
 
 @table
-	[With End, Header 2]
-	[Row 1, Data 1]
-	[Row 2, Data 2]
+	@row
+		@cell: With End
+		@cell: Header 2
+	@row
+		@cell: Row 1
+		@cell: Data 1
+	@row
+		@cell: Row 2
+		@cell: Data 2
 @end
 
 Some text after the table.
@@ -135,27 +279,47 @@ Some text after the table.
 First table:
 
 @table
-	[Table 1 Col A, Table 1 Col B]
-	[T1 R1 A, T1 R1 B]
+	@row
+		@cell: Table 1 Col A
+		@cell: Table 1 Col B
+	@row
+		@cell: T1 R1 A
+		@cell: T1 R1 B
 
 Second table:
 
 @table
-	[Table 2 Col A, Table 2 Col B]
-	[T2 R1 A, T2 R1 B]
+	@row
+		@cell: Table 2 Col A
+		@cell: Table 2 Col B
+	@row
+		@cell: T2 R1 A
+		@cell: T2 R1 B
 
 ## Table with Links
 
 @table
-	[Link Type, Example]
-	[Plain link, [Click here](https://example.com)]
-	[Bold link, [**Bold link**](https://example.org)]
+	@row
+		@cell: Link Type
+		@cell: Example
+	@row
+		@cell: Plain link
+		@cell: [Click here](https://example.com)
+	@row
+		@cell: Bold link
+		@cell: [**Bold link**](https://example.org)
 
 ## Long Cell Content
 
 @table
-	[Short, Long Content Column]
-	[A, This is a much longer piece of text that demonstrates how cells handle longer content strings]
-	[B, Another long cell with plenty of words to fill the space]
+	@row
+		@cell: Short
+		@cell: Long Content Column
+	@row
+		@cell: A
+		@cell: This is a much longer piece of text that demonstrates how cells handle longer content strings
+	@row
+		@cell: B
+		@cell: Another long cell with plenty of words to fill the space
 
 End of table corpus tests.

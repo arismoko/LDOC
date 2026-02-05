@@ -4,7 +4,7 @@
 
 import type { Location } from "vscode-languageserver/node";
 import type { DocumentNode, Node, UseNode, CrossRefNode, VariableNode } from "../parser/ast";
-import { normalizeRefKey } from "../compiler/bookmark-utils";
+import { normalizeRefKey } from "../shared/bookmark-utils";
 import { nodeToLocation } from "./indexer";
 
 export interface SymbolUsages {

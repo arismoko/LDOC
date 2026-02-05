@@ -112,6 +112,7 @@ export interface TableNode extends BaseNode {
   /** Whether the source had an explicit @end */
   hasEnd?: boolean;
   attributes?: Record<string, string>;
+  columnWidths?: number[]; // In twips
 }
 
 export interface PageBreakNode extends BaseNode {

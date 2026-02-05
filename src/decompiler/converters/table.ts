@@ -1,10 +1,11 @@
-import { getOnlyKey, type XmlNode } from "../xml";
+import { getOnlyKey, type XmlNode, attrVal, findFirst } from "../xml";
 import { normalizeWs } from "./run";
 import { paragraphText, paragraphToLdoc, type DecompilerOptions, type ParagraphInfo } from "./paragraph";
 import { joinBlockContent, stringsToBlockContent } from "./block-content";
 import { processChildren } from "../generator";
 import type { NumberingInfo } from "../parsers/numbering";
 import type { ParagraphStyleMap } from "../parsers/styles";
+import { formatTwipsAsInches } from "../../shared/units";
 
 interface CellInfo {
   paragraphNodes: XmlNode[]; // Store raw nodes for delegation
@@ -72,6 +73,37 @@ function isSimpleCell(info: ParagraphInfo): boolean {
   );
 }
 
+function parseTableGrid(tblNode: XmlNode): number[] | undefined {
+  const tblChildren = tblNode["w:tbl"] as XmlNode[];
+  const tblGrid = findFirst(tblChildren, "w:tblGrid");
+  if (!tblGrid) return undefined;
+
+  const gridCols = tblGrid["w:tblGrid"] as XmlNode[];
+  if (!gridCols || gridCols.length === 0) return undefined;
+
+  const widths: number[] = [];
+  for (const col of gridCols) {
+    if (getOnlyKey(col) === "w:gridCol") {
+      const w = attrVal(col, "@_w:w");
+      if (w) {
+        widths.push(parseInt(w, 10));
+      } else {
+        // Default width? Or skip?
+        // If w is missing, it might be auto.
+        // For now, let's just push 0 or handle it?
+        // If we have mixed explicit/implicit, it's tricky.
+        // But usually w:gridCol has w:w.
+        widths.push(0);
+      }
+    }
+  }
+  
+  // If all are 0 or empty, return undefined
+  if (widths.length === 0 || widths.every(w => w === 0)) return undefined;
+  
+  return widths;
+}
+
 export function tableToLdoc(
   tblNode: XmlNode,
   numInfo: NumberingInfo,
@@ -82,6 +114,9 @@ export function tableToLdoc(
   const tblChildren = tblNode["w:tbl"] as XmlNode[];
   const grid: CellInfo[][] = [];
   let isFirstRow = true;
+
+  // Extract column widths
+  const colWidths = parseTableGrid(tblNode);
 
   // Pass 1: Build Grid
   for (const tr of tblChildren ?? []) {
@@ -172,7 +207,11 @@ export function tableToLdoc(
   }
 
   // Pass 3: Emit
-  const output: string[] = ["@table"];
+  let headerLine = "@table";
+  if (colWidths && colWidths.length > 0) {
+    headerLine += `(widths: [${colWidths.map(w => formatTwipsAsInches(w)).join(", ")}])`;
+  }
+  const output: string[] = [headerLine];
   
   for (const row of grid) {
     output.push("  @row");
@@ -180,8 +219,12 @@ export function tableToLdoc(
       if (cell.isCovered) continue; // Skip cells merged into a rowspan above
 
       let attrs = "";
-      if (cell.colspan > 1) attrs += ` colspan=${cell.colspan}`;
-      if (cell.rowspan > 1) attrs += ` rowspan=${cell.rowspan}`;
+      const attrParts: string[] = [];
+      if (cell.colspan > 1) attrParts.push(`colspan: ${cell.colspan}`);
+      if (cell.rowspan > 1) attrParts.push(`rowspan: ${cell.rowspan}`);
+      if (attrParts.length > 0) {
+        attrs = `(${attrParts.join(", ")})`;
+      }
       
       const text = cell.text;
       const isMultiline = text.includes("\n");

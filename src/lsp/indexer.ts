@@ -10,7 +10,7 @@ import type {
   Node,
   SetNode,
 } from "../parser/ast";
-import { normalizeRefKey } from "../compiler/bookmark-utils";
+import { normalizeRefKey } from "../shared/bookmark-utils";
 
 export interface MacroSignature {
   name: string;

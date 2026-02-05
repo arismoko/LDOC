@@ -1,8 +1,8 @@
 @document
   title: Main
 
-@import ./lib.ldoc
+@import("./lib.ldoc")
 
 # Main
 
-@use Notice()
+@use(Notice)

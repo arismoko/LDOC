@@ -10,7 +10,21 @@ import { format } from "../src/formatter";
 function stripAnchors(ldoc: string): string {
   return ldoc
     .split("\n")
-    .filter((line) => !line.trim().startsWith("@anchor "))
+    .filter((line) => {
+      const t = line.trim();
+      return !(t.startsWith("@anchor ") || t.startsWith("@anchor("));
+    })
+    .join("\n");
+}
+
+function stripGeneratedTableArgs(ldoc: string): string {
+  return ldoc
+    .split("\n")
+    .map((line) => {
+      const m = line.match(/^(\s*)@table\(.*\)\s*$/);
+      if (!m) return line;
+      return `${m[1] ?? ""}@table`;
+    })
     .join("\n");
 }
 
@@ -34,8 +48,8 @@ describe("Round Trip", () => {
     const formattedDecompiled = format(decompiled, { useTabs: true });
     
     // 5. Strip anchors for comparison (compiler may add bookmarks to headings)
-    const originalNoAnchors = stripAnchors(formattedOriginal);
-    const decompiledNoAnchors = stripAnchors(formattedDecompiled);
+    const originalNoAnchors = stripGeneratedTableArgs(stripAnchors(formattedOriginal));
+    const decompiledNoAnchors = stripGeneratedTableArgs(stripAnchors(formattedDecompiled));
 
     // 6. Compare
     if (originalNoAnchors !== decompiledNoAnchors) {
@@ -96,7 +110,7 @@ describe("Feature Round Trips", () => {
   });
 
   test("cross-reference round-trip", async () => {
-    const input = `@anchor target-section
+    const input = `@anchor(target-section)
 
 # Target Section
 
@@ -148,8 +162,9 @@ See [[target-section]] for more details.
     const docxBuffer = await compile(ast);
     const result = await decompile(docxBuffer);
 
-    expect(result.source).toContain("@center");
-    expect(result.source).toContain("@right");
+    // Decompiler outputs @style(align: ...) format
+    expect(result.source).toMatch(/@style\(align:\s*center\)/);
+    expect(result.source).toMatch(/@style\(align:\s*right\)/);
   });
 
   test("bold modifier round-trip", async () => {
@@ -168,8 +183,12 @@ See [[target-section]] for more details.
 
   test("table round-trip", async () => {
     const input = `@table
-	[Col A, Col B]
-	[Val 1, Val 2]
+	@row
+		@cell: Col A
+		@cell: Col B
+	@row
+		@cell: Val 1
+		@cell: Val 2
 `;
     const parser = new Parser();
     const ast = parser.parse(input);

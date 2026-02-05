@@ -75,7 +75,7 @@ describe("Decompiler", () => {
     const modifiedDocx = await zip.generateAsync({ type: "uint8array" });
     
     const result = await decompile(modifiedDocx);
-    expect(result.source).toContain("@anchor TestAnchor");
+    expect(result.source).toContain("@anchor(TestAnchor)");
   });
 
   test("ignores hidden bookmarks starting with underscore", async () => {

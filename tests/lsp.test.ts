@@ -14,11 +14,11 @@ describe("LSP indexer", () => {
     seller: ACME
     buyer: Jane
 
-@define Clause(name, value=1)
-  @anchor Clause Anchor
+@define(Clause, name, value: "1")
+  @anchor(Clause Anchor)
   Hello {{parties.seller}}
 
-@use Clause(name="X")
+@use(Clause, name: "X")
 
 See [[Clause Anchor]].
 `;

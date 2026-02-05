@@ -1,6 +1,8 @@
 import { findFirst, attrVal, getOnlyKey, type XmlNode } from "../xml";
 import type { RunStyle } from "../parsers/styles";
 import { extractImageFromDrawing, extractImageFromPict, extractAltText } from "./image";
+import { halfPointsToPt } from "../../shared/units";
+import { isHighlightColor } from "../../shared/highlight";
 
 export type TextSegment = {
   style: RunStyle;
@@ -13,6 +15,7 @@ type EmphasisStyle = {
   italic: boolean;
   strike?: boolean;
   code?: boolean;
+  highlight?: string;
 };
 
 export function normalizeWs(s: string, preserveTabs = false, trimEnd = true): string {
@@ -48,6 +51,17 @@ export function wrapEmphasis(text: string, style: EmphasisStyle): string {
   // Apply strikethrough
   if (style.strike) wrapped = `~~${wrapped}~~`;
   
+  // Apply highlight
+  if (style.highlight) {
+    if (style.highlight === "yellow") {
+      // Default yellow uses == syntax
+      wrapped = `==${wrapped}==`;
+    } else {
+      // Explicit color uses @highlight(color)[text] syntax
+      wrapped = `@highlight(${style.highlight})[${wrapped}]`;
+    }
+  }
+  
   // Apply bold/italic (outermost)
   if (style.bold && style.italic) wrapped = `***${wrapped}***`;
   else if (style.bold) wrapped = `**${wrapped}**`;
@@ -62,14 +76,14 @@ export function wrapEmphasis(text: string, style: EmphasisStyle): string {
  */
 function sharesEmphasisStyle(a: EmphasisStyle, b: EmphasisStyle): boolean {
   if (a.code || b.code) return false; // Code can't nest
-  return (a.bold && b.bold) || (a.italic && b.italic) || (!!a.strike && !!b.strike);
+  return (a.bold && b.bold) || (a.italic && b.italic) || (!!a.strike && !!b.strike) || (!!a.highlight && !!b.highlight && a.highlight === b.highlight);
 }
 
 /**
  * Check if a style has any emphasis flags set.
  */
 function hasEmphasis(style: EmphasisStyle): boolean {
-  return style.bold || style.italic || !!style.strike || !!style.code;
+  return style.bold || style.italic || !!style.strike || !!style.code || !!style.highlight;
 }
 
 /**
@@ -112,11 +126,16 @@ function coalesceGroup(group: TextSegment[]): string {
   }
 
   // Find styles common to ALL runs in group
+  // For highlight, only consider it common if all have the same highlight color
+  const firstHighlight = group[0]!.style.highlight;
+  const allSameHighlight = group.every(r => r.style.highlight === firstHighlight);
+  
   const commonStyles: EmphasisStyle = {
     bold: group.every(r => r.style.bold),
     italic: group.every(r => r.style.italic),
     strike: group.every(r => !!r.style.strike),
     code: group.every(r => !!r.style.code),
+    highlight: allSameHighlight ? firstHighlight : undefined,
   };
 
   const hasCommon = hasEmphasis(commonStyles);
@@ -133,6 +152,7 @@ function coalesceGroup(group: TextSegment[]): string {
       italic: r.style.italic && !commonStyles.italic,
       strike: !!r.style.strike && !commonStyles.strike,
       code: !!r.style.code && !commonStyles.code,
+      highlight: r.style.highlight !== commonStyles.highlight ? r.style.highlight : undefined,
     };
     
     if (hasEmphasis(remainingStyles)) {
@@ -321,7 +341,7 @@ export function parseRunStyle(runNode: XmlNode): RunStyle {
   // Extract size from w:sz (value is in half-points, so divide by 2)
   const szNode = findFirst(rPrChildren, "w:sz");
   const szVal = attrVal(szNode, "@_w:val");
-  const sizePt = szVal ? parseInt(szVal, 10) / 2 : undefined;
+  const sizePt = szVal ? halfPointsToPt(parseInt(szVal, 10)) : undefined;
 
   // Extract color from w:color
   const colorNode = findFirst(rPrChildren, "w:color");
@@ -331,6 +351,11 @@ export function parseRunStyle(runNode: XmlNode): RunStyle {
     ? colorVal.toUpperCase() 
     : undefined;
 
+  // Extract highlight from w:highlight
+  const highlightNode = findFirst(rPrChildren, "w:highlight");
+  const highlightVal = attrVal(highlightNode, "@_w:val");
+  const highlight = highlightVal && isHighlightColor(highlightVal) ? highlightVal : undefined;
+
   return { 
     bold, 
     italic, 
@@ -339,6 +364,7 @@ export function parseRunStyle(runNode: XmlNode): RunStyle {
     font: fontName || undefined,
     sizePt: Number.isFinite(sizePt) ? sizePt : undefined,
     color,
+    highlight,
   };
 }
 

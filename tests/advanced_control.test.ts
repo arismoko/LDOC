@@ -28,11 +28,11 @@ describe("Advanced Control Flow", () => {
 @meta
   score: 75
 
-@if score >= 90
+@if(score >= 90)
   Grade: A
-@elseif score >= 80
+@elseif(score >= 80)
   Grade: B
-@elseif score >= 70
+@elseif(score >= 70)
   Grade: C
 @else
   Grade: F
@@ -52,12 +52,12 @@ describe("Advanced Control Flow", () => {
 @meta
   items: a, b, c
 
-@foreach item in items
+@foreach(item, in: items)
   Item {{loop.count}}/{{loop.length}}: {{item}} (Index: {{loop.index}})
-  @if loop.first
+  @if(loop.first)
     *Start*
   @end
-  @if loop.last
+  @if(loop.last)
     *End*
   @end
 @end

@@ -9,11 +9,13 @@ import type {
   VariableNode,
   TextNode,
   EmphasisNode,
+  HighlightNode,
   StrikethroughNode,
   InlineStyleNode,
 } from "../parser/ast";
 import type { TextStyle } from "./styles";
 import { evalCond } from "./conditions";
+import { applyFilters } from "../shared/filters";
 
 /**
  * Context required for variable resolution.
@@ -49,22 +51,7 @@ export function resolveVariable(node: VariableNode, ctx: VariableContext): strin
   }
 
   // Apply filters
-  let result = String(value);
-  for (const filter of node.filters) {
-    switch (filter) {
-      case "upper":
-        result = result.toUpperCase();
-        break;
-      case "lower":
-        result = result.toLowerCase();
-        break;
-      case "capitalize":
-        result = result.charAt(0).toUpperCase() + result.slice(1);
-        break;
-    }
-  }
-
-  return result;
+  return applyFilters(String(value), node.filters);
 }
 
 /**
@@ -120,6 +107,10 @@ export function createSingleTextRun(text: string, style: TextStyle): TextRun {
     ...(style.smallCaps ? { smallCaps: true } : {}),
     ...(style.strike ? { strike: true } : {}),
     ...(style.doubleStrike ? { doubleStrike: true } : {}),
+    ...(style.underline ? { underline: {} } : {}),
+    ...(style.subscript ? { subScript: true } : {}),
+    ...(style.superscript ? { superScript: true } : {}),
+    ...(style.highlight ? { highlight: style.highlight } : {}),
     ...(style.size ? { size: style.size } : {}),
     ...(style.font ? { font: style.font } : {}),
     ...(style.color ? { color: style.color } : {}),
@@ -180,6 +171,8 @@ function splitSingleNode(node: InlineNode): InlineNode[][] {
       return splitEmphasisNode(node);
     case "strikethrough":
       return splitStrikethroughNode(node);
+    case "highlight":
+      return splitHighlightNode(node as HighlightNode);
     case "inline_style":
       return splitInlineStyleNode(node);
     default:
@@ -255,6 +248,17 @@ function splitStrikethroughNode(node: StrikethroughNode): InlineNode[][] {
         content: lineNodes,
       } as StrikethroughNode,
     ];
+  });
+}
+
+/**
+ * Split a HighlightNode by newlines in its content.
+ */
+function splitHighlightNode(node: HighlightNode): InlineNode[][] {
+  const contentLines = splitInlineNodesByParagraphBreak(node.content);
+  return contentLines.map((lineNodes): InlineNode[] => {
+    if (lineNodes.length === 0) return [];
+    return [{ ...node, content: lineNodes } as HighlightNode];
   });
 }
 

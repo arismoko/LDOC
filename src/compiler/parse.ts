@@ -1,44 +1,21 @@
-export function parseLengthToTwipCompiler(value: string | number): number {
-  if (typeof value === "number") return Math.round(value * 1440); // assume inches
-  const raw = String(value).trim();
-  const m = raw.match(/^([0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt)?$/i);
-  if (!m) return 1440; // default 1in
-  const num = parseFloat(m[1]!);
-  const unit = (m[2] || "in").toLowerCase();
-  switch (unit) {
-    case "in":
-      return Math.round(num * 1440);
-    case "cm":
-      return Math.round((num * 1440) / 2.54);
-    case "mm":
-      return Math.round((num * 1440) / 25.4);
-    case "pt":
-      return Math.round(num * 20);
-    default:
-      return Math.round(num * 1440);
-  }
+import {
+  parseLengthToTwip as sharedParseLengthToTwip,
+  TWIPS_PER_LINE_UNIT,
+} from "../shared/units";
+
+// Re-export for existing consumers (strict mode)
+export function parseLengthToTwip(raw: string, line?: number): number {
+  return sharedParseLengthToTwip(raw, { line, lenient: false });
 }
 
-export function parseLengthToTwip(raw: string): number {
-  const m = raw.trim().match(/^([0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt)$/i);
-  if (!m) {
-    throw new Error(`Invalid length: ${raw}. Use units like 1in, 2cm, 12pt.`);
-  }
-  const value = parseFloat(m[1]!);
-  const unit = m[2]!.toLowerCase();
-  switch (unit) {
-    case "in":
-      return Math.round(value * 1440);
-    case "cm":
-      return Math.round((value * 1440) / 2.54);
-    case "mm":
-      return Math.round((value * 1440) / 25.4);
-    case "pt":
-      return Math.round(value * 20);
-    default:
-      throw new Error(`Unsupported unit: ${unit}`);
-  }
+/**
+ * Lenient length parser for compiler - allows values without units (defaults to inches).
+ */
+export function parseLengthToTwipCompiler(value: string | number): number {
+  return sharedParseLengthToTwip(value, { lenient: true });
 }
+
+export { TWIPS_PER_LINE_UNIT };
 
 export function parseMargins(
   args: string,
@@ -102,7 +79,7 @@ export function parseSpacing(
       // line multiplier
       const mult = parseFloat(p);
       if (!Number.isFinite(mult) || mult <= 0) throw new Error(`Invalid line spacing: ${p}`);
-      out.line = Math.round(mult * 240);
+      out.line = Math.round(mult * TWIPS_PER_LINE_UNIT);
       continue;
     }
     const k = p.slice(0, eq).toLowerCase();
@@ -110,7 +87,7 @@ export function parseSpacing(
     if (k === "line") {
       const mult = parseFloat(v);
       if (!Number.isFinite(mult) || mult <= 0) throw new Error(`Invalid line spacing: ${v}`);
-      out.line = Math.round(mult * 240);
+      out.line = Math.round(mult * TWIPS_PER_LINE_UNIT);
     } else if (k === "before") {
       out.before = parseLength(v);
     } else if (k === "after") {

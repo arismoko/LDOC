@@ -13,9 +13,11 @@ This is a plain paragraph with **bold** and *italic* text. Also test ~~strikethr
 @@- Nested bullet
 @- Bullet point two
 
-@center Centered paragraph
+@style(align: center)
+  Centered paragraph
 
-@right Right-aligned paragraph
+@style(align: right)
+  Right-aligned paragraph
 
 @bold This text is bold via modifier
 

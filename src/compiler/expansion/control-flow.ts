@@ -1,6 +1,6 @@
 import { evalCond, getPathValue, truthy } from "../conditions";
 import { clone, applyScope } from "./utils";
-import { applyFilters } from "./substitutor";
+import { applyFilters } from "../../shared/filters";
 
 export const pruneControls = (
   nodes: any[],

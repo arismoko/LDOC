@@ -77,13 +77,13 @@ describe("LSP Completion", () => {
   author: John
 @end
 
-@anchor section-intro
+@anchor(section-intro)
 
-@define Greeting(name)
+@define(Greeting, name)
   Hello {{name}}!
 @end
 
-@define Alert(type="info", message)
+@define(Alert, message, type: "info")
   [{{type}}] {{message}}
 @end
 `;

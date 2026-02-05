@@ -2,7 +2,9 @@
 
 import type { Node } from "../parser/ast";
 import type { StyleConfig, StyleSettings } from "./styles";
-import { parseLengthToTwipCompiler, parseMargins, parseSpacing, parseLengthToTwip } from "./parse";
+import { parseLengthToTwipCompiler, parseMargins, parseSpacing, parseLengthToTwip, TWIPS_PER_LINE_UNIT } from "./parse";
+import { STYLE_TARGETS } from "../shared/style-names";
+import { ptToHalfPoints, PT_VALUE_REGEX } from "../shared/units";
 
 /** Return type for layout extraction */
 export interface LayoutResult {
@@ -84,9 +86,9 @@ export function extractLayoutFromDocument(doc: Record<string, any> | undefined):
       const sp: { before?: number; after?: number; line?: number } = {};
       if (typeof spacingRaw === "number") {
         // e.g., spacing: 1.5
-        sp.line = Math.round(spacingRaw * 240);
+        sp.line = Math.round(spacingRaw * TWIPS_PER_LINE_UNIT);
       } else {
-        if (spacingRaw.line) sp.line = Math.round(Number(spacingRaw.line) * 240);
+        if (spacingRaw.line) sp.line = Math.round(Number(spacingRaw.line) * TWIPS_PER_LINE_UNIT);
         if (spacingRaw.before) sp.before = parseLengthToTwipCompiler(spacingRaw.before);
         if (spacingRaw.after) sp.after = parseLengthToTwipCompiler(spacingRaw.after);
       }
@@ -115,12 +117,7 @@ export function extractStylesFromDocument(doc: Record<string, any> | undefined):
   if (typeof stylesRaw !== "object") return config;
 
   // Parse styles.body, styles.heading1, etc.
-  const validTargets = [
-    "body", "heading", "heading1", "heading2", "heading3",
-    "heading4", "heading5", "heading6", "header", "footer"
-  ];
-
-  for (const target of validTargets) {
+  for (const target of STYLE_TARGETS) {
     const targetStyles = stylesRaw[target];
     if (!targetStyles || typeof targetStyles !== "object") continue;
 
@@ -129,10 +126,10 @@ export function extractStylesFromDocument(doc: Record<string, any> | undefined):
     if (targetStyles.size) {
       // Parse size like "12pt" or 12
       const sizeVal = String(targetStyles.size);
-      const m = sizeVal.match(/^([0-9]+(?:\.[0-9]+)?)(pt)?$/i);
+      const m = sizeVal.match(PT_VALUE_REGEX);
       if (m) {
         const pt = parseFloat(m[1]!);
-        settings.size = Math.round(pt * 2); // half-points
+        settings.size = ptToHalfPoints(pt);
       }
     }
     if (targetStyles.bold !== undefined) {

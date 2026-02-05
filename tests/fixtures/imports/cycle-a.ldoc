@@ -1,7 +1,7 @@
 @document
   title: A
 
-@import ./cycle-b.ldoc
+@import("./cycle-b.ldoc")
 
-@define A
+@define(A)
   A

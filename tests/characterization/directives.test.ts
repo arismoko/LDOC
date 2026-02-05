@@ -62,12 +62,12 @@ function joinTextRuns(documentXml: string): string {
 describe("Characterization: @define / @use", () => {
   test("basic expansion: output contains clause text, no literal @define or @use", async () => {
     const ldoc = `
-@define GreetingClause
+@define(GreetingClause)
   Hello from the defined clause.
 
 # Document Title
 
-@use GreetingClause
+@use(GreetingClause)
 `;
 
     const buffer = await compileToDocxBuffer(ldoc);
@@ -84,10 +84,10 @@ describe("Characterization: @define / @use", () => {
 
   test("parameterized @define/@use substitutes values", async () => {
     const ldoc = `
-@define Notice(title, body)
+@define(Notice, title, body)
   **{{title}}:** {{body}}
 
-@use Notice(title="WARNING", body="Read carefully")
+@use(Notice, title: "WARNING", body: "Read carefully")
 `;
 
     const buffer = await compileToDocxBuffer(ldoc);
@@ -107,7 +107,7 @@ describe("Characterization: @if / @else / @end", () => {
 @meta
   show_section: true
 
-@if show_section
+@if(show_section)
   This section is visible.
 @else
   This section is hidden.
@@ -130,7 +130,7 @@ describe("Characterization: @if / @else / @end", () => {
 @meta
   show_section: false
 
-@if show_section
+@if(show_section)
   This section is visible.
 @else
   This section is hidden.
@@ -147,7 +147,7 @@ describe("Characterization: @if / @else / @end", () => {
 
   test("literal 'true' condition evaluates to truthy", async () => {
     const ldoc = `
-@if true
+@if(true)
   Always shown.
 @else
   Never shown.
@@ -164,7 +164,7 @@ describe("Characterization: @if / @else / @end", () => {
 
   test("literal 'false' condition evaluates to falsy", async () => {
     const ldoc = `
-@if false
+@if(false)
   Never shown.
 @else
   Always shown.
@@ -183,7 +183,7 @@ describe("Characterization: @if / @else / @end", () => {
 describe("Characterization: @repeat", () => {
   test("repeat N times: output contains N occurrences of marker text", async () => {
     const ldoc = `
-@repeat 5
+@repeat(5)
   XMARKERX
 @end
 `;
@@ -199,7 +199,7 @@ describe("Characterization: @repeat", () => {
 
   test("repeat 0 times: marker text does not appear", async () => {
     const ldoc = `
-@repeat 0
+@repeat(0)
   SHOULD_NOT_APPEAR
 @end
 
@@ -216,7 +216,7 @@ After repeat.
 
   test("repeat 1 time: marker text appears exactly once", async () => {
     const ldoc = `
-@repeat 1
+@repeat(1)
   XSINGLEMARKERX
 @end
 `;
@@ -233,12 +233,12 @@ After repeat.
 describe("Characterization: @foreach", () => {
   test("iterates over comma-separated string from param", async () => {
     const ldoc = `
-@define ListItems(items)
-  @foreach item in items
+@define(ListItems, items)
+  @foreach(item, in: items)
     Item: {{item}}
   @end
 
-@use ListItems(items="apple,banana,cherry")
+@use(ListItems, items: "apple,banana,cherry")
 `;
 
     const buffer = await compileToDocxBuffer(ldoc);
@@ -259,7 +259,7 @@ describe("Characterization: @foreach", () => {
     banana: yellow
     grape: purple
 
-@foreach fruit in fruits
+@foreach(fruit, in: fruits)
   Fruit: {{fruit}}
 @end
 `;
@@ -283,7 +283,7 @@ describe("Characterization: @foreach", () => {
 
 Before loop.
 
-@foreach item in emptyObj
+@foreach(item, in: emptyObj)
   SHOULD_NOT_APPEAR: {{item}}
 @end
 
@@ -303,7 +303,7 @@ After loop.
 describe("Characterization: @anchor and [[cross-ref]]", () => {
   test("@anchor creates bookmarkStart, [[ref]] creates hyperlink with w:anchor", async () => {
     const ldoc = `
-@anchor MySection
+@anchor(MySection)
 # Section Title
 
 See [[MySection]] for details.
@@ -342,7 +342,7 @@ See [[EXHIBIT A]] for the exhibit.
 
   test("cross-ref link text shows the reference target", async () => {
     const ldoc = `
-@anchor TargetAnchor
+@anchor(TargetAnchor)
 Target content.
 
 Link: [[TargetAnchor]]
@@ -399,7 +399,7 @@ See [[NONEXISTENT]] and {{missing_var}}.
 describe("Characterization: numbering with @repeat", () => {
   test("numbered items inside @repeat get sequential numbers", async () => {
     const ldoc = `
-@repeat 3
+@repeat(3)
   @1 Item
 @end
 `;
@@ -429,7 +429,7 @@ describe("Characterization: combined directives", () => {
     apple: red
     banana: yellow
 
-@foreach key in items
+@foreach(key, in: items)
   Fruit: {{key}}
 @end
 `;
@@ -454,9 +454,9 @@ describe("Characterization: combined directives", () => {
   items:
     a: true
 
-@foreach key in items
+@foreach(key, in: items)
   Before if
-  @if items[key]
+  @if(items[key])
     Inside if: {{key}}
   @end
   After if
@@ -475,14 +475,14 @@ describe("Characterization: combined directives", () => {
 
   test("@define with nested @if", async () => {
     const ldoc = `
-@define ConditionalClause(show)
-  @if show
+@define(ConditionalClause, show)
+  @if(show)
     Clause is visible.
   @else
     Clause is hidden.
   @end
 
-@use ConditionalClause(show="true")
+@use(ConditionalClause, show: "true")
 `;
 
     const buffer = await compileToDocxBuffer(ldoc);

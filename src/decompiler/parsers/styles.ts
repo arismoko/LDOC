@@ -1,14 +1,13 @@
 import { xmlParser, findFirst, attrVal, getOnlyKey, type XmlNode } from "../xml";
+import { TWIPS_PER_LINE_UNIT, halfPointsToPt } from "../../shared/units";
+import { wordStyleToLdoc } from "../../shared/style-names";
+import type { CoreTextStyle } from "../../shared/style-types";
 
-export type RunStyle = {
+export interface RunStyle extends CoreTextStyle {
   bold: boolean;
   italic: boolean;
-  strike?: boolean;
   code?: boolean;
-  font?: string;     // Font name from w:rFonts
-  sizePt?: number;   // Font size in points (from w:sz which is in half-points)
-  color?: string;    // Text color (uppercase hex, e.g. "FF0000")
-};
+}
 
 export interface DocumentDefaults {
   font?: string;
@@ -67,8 +66,8 @@ export function parseSpacingFromStylesXml(stylesXml: string | undefined): { line
 
   if (lineVal && lineRule === "auto") {
     const line = parseInt(lineVal, 10);
-    // In auto mode, line is in 1/240ths of a line (240 = single space)
-    const multiplier = line / 240;
+    // In auto mode, line is in 1/240ths of a line (TWIPS_PER_LINE_UNIT = single space)
+    const multiplier = line / TWIPS_PER_LINE_UNIT;
     // Check for common multipliers
     if (Math.abs(multiplier - 1.0) < 0.05) return { lineMultiplier: 1.0 };
     if (Math.abs(multiplier - 1.15) < 0.05) return { lineMultiplier: 1.15 };
@@ -116,7 +115,7 @@ export function parseDocumentDefaults(stylesXml: string | undefined): DocumentDe
       if (szVal) {
         const halfPoints = parseInt(szVal, 10);
         if (Number.isFinite(halfPoints)) {
-          sizePt = halfPoints / 2;
+          sizePt = halfPointsToPt(halfPoints);
         }
       }
     }
@@ -336,7 +335,7 @@ export function parseAllStyles(stylesXml: string | undefined): StyleMap {
       const szVal = attrVal(sz, "@_w:val");
       if (szVal) {
         const halfPoints = parseInt(szVal, 10);
-        if (Number.isFinite(halfPoints)) info.sizePt = halfPoints / 2;
+        if (Number.isFinite(halfPoints)) info.sizePt = halfPointsToPt(halfPoints);
       }
 
       // Bold
@@ -518,20 +517,10 @@ export function extractUsedStyles(
 
 /**
  * Map Word styleId to LDOC key name.
+ * Re-exports from shared module for backward compatibility.
  */
 export function styleIdToLdocKey(styleId: string): string {
-  const mapping: Record<string, string> = {
-    Normal: "body",
-    Heading1: "heading1",
-    Heading2: "heading2",
-    Heading3: "heading3",
-    Heading4: "heading4",
-    Heading5: "heading5",
-    Heading6: "heading6",
-    Header: "header",
-    Footer: "footer",
-  };
-  return mapping[styleId] ?? styleId.toLowerCase().replace(/\s+/g, "_");
+  return wordStyleToLdoc(styleId);
 }
 
 /**

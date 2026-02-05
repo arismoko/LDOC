@@ -142,21 +142,9 @@ export class MacroExpander {
       // Merge defaults
       const useArgs = { ...((def as any).optionalParams ?? {}), ...useArgsRaw };
 
-      // Validate args
-      const paramSet = new Set(def.params);
-      for (const k of Object.keys(useArgsRaw)) {
-        if (!paramSet.has(k) && !((def as any).optionalParams && k in (def as any).optionalParams)) {
-           // Wait, optionalParams are valid params too?
-           // parseDefineSignature separates params (required) and optionalParams (defaults).
-           // So I should check both.
-        }
-      }
-      
-      // Actually, parseDefineSignature puts ALL params in `params` array?
-      // Let's check `parseDefineSignature` in `macro.ts`.
-      // `params.push(paramName)`. Yes.
-      // So `def.params` contains ALL params (required and optional).
-      // So `paramSet` check is correct using `useArgsRaw`.
+      // Validate args - paramSet includes both required params and optional params
+      const optionalParamKeys = Object.keys((def as any).optionalParams ?? {});
+      const paramSet = new Set([...def.params, ...optionalParamKeys]);
       
       for (const k of Object.keys(useArgsRaw)) {
         if (!paramSet.has(k)) {
@@ -185,7 +173,7 @@ export class MacroExpander {
       if (fullScope) this.usedLabels.add(fullScope);
 
       const cloned = def.template.map((n) => clone(n));
-      const rewritten = def.params.length > 0 ? cloned.map((n: any) => rewriteParams(n, paramSet, useArgs)) : cloned;
+      const rewritten = paramSet.size > 0 ? cloned.map((n: any) => rewriteParams(n, paramSet, useArgs)) : cloned;
       const scoped = fullScope ? applyScope(rewritten as any, fullScope) : (rewritten as any);
       
       // Expand children (content block) in current scope

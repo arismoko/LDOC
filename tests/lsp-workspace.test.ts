@@ -36,20 +36,20 @@ describe("LSP Workspace", () => {
     test("resolves macros from imported file", async () => {
       // Create library file with macro
       await writeFile("lib.ldoc", `
-@define Alert(type, message)
+@define(Alert, type, message)
   [{{type}}] {{message}}
 @end
 
-@define Notice(text)
+@define(Notice, text)
   Note: {{text}}
 @end
 `);
 
       // Create main file that imports lib
       const mainPath = await writeFile("main.ldoc", `
-@import "lib.ldoc"
+@import("lib.ldoc")
 
-@use Alert(type="info", message="Hello")
+@use(Alert, type: "info", message: "Hello")
 `);
 
       const ast = parse(await Bun.file(mainPath).text(), { sourcePath: mainPath });
@@ -62,15 +62,15 @@ describe("LSP Workspace", () => {
 
     test("resolves anchors from imported file", async () => {
       await writeFile("anchors.ldoc", `
-@anchor section-intro
+@anchor(section-intro)
 Introduction content.
 
-@anchor section-details
+@anchor(section-details)
 Details content.
 `);
 
       const mainPath = await writeFile("main2.ldoc", `
-@import "anchors.ldoc"
+@import("anchors.ldoc")
 
 See [[section-intro]].
 `);
@@ -84,24 +84,24 @@ See [[section-intro]].
 
     test("handles nested imports", async () => {
       await writeFile("base.ldoc", `
-@define BaseMacro()
+@define(BaseMacro)
   Base content
 @end
 `);
 
       await writeFile("middle.ldoc", `
-@import "base.ldoc"
+@import("base.ldoc")
 
-@define MiddleMacro()
+@define(MiddleMacro)
   Middle content
 @end
 `);
 
       const mainPath = await writeFile("main3.ldoc", `
-@import "middle.ldoc"
+@import("middle.ldoc")
 
-@use BaseMacro()
-@use MiddleMacro()
+@use(BaseMacro)
+@use(MiddleMacro)
 `);
 
       const ast = parse(await Bun.file(mainPath).text(), { sourcePath: mainPath });
@@ -113,15 +113,15 @@ See [[section-intro]].
 
     test("detects import cycles", async () => {
       await writeFile("cycle-a.ldoc", `
-@import "cycle-b.ldoc"
+@import("cycle-b.ldoc")
 `);
 
       await writeFile("cycle-b.ldoc", `
-@import "cycle-a.ldoc"
+@import("cycle-a.ldoc")
 `);
 
       const mainPath = await writeFile("main-cycle.ldoc", `
-@import "cycle-a.ldoc"
+@import("cycle-a.ldoc")
 `);
 
       const ast = parse(await Bun.file(mainPath).text(), { sourcePath: mainPath });
@@ -132,7 +132,7 @@ See [[section-intro]].
 
     test("reports missing import files", async () => {
       const mainPath = await writeFile("main-missing.ldoc", `
-@import "nonexistent.ldoc"
+@import("nonexistent.ldoc")
 `);
 
       const ast = parse(await Bun.file(mainPath).text(), { sourcePath: mainPath });
@@ -143,7 +143,7 @@ See [[section-intro]].
 
     test("handles file without imports", async () => {
       const mainPath = await writeFile("no-imports.ldoc", `
-@define LocalMacro()
+@define(LocalMacro)
   Content
 @end
 `);
@@ -160,15 +160,15 @@ See [[section-intro]].
   describe("completeForContext with imports", () => {
     test("includes imported macros in completion", async () => {
       await writeFile("macros.ldoc", `
-@define ImportedMacro(arg)
+@define(ImportedMacro, arg)
   {{arg}}
 @end
 `);
 
       const mainPath = await writeFile("main-complete.ldoc", `
-@import "macros.ldoc"
+@import("macros.ldoc")
 
-@define LocalMacro()
+@define(LocalMacro)
   Local
 @end
 `);
@@ -192,14 +192,14 @@ See [[section-intro]].
 
     test("includes imported anchors in cross-ref completion", async () => {
       await writeFile("sections.ldoc", `
-@anchor imported-section
+@anchor(imported-section)
 Imported section content.
 `);
 
       const mainPath = await writeFile("main-crossref.ldoc", `
-@import "sections.ldoc"
+@import("sections.ldoc")
 
-@anchor local-section
+@anchor(local-section)
 Local section content.
 `);
 
@@ -222,13 +222,13 @@ Local section content.
 
     test("completes imported macro parameter keys", async () => {
       await writeFile("params.ldoc", `
-@define ParamMacro(required, optional="default")
+@define(ParamMacro, required, optional: "default")
   {{required}} {{optional}}
 @end
 `);
 
       const mainPath = await writeFile("main-params.ldoc", `
-@import "params.ldoc"
+@import("params.ldoc")
 `);
 
       const text = await Bun.file(mainPath).text();
@@ -246,15 +246,15 @@ Local section content.
 
     test("local macros shadow imported macros", async () => {
       await writeFile("shadow-lib.ldoc", `
-@define ShadowedMacro()
+@define(ShadowedMacro)
   Imported version
 @end
 `);
 
       const mainPath = await writeFile("main-shadow.ldoc", `
-@import "shadow-lib.ldoc"
+@import("shadow-lib.ldoc")
 
-@define ShadowedMacro()
+@define(ShadowedMacro)
   Local version
 @end
 `);

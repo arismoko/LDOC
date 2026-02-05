@@ -1,9 +1,10 @@
 import { TokenType } from "../lexer";
 import type { DocumentNode, MetaNode, ImportNode, Node, ColumnsRegionNode, NumberingScheme } from "../ast";
-import { type ParserContext, parseTextUntilNewline, parseRestOfLineRaw } from "./inline";
-import { pushBlankLines, parseLengthToTwip, parseLiteral } from "../utils";
+import { type ParserContext, parseTextUntilNewline } from "./inline";
+import { pushBlankLines, parseLiteral } from "../utils";
 import { parseParagraph } from "./block";
 import { parseIndentedBlock } from "./helpers";
+import { extractLength, parseDirectiveArgs } from "../args";
 
 function parseMetaBlock(ctx: ParserContext): Record<string, any> {
   const data: Record<string, any> = {};
@@ -163,8 +164,19 @@ export function parseMeta(ctx: ParserContext): MetaNode {
 
 export function parseImport(ctx: ParserContext): ImportNode {
   const token = ctx.stream.advance();
-  ctx.stream.skipWhitespaceTokens();
-  const path = parseTextUntilNewline(ctx);
+  const args = parseDirectiveArgs(ctx.stream);
+  let path = "";
+  if (args.positional.length > 0 || args.named.size > 0) {
+    const v = args.positional[0];
+    if (v?.type === "string") path = v.value;
+    else if (v?.type === "identifier") path = v.name;
+    else if (v?.type === "expression") path = v.raw;
+    else {
+      throw new Error(`@import requires a path string (line ${token.line})`);
+    }
+  } else {
+    throw new Error(`@import requires v2 syntax: @import(path) (line ${token.line})`);
+  }
 
   return {
     type: "import",
@@ -390,52 +402,30 @@ export function parseDocHeaderFooterDefault(ctx: ParserContext, type: "doc_heade
   return parseDocHeaderFooter(ctx, type, "default");
 }
 
-function parseColumnsArgs(
-  args: string,
-  line: number,
-  column: number
-): { columnCount: number; gapTwip: number; separator: boolean } {
-  const parts = args.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) {
-    throw new Error(`@columns requires a column count, e.g. @columns 2 (line ${line})`);
-  }
-
-  // First part should be the column count
-  const countStr = parts[0]!;
-  const columnCount = parseInt(countStr, 10);
-  if (!Number.isFinite(columnCount) || columnCount < 1 || columnCount > 10) {
-    throw new Error(`@columns count must be between 1 and 10 (line ${line}). Got: ${countStr}`);
-  }
-
-  // Default gap: 0.5in = 720 twips
-  let gapTwip = 720;
-  let separator = false;
-
-  for (let i = 1; i < parts.length; i++) {
-    const part = parts[i]!;
-    if (part.startsWith("gap=")) {
-      const gapValue = part.slice(4);
-      gapTwip = parseLengthToTwip(gapValue, line);
-    } else if (part === "separator") {
-      separator = true;
-    } else {
-      throw new Error(`Unknown @columns option: ${part} (line ${line})`);
-    }
-  }
-
-  return { columnCount, gapTwip, separator };
-}
-
 export function parseColumnsRegion(ctx: ParserContext): ColumnsRegionNode {
   const token = ctx.stream.advance();
-  const args = parseRestOfLineRaw(ctx);
 
   // NOTE: Nested @columns regions are allowed.
   // Top-level columns use Section Breaks (native Word columns).
   // Nested columns are rendered as Tables with invisible borders.
 
-  // Parse args: @columns <N> [gap=<len>] [separator]
-  const parsed = parseColumnsArgs(args, token.line, token.column);
+  const v2 = parseDirectiveArgs(ctx.stream);
+
+  // Parse args: v2 syntax only - @columns(<N>, gap: <length>, separator)
+  if (v2.positional.length === 0 && v2.named.size === 0) {
+    throw new Error(`@columns requires v2 syntax: @columns(count, gap: length, separator) (line ${token.line})`);
+  }
+  const countVal = v2.positional[0];
+  if (!countVal || countVal.type !== "number" || !Number.isInteger(countVal.value)) {
+    throw new Error(`@columns requires an integer column count (line ${token.line})`);
+  }
+  const columnCount = countVal.value;
+  if (columnCount < 1 || columnCount > 10) {
+    throw new Error(`@columns count must be between 1 and 10 (line ${token.line}). Got: ${columnCount}`);
+  }
+  const gapTwip = extractLength(v2, "gap", 720);
+  const separator = v2.flags.has("separator");
+  const parsed = { columnCount, gapTwip, separator };
 
   let children: Node[] = [];
   let hasEnd = false;

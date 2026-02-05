@@ -71,6 +71,12 @@ export interface InlineStyleNode extends BaseNode {
   content: InlineNode[];  // Parsed children
 }
 
+export interface HighlightNode extends BaseNode {
+  type: "highlight";
+  color?: string; // undefined = default (yellow)
+  content: InlineNode[];
+}
+
 // Inline nodes (can appear inside text)
 export type InlineNode =
   | TextNode
@@ -85,4 +91,5 @@ export type InlineNode =
   | StrikethroughNode
   | InlineCodeNode
   | FootnoteReferenceNode
-  | InlineStyleNode;
+  | InlineStyleNode
+  | HighlightNode;

@@ -25,11 +25,11 @@ function joinTextRuns(xml: string): string {
 describe("Enhanced Macros", () => {
   test("default parameters work", async () => {
     const ldoc = `
-@define Greeting(name="World")
+@define(Greeting, name: "World")
   Hello {{name}}!
 
-@use Greeting()
-@use Greeting(name="Alice")
+@use(Greeting)
+@use(Greeting, name: "Alice")
 `;
     const buffer = await compileToDocxBuffer(ldoc);
     const xml = await readZipText(buffer, "word/document.xml");
@@ -40,12 +40,12 @@ describe("Enhanced Macros", () => {
 
   test("content blocks via @slot work", async () => {
     const ldoc = `
-@define Box(title)
+@define(Box, title)
   # {{title}}
   @slot
   End of box.
 
-@use Box(title="My Box")
+@use(Box, title: "My Box")
   This is content inside the box.
   It can have multiple paragraphs.
 @end
@@ -62,16 +62,16 @@ describe("Enhanced Macros", () => {
 
   test("content blocks with nested macros", async () => {
     const ldoc = `
-@define Wrapper()
+@define(Wrapper)
   Start Wrapper
   @slot
   End Wrapper
 
-@define Inner()
+@define(Inner)
   Inner Content
 
-@use Wrapper()
-  @use Inner()
+@use(Wrapper)
+  @use(Inner)
 @end
 `;
     const buffer = await compileToDocxBuffer(ldoc);

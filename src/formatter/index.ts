@@ -213,7 +213,7 @@ function printNode(node: Node, indent: string, level: number): string[] {
       return printUse(node as UseNode, prefix);
 
     case "set":
-      return [`${prefix}@set ${(node as SetNode).name} = ${(node as SetNode).expression}`];
+      return [`${prefix}@set(${(node as SetNode).name}, value: ${(node as SetNode).expression})`];
 
     case "comment":
       return printComment(node as CommentNode, prefix);
@@ -222,7 +222,12 @@ function printNode(node: Node, indent: string, level: number): string[] {
       return [`${prefix}@pagebreak`];
 
     case "anchor":
-      return [`${prefix}@anchor ${(node as AnchorNode).name}`];
+      {
+        const name = (node as AnchorNode).name;
+        const identRe = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+        const rendered = identRe.test(name) ? name : JSON.stringify(name);
+        return [`${prefix}@anchor(${rendered})`];
+      }
 
     case "doc_header":
     case "doc_footer":
@@ -452,13 +457,36 @@ function printModifier(
   level: number
 ): string[] {
   const prefix = indent.repeat(level);
+  const identRe = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+  const isLength = (v: string) => /^(?:\d+(?:\.\d+)?|\.\d+)(?:in|pt|cm|mm|twip)$/i.test(v);
+  const isNumber = (v: string) => /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(v);
+  const formatValue = (v: string) => {
+    if (v === "true" || v === "false") return v;
+    if (isLength(v) || isNumber(v) || identRe.test(v)) return v;
+    return JSON.stringify(v);
+  };
+
   let modifierStr = `@${node.modifier}`;
 
-  if (node.count !== undefined && node.count > 1) {
-    modifierStr += `:${node.count}`;
-  }
-  if (node.length !== undefined) {
-    modifierStr += `=${node.length}`;
+  if (node.modifier === "indent" || node.modifier === "outdent") {
+    if (node.length !== undefined) {
+      modifierStr += `(length: ${node.length})`;
+    } else if (node.count !== undefined) {
+      modifierStr += `(${node.count})`;
+    }
+  } else if (node.modifier === "style") {
+    const parts: string[] = [];
+    const attrs = node.attributes ?? {};
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === "true") {
+        parts.push(k);
+      } else {
+        parts.push(`${k}: ${formatValue(v)}`);
+      }
+    }
+    if (parts.length > 0) {
+      modifierStr += `(${parts.join(", ")})`;
+    }
   }
 
   // Check if content is a single paragraph (inline modifier)
@@ -498,22 +526,42 @@ function printTable(
   const prefix = indent.repeat(level);
   const rowPrefix = indent.repeat(level + 1);
   const cellPrefix = indent.repeat(level + 2);
-  const lines: string[] = [`${prefix}@table`];
+  const fmtIn = (twips: number) => {
+    const inch = twips / 1440;
+    const s = inch.toFixed(3).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+    return `${s}in`;
+  };
+  const identRe = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+  const isLength = (v: string) => /^(?:\d+(?:\.\d+)?|\.\d+)(?:in|pt|cm|mm|twip)$/i.test(v);
+  const isNumber = (v: string) => /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(v);
+  const formatValue = (v: string) => {
+    if (v === "true" || v === "false") return v;
+    if (isLength(v) || isNumber(v) || identRe.test(v)) return v;
+    return JSON.stringify(v);
+  };
+
+  let tableLine = `${prefix}@table`;
+  if (node.columnWidths && node.columnWidths.length > 0) {
+    const widths = node.columnWidths.map(w => fmtIn(w)).join(", ");
+    tableLine += `(widths: [${widths}])`;
+  }
+  const lines: string[] = [tableLine];
 
   for (const row of node.rows) {
     lines.push(`${rowPrefix}@row`);
     for (const cell of row.cells) {
-      // Handle attributes
-      let attrs = "";
-      if (cell.colspan > 1) attrs += ` colspan=${cell.colspan}`;
-      if (cell.rowspan > 1) attrs += ` rowspan=${cell.rowspan}`;
+      const argParts: string[] = [];
+      if (cell.colspan > 1) argParts.push(`colspan: ${cell.colspan}`);
+      if (cell.rowspan > 1) argParts.push(`rowspan: ${cell.rowspan}`);
       if (cell.attributes) {
-         for (const [k, v] of Object.entries(cell.attributes)) {
-            if (k !== "colspan" && k !== "rowspan") {
-               attrs += ` ${k}=${v}`;
-            }
-         }
+        for (const [k, v] of Object.entries(cell.attributes)) {
+          if (k === "colspan" || k === "rowspan") continue;
+          if (v === "true") argParts.push(k);
+          else argParts.push(`${k}: ${formatValue(v)}`);
+        }
       }
+
+      const cellHead = argParts.length > 0 ? `@cell(${argParts.join(", ")})` : "@cell";
 
       // Check for simple inline content
       // If content has 1 paragraph, no hard breaks, short enough
@@ -521,13 +569,13 @@ function printTable(
          const para = cell.content[0] as ParagraphNode;
          const text = printInlineNodes(para.content);
          if (!text.includes("\n") && text.length < 80) {
-            lines.push(`${cellPrefix}@cell${attrs}: ${text}`);
+            lines.push(`${cellPrefix}${cellHead}: ${text}`);
             continue;
          }
       }
 
       // Block content
-      lines.push(`${cellPrefix}@cell${attrs}`);
+      lines.push(`${cellPrefix}${cellHead}`);
       const contentLines = printNodes(cell.content, indent, level + 3);
       lines.push(...contentLines);
     }
@@ -541,20 +589,11 @@ function printTable(
 }
 
 /**
- * Calculate max width for each column
- */
-function calculateColumnWidths(rows: TableRowNode[]): number[] {
-  // Deprecated for new syntax, but kept if needed for something else?
-  // Not used in new printTable.
-  return [];
-}
-
-/**
  * Print an @if block
  */
 function printIf(node: IfNode, indent: string, level: number): string[] {
   const prefix = indent.repeat(level);
-  const lines: string[] = [`${prefix}@if ${node.condition}`];
+  const lines: string[] = [`${prefix}@if(${node.condition})`];
 
   // Then branch
   const thenLines = printNodes(node.thenBranch, indent, level + 1);
@@ -578,7 +617,7 @@ function printIf(node: IfNode, indent: string, level: number): string[] {
  */
 function printRepeat(node: RepeatNode, indent: string, level: number): string[] {
   const prefix = indent.repeat(level);
-  const lines: string[] = [`${prefix}@repeat ${node.count}`];
+  const lines: string[] = [`${prefix}@repeat(${node.count})`];
 
   const bodyLines = printNodes(node.body, indent, level + 1);
   lines.push(...bodyLines);
@@ -594,7 +633,7 @@ function printRepeat(node: RepeatNode, indent: string, level: number): string[] 
  */
 function printForeach(node: ForeachNode, indent: string, level: number): string[] {
   const prefix = indent.repeat(level);
-  const lines: string[] = [`${prefix}@foreach ${node.item} in ${node.iterable}`];
+  const lines: string[] = [`${prefix}@foreach(${node.item}, in: ${node.iterable})`];
 
   const bodyLines = printNodes(node.body, indent, level + 1);
   lines.push(...bodyLines);
@@ -611,21 +650,28 @@ function printForeach(node: ForeachNode, indent: string, level: number): string[
 function printDefine(node: DefineNode, indent: string, level: number): string[] {
   const prefix = indent.repeat(level);
 
-  // Build params string - params contains all param names in order,
-  // optionalParams contains the default values for optional ones
-  let paramsStr = "";
-  if (node.params.length > 0) {
-    const allParams: string[] = node.params.map((paramName) => {
-      const defaultValue = node.optionalParams[paramName];
-      if (defaultValue !== undefined) {
-        return `${paramName}=${JSON.stringify(defaultValue)}`;
-      }
-      return paramName;
-    });
-    paramsStr = `(${allParams.join(", ")})`;
+  const identRe = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+  const formatValue = (v: any) => {
+    if (typeof v === "number") return String(v);
+    if (typeof v === "boolean") return v ? "true" : "false";
+    if (typeof v === "string") {
+      if (identRe.test(v)) return v;
+      return JSON.stringify(v);
+    }
+    return JSON.stringify(String(v));
+  };
+
+  const argParts: string[] = [node.name];
+  for (const p of node.params) {
+    argParts.push(p);
+  }
+  for (const [k, v] of Object.entries(node.optionalParams ?? {})) {
+    // Avoid duplicating required params
+    if (node.params.includes(k)) continue;
+    argParts.push(`${k}: ${formatValue(v)}`);
   }
 
-  const lines: string[] = [`${prefix}@define ${node.name}${paramsStr}`];
+  const lines: string[] = [`${prefix}@define(${argParts.join(", ")})`];
 
   const templateLines = printNodes(node.template, indent, level + 1);
   lines.push(...templateLines);
@@ -642,19 +688,23 @@ function printDefine(node: DefineNode, indent: string, level: number): string[] 
  * Print a @use directive
  */
 function printUse(node: UseNode, prefix: string): string[] {
-  let argsStr = "";
+  const identRe = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+  const isLength = (v: string) => /^(?:\d+(?:\.\d+)?|\.\d+)(?:in|pt|cm|mm|twip)$/i.test(v);
+  const isNumber = (v: string) => /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(v);
+  const formatValue = (v: string) => {
+    if (v === "true" || v === "false") return v;
+    if (isLength(v) || isNumber(v) || identRe.test(v)) return v;
+    return JSON.stringify(v);
+  };
+
   const argEntries = Object.entries(node.args);
-  if (argEntries.length > 0) {
-    const argParts = argEntries.map(([k, v]) => `${k}="${v}"`);
-    argsStr = `(${argParts.join(", ")})`;
-  }
-
-  let labelStr = "";
+  const argParts = argEntries.map(([k, v]) => `${k}: ${formatValue(v)}`);
   if (node.label) {
-    labelStr = ` as ${node.label}`;
+    argParts.push(`label: ${formatValue(node.label)}`);
   }
+  const argsStr = `(${[node.name, ...argParts].join(", ")})`;
 
-  return [`${prefix}@use ${node.name}${argsStr}${labelStr}`];
+  return [`${prefix}@use${argsStr}`];
 }
 
 /**
@@ -707,19 +757,18 @@ function printColumnsRegion(
 ): string[] {
   const prefix = indent.repeat(level);
 
-  // Build options string
-  const options: string[] = [];
+  const parts: string[] = [String(node.columnCount)];
   if (node.gapTwip !== 720) {
-    // 720 twips = 0.5in default
-    const gapInch = node.gapTwip / 1440;
-    options.push(`gap=${gapInch}in`);
+    const gapInch = (node.gapTwip / 1440)
+      .toFixed(3)
+      .replace(/\.0+$/, "")
+      .replace(/(\.\d*?)0+$/, "$1");
+    parts.push(`gap: ${gapInch}in`);
   }
   if (node.separator) {
-    options.push("separator");
+    parts.push("separator");
   }
-
-  const optionsStr = options.length > 0 ? " " + options.join(" ") : "";
-  const lines: string[] = [`${prefix}@columns ${node.columnCount}${optionsStr}`];
+  const lines: string[] = [`${prefix}@columns(${parts.join(", ")})`];
 
   const childLines = printNodes(node.children, indent, level + 1);
   lines.push(...childLines);

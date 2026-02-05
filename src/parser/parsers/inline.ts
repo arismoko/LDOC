@@ -1,5 +1,5 @@
 import { TokenType, type Token } from "../lexer";
-import type { InlineNode, Node, StrikethroughNode, InlineCodeNode, FootnoteReferenceNode, ImageNode, InlineStyleNode } from "../ast";
+import type { InlineNode, Node, StrikethroughNode, InlineCodeNode, FootnoteReferenceNode, ImageNode, InlineStyleNode, HighlightNode } from "../ast";
 import type { TokenStream } from "../token-stream";
 
 export interface ParserContext {
@@ -170,6 +170,29 @@ export function parseInlineContent(text: string, allowEmphasis = true): InlineNo
       }
     }
 
+    // Highlight: ==text==
+    if (text[i] === "=" && text[i + 1] === "=") {
+      const start = i + 2;
+      const closeIdx = text.indexOf("==", start);
+      if (closeIdx !== -1) {
+        const inner = text.slice(start, closeIdx);
+        if (inner.length > 0) {
+          flushText();
+          nodes.push({
+            type: "highlight",
+            line: 0,
+            column: 0,
+            endLine: 0,
+            endColumn: 0,
+            color: undefined, // Default (yellow)
+            content: parseInlineContent(inner, allowEmphasis),
+          });
+          i = closeIdx + 2;
+          continue;
+        }
+      }
+    }
+
     // Inline code: `text` (no recursive parsing - code is literal)
     if (text[i] === "`") {
       const start = i + 1;
@@ -196,6 +219,15 @@ export function parseInlineContent(text: string, allowEmphasis = true): InlineNo
     if (text.slice(i, i + 7) === "@style(") {
       flushText();
       const result = parseInlineStyleFromString(text, i);
+      nodes.push(result.node);
+      i = result.endIndex;
+      continue;
+    }
+
+    // Inline highlight: @highlight(color)[content]
+    if (text.slice(i, i + 11) === "@highlight(") {
+      flushText();
+      const result = parseInlineHighlightFromString(text, i);
       nodes.push(result.node);
       i = result.endIndex;
       continue;
@@ -269,6 +301,50 @@ function parseInlineStyleFromString(
       attributes: parseAttributeString(attrStr),
       content: parseInlineContent(rawContent),  // Recursive!
     } as InlineStyleNode,
+    endIndex: i,
+  };
+}
+
+function parseInlineHighlightFromString(
+  text: string, 
+  start: number
+): { node: HighlightNode; endIndex: number } {
+  let i = start + 11; // Skip "@highlight("
+  
+  // Parse color until )
+  const colorStart = i;
+  while (i < text.length && text[i] !== ")") {
+    i++;
+  }
+  const color = text.slice(colorStart, i).trim() || undefined;
+  i++; // Skip )
+  
+  // Expect [
+  if (text[i] !== "[") {
+    throw new Error(`Expected '[' after @highlight() at position ${i}`);
+  }
+  i++; // Skip [
+  
+  // Find matching ] with balanced counting
+  const contentStart = i;
+  let depth = 1;
+  while (depth > 0 && i < text.length) {
+    if (text[i] === "[") depth++;
+    else if (text[i] === "]") depth--;
+    if (depth > 0) i++;
+  }
+  
+  const rawContent = text.slice(contentStart, i);
+  i++; // Skip closing ]
+  
+  return {
+    node: {
+      type: "highlight",
+      line: 0, column: 0,
+      endLine: 0, endColumn: 0,
+      color,
+      content: parseInlineContent(rawContent),  // Recursive!
+    } as HighlightNode,
     endIndex: i,
   };
 }
@@ -434,6 +510,18 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
         });
         break;
 
+      case TokenType.HIGHLIGHT:
+        nodes.push({
+          type: "highlight",
+          line: token.line,
+          column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
+          color: undefined, // Default (yellow) for == syntax
+          content: parseInlineContent(token.value),
+        });
+        break;
+
       case TokenType.INLINE_CODE:
         nodes.push({
           type: "inline_code",
@@ -468,6 +556,20 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
           attributes: token.attributes ?? {},
           content: innerContent,
         } as InlineStyleNode);
+        break;
+
+      case TokenType.INLINE_HIGHLIGHT:
+        // Parse the rawContent as inline nodes (recursive)
+        const highlightContent = parseInlineContent(token.rawContent ?? "");
+        nodes.push({
+          type: "highlight",
+          line: token.line,
+          column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
+          color: token.attributes?.color,
+          content: highlightContent,
+        } as HighlightNode);
         break;
     }
   }

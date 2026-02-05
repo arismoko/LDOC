@@ -19,7 +19,7 @@ import {
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { parse } from "../parser/parser";
-import { normalizeRefKey } from "../compiler/bookmark-utils";
+import { normalizeRefKey } from "../shared/bookmark-utils";
 import type { Node } from "../parser/ast";
 
 import { completeForContext, detectCompletionContext, type CompletionOptions } from "./completion";
@@ -309,9 +309,6 @@ export function startServer() {
   // Listen on the connection
   connection.listen();
 }
-
-// Remove unused function
-// function findNodeAtOffset(node: Node, offset: number): any | null { ... }
 
 // Helper to convert AST location to LSP Range
 function getRange(node: Node): Range {

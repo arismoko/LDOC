@@ -23,7 +23,7 @@ describe("Parser Robustness", () => {
   test("throws error for misplaced @import instead of hanging", () => {
     const input = `
 @center
-  @import "foo.ldoc"
+  @import("foo.ldoc")
 `;
     expect(() => parse(input)).toThrow(/Misplaced @import/);
   });

@@ -125,6 +125,8 @@ export class TokenStream {
       type === TokenType.BULLET ||
       type === TokenType.MODIFIER ||
       type === TokenType.TABLE ||
+      type === TokenType.ROW ||
+      type === TokenType.CELL ||
       type === TokenType.PAGEBREAK ||
       type === TokenType.COLUMN_BREAK ||
       type === TokenType.DOC_HEADER ||
@@ -134,10 +136,12 @@ export class TokenStream {
       type === TokenType.DOC_COLUMNS ||
       type === TokenType.DOC_ANCHOR ||
       type === TokenType.IF ||
+      type === TokenType.ELSEIF ||
       type === TokenType.ELSE ||
       type === TokenType.END ||
       type === TokenType.REPEAT ||
       type === TokenType.FOREACH ||
+      type === TokenType.SET ||
       type === TokenType.DOCUMENT ||
       type === TokenType.META ||
       type === TokenType.IMPORT ||

@@ -1,12 +1,33 @@
 import { TokenType } from "../lexer";
 import type { TableNode, TableRowNode, TableCellNode, Node } from "../ast";
-import { type ParserContext, parseInlineContent } from "./inline";
+import { type ParserContext } from "./inline";
 import { parseParagraph } from "./block";
-import { pushBlankLines } from "../utils";
+import { pushBlankLines, parseLengthToTwip } from "../utils";
+import { parseDirectiveArgs } from "../args";
 
-interface RawCell {
-  value: string;
-  quoted: boolean;
+function argValueToString(val: any): string {
+  if (!val) return "";
+  switch (val.type) {
+    case "string": return val.value;
+    case "number": return String(val.value);
+    case "boolean": return val.value ? "true" : "false";
+    case "length": return val.raw;
+    case "identifier": return val.name;
+    case "expression": return val.raw;
+    default: return "";
+  }
+}
+
+function argsToAttributes(args: any): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of args.named ?? []) {
+    const s = argValueToString(v);
+    if (s !== "") out[k] = s;
+  }
+  for (const flag of args.flags ?? []) {
+    out[flag] = "true";
+  }
+  return out;
 }
 
 export function parseTable(ctx: ParserContext): TableNode {
@@ -14,8 +35,22 @@ export function parseTable(ctx: ParserContext): TableNode {
   const rows: TableRowNode[] = [];
   let lastToken = token;
 
-  // Check for attributes on the table token itself (if we add support for @table width=100%)
-  const tableAttributes = token.attributes;
+  const tableArgs = parseDirectiveArgs(ctx.stream);
+  let columnWidths: number[] | undefined;
+
+  const v2Widths = tableArgs.named.get("widths");
+  if (v2Widths && v2Widths.type === "list") {
+    const twips: number[] = [];
+    for (const item of v2Widths.items) {
+      if (item.type !== "length") {
+        throw new Error(`@table widths must be a list of lengths (line ${token.line})`);
+      }
+      twips.push(parseLengthToTwip(item.raw, token.line));
+    }
+    if (twips.length > 0) {
+      columnWidths = twips;
+    }
+  }
 
   ctx.stream.skipNewlines();
 
@@ -28,93 +63,15 @@ export function parseTable(ctx: ParserContext): TableNode {
       ctx.stream.skipNewlines();
       if (ctx.stream.check(TokenType.DEDENT)) break;
 
-      // Legacy syntax: [cell, cell]
-      if (ctx.stream.check(TokenType.TABLE_ROW)) {
+      // v2 syntax: @row
+      if (ctx.stream.check(TokenType.ROW)) {
         const rowToken = ctx.stream.advance();
         lastToken = rowToken;
-        const rawCells = JSON.parse(rowToken.value) as RawCell[];
-
-        const cells: TableCellNode[] = [];
-        for (const rawCell of rawCells) {
-          const val = rawCell.value;
-          const isQuoted = rawCell.quoted;
-
-          // Check for colspan marker (unquoted ">")
-          if (!isQuoted && val === ">") {
-            const lastCell = cells[cells.length - 1];
-            if (lastCell) {
-              lastCell.colspan++;
-            }
-            continue;
-          }
-
-          // Check for rowspan marker (unquoted "^")
-          if (!isQuoted && val === "^") {
-            cells.push({
-              type: "table_cell",
-              line: rowToken.line,
-              column: rowToken.column,
-              endLine: rowToken.endLine,
-              endColumn: rowToken.endColumn,
-              content: [],
-              colspan: 1,
-              rowspan: 1,
-              vMerge: "continue",
-            });
-            continue;
-          }
-
-          // Normal cell
-          cells.push({
-            type: "table_cell",
-            line: rowToken.line,
-            column: rowToken.column,
-            endLine: rowToken.endLine,
-            endColumn: rowToken.endColumn,
-            content: parseInlineContent(val).map(inline => ({ ...inline, type: "paragraph", content: [inline] } as any)), // Hack: wrap inline in paragraph-like structure or just use inline? 
-            // Wait, TableCellNode.content is now Node[]. parseInlineContent returns InlineNode[].
-            // We need to wrap them in a ParagraphNode if we want consistency with block content.
-            // Or we can allow InlineNode in content? AST says Node[]. InlineNode is not Node (Node is Block).
-            // So we MUST wrap in ParagraphNode.
-            colspan: 1,
-            rowspan: 1,
-          });
-        }
-        
-        // Fix up the content wrapping for legacy cells
-        cells.forEach(cell => {
-           if (cell.vMerge !== "continue") {
-             // The content was parsed as InlineNode[], but we cast it to any above.
-             // Let's fix it properly.
-             const inlineContent = parseInlineContent(rawCells[cells.indexOf(cell)]!.value);
-             cell.content = [{
-               type: "paragraph",
-               content: inlineContent,
-               line: cell.line,
-               column: cell.column,
-               endLine: cell.endLine,
-               endColumn: cell.endColumn,
-             }];
-           }
-        });
-
-        rows.push({
-          type: "table_row",
-          line: rowToken.line,
-          column: rowToken.column,
-          endLine: rowToken.endLine,
-          endColumn: rowToken.endColumn,
-          cells,
-          isHeader: isFirst,
-        });
-
-        isFirst = false;
-      } 
-      // New syntax: @row
-      else if (ctx.stream.check(TokenType.ROW)) {
-        const rowToken = ctx.stream.advance();
-        lastToken = rowToken;
-        const rowAttributes = rowToken.attributes;
+        const rowArgs = parseDirectiveArgs(ctx.stream);
+        const rowAttributes = {
+          ...(rowToken.attributes ?? {}),
+          ...argsToAttributes(rowArgs),
+        };
         
         const cells: TableCellNode[] = [];
         
@@ -128,29 +85,21 @@ export function parseTable(ctx: ParserContext): TableNode {
             
             if (ctx.stream.check(TokenType.CELL)) {
               const cellToken = ctx.stream.advance();
-              const cellAttributes = cellToken.attributes;
+              const cellArgs = parseDirectiveArgs(ctx.stream);
+              const cellAttributes = {
+                ...(cellToken.attributes ?? {}),
+                ...argsToAttributes(cellArgs),
+              };
               let content: Node[] = [];
-              
-              // Check for inline content: @cell: content
-              // The lexer produces [CELL, TEXT(": content")]
-              if (ctx.stream.check(TokenType.TEXT)) {
-                const textToken = ctx.stream.peek();
-                if (textToken.value.startsWith(":")) {
-                  ctx.stream.advance();
-                  const text = textToken.value.substring(1).trim(); // Remove : and trim
-                  if (text) {
-                    content.push({
-                      type: "paragraph",
-                      content: parseInlineContent(text),
-                      line: textToken.line,
-                      column: textToken.column,
-                      endLine: textToken.endLine,
-                      endColumn: textToken.endColumn,
-                    });
-                  }
+
+              // Same-line content (after optional ':', consumed by lexer)
+              if (!ctx.stream.check(TokenType.NEWLINE) && !ctx.stream.check(TokenType.EOF)) {
+                const para = parseParagraph(ctx);
+                if (para) {
+                  content.push(para);
                 }
-              } 
-              // Check for block content
+              }
+              // Block content
               else if (ctx.stream.check(TokenType.NEWLINE)) {
                 ctx.stream.skipNewlines();
                 if (ctx.stream.check(TokenType.INDENT)) {
@@ -206,8 +155,8 @@ export function parseTable(ctx: ParserContext): TableNode {
           endLine: rowToken.endLine,
           endColumn: rowToken.endColumn,
           cells,
-          isHeader: isFirst, // First row is header by default? Or explicit?
-          attributes: rowAttributes,
+          isHeader: rowArgs.flags?.has("header") ? true : isFirst,
+          attributes: Object.keys(rowAttributes).length > 0 ? rowAttributes : undefined,
         });
         isFirst = false;
       }
@@ -243,7 +192,7 @@ export function parseTable(ctx: ParserContext): TableNode {
       endColumn: lastToken.endColumn,
       rows,
       hasEnd,
-      attributes: tableAttributes,
+      columnWidths,
     };
   }
 
@@ -257,7 +206,7 @@ export function parseTable(ctx: ParserContext): TableNode {
     endColumn: token.endColumn,
     rows,
     hasEnd: false,
-    attributes: tableAttributes,
+    columnWidths,
   };
 }
 

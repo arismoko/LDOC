@@ -188,14 +188,7 @@ export class Lexer {
         return;
       }
 
-      // If at start of line content and not a link, try Table Row
-      // This allows [cell1, cell2] and [^, ...] to be parsed as table row
-      if (!this.lineHasContent) {
-        this.scanTableRow();
-        return;
-      }
-
-      // Otherwise, just text
+      // Otherwise, just text (v2: no legacy [cell, cell] table row syntax)
       // We need to consume [ as text.
       this.pushToken({
         type: TokenType.TEXT,
@@ -227,6 +220,12 @@ export class Lexer {
     // Strikethrough (~~)
     if (char === "~" && this.peek(1) === "~") {
       this.scanStrikethrough();
+      return;
+    }
+
+    // Highlight (==)
+    if (char === "=" && this.peek(1) === "=") {
+      this.scanHighlight();
       return;
     }
 
@@ -307,80 +306,6 @@ export class Lexer {
 
     // Is it a keyword?
     if (level === 1 && KEYWORDS.has(word)) {
-      // Special handling for @cell with attributes: @cell colspan=2
-      // If it's a keyword that supports attributes (like cell), check for them
-      if (word === "cell" || word === "row" || word === "table") {
-        const attributes: Record<string, string> = {};
-        const savePos = this.pos;
-        const saveCol = this.column;
-        
-        // Try to parse attributes
-        let hasAttributes = false;
-        while (true) {
-          this.skipInlineWhitespace();
-          if (this.peek() === "\n" || this.peek() === ":" || this.pos >= this.input.length) break;
-          
-          // Parse key
-          const keyStart = this.pos;
-          while (this.pos < this.input.length && /[a-zA-Z0-9_-]/.test(this.peek())) {
-            this.advance();
-          }
-          const key = this.input.slice(keyStart, this.pos);
-          if (!key) break;
-          
-          // Expect =
-          if (this.peek() !== "=") {
-            // Not an attribute pair, maybe just text?
-            // For keywords, we usually don't have text on the same line unless it's a shorthand like @cell:
-            // But here we are checking for attributes BEFORE the colon.
-            break; 
-          }
-          this.advance();
-          
-          // Parse value
-          let value: string;
-          if (this.peek() === '"') {
-            this.advance();
-            const valStart = this.pos;
-            while (this.pos < this.input.length && this.peek() !== '"' && this.peek() !== "\n") {
-              this.advance();
-            }
-            value = this.input.slice(valStart, this.pos);
-            if (this.peek() === '"') this.advance();
-          } else {
-            const valStart = this.pos;
-            while (this.pos < this.input.length && !/[\s\n:]/.test(this.peek())) {
-              this.advance();
-            }
-            value = this.input.slice(valStart, this.pos);
-          }
-          
-          if (key && value) {
-            attributes[key] = value;
-            hasAttributes = true;
-          }
-        }
-        
-        if (hasAttributes) {
-          const tokenType = this.keywordToTokenType(word);
-          this.pushToken({
-            type: tokenType,
-            value: word,
-            line: this.line,
-            column: startCol,
-            indent: this.indentation.currentIndent(),
-            level: 1,
-            attributes,
-          });
-          this.lineHasContent = true;
-          return;
-        } else {
-          // No attributes found, reset and emit simple keyword token
-          this.pos = savePos;
-          this.column = saveCol;
-        }
-      }
-
       const tokenType = this.keywordToTokenType(word);
       this.pushToken({
         type: tokenType,
@@ -391,59 +316,41 @@ export class Lexer {
         level: 1, // Add level for consistency, though not strictly needed for keywords
       });
       this.lineHasContent = true;
+
+      // v2: optional argument list @keyword(...)
+      this.skipInlineWhitespace();
+      if (this.peek() === "(") {
+        this.scanDirectiveArgList();
+        this.skipInlineWhitespace();
+      }
+
+      // v2: inline content marker ':' (we consume it; content follows as normal tokens)
+      if (this.peek() === ":") {
+        this.advance();
+      }
+
       return;
     }
 
     // Is it a modifier?
     if (level === 1 && MODIFIERS.has(word)) {
-      // Special handling for @style with key=value pairs
-      if (word === "style") {
-        // Check for inline form: @style(attrs)[content]
+      // Special handling for @highlight with inline form: @highlight(color)[content]
+      if (word === "highlight") {
         if (this.peek() === "(") {
-          this.scanInlineStyle(startCol);
-          return;
-        }
-
-        // Block form: @style key=value key=value
-        const attributes: Record<string, string> = {};
-
-        while (true) {
-          this.skipInlineWhitespace();
-          if (this.peek() === "\n" || this.pos >= this.input.length) break;
-
-          // Parse key
-          const keyStart = this.pos;
-          while (this.pos < this.input.length && /[a-zA-Z0-9_-]/.test(this.peek())) {
-            this.advance();
-          }
-          const key = this.input.slice(keyStart, this.pos);
-          if (!key) break;
-
-          // Expect =
-          if (this.peek() !== "=") break;
-          this.advance();
-
-          // Parse value (may be quoted or unquoted)
-          let value: string;
-          if (this.peek() === '"') {
-            this.advance();
-            const valStart = this.pos;
-            while (this.pos < this.input.length && this.peek() !== '"' && this.peek() !== "\n") {
-              this.advance();
+          // Only treat as inline highlight if followed by [ after the closing )
+          const savePos = this.pos;
+          const saveCol = this.column;
+          const close = this.findMatchingParenOnLine();
+          if (close !== null) {
+            const after = this.input[close + 1];
+            if (after === "[") {
+              this.scanInlineHighlight(startCol);
+              return;
             }
-            value = this.input.slice(valStart, this.pos);
-            if (this.peek() === '"') this.advance();
-          } else {
-            const valStart = this.pos;
-            while (this.pos < this.input.length && !/[\s\n]/.test(this.peek())) {
-              this.advance();
-            }
-            value = this.input.slice(valStart, this.pos);
           }
-
-          if (key && value) {
-            attributes[key] = value;
-          }
+          // Not inline highlight; treat as modifier with optional parens args
+          this.pos = savePos;
+          this.column = saveCol;
         }
 
         this.pushToken({
@@ -452,86 +359,87 @@ export class Lexer {
           line: this.line,
           column: startCol,
           indent: this.indentation.currentIndent(),
-          attributes,
         });
         this.lineHasContent = true;
+        this.skipInlineWhitespace();
+        if (this.peek() === "(") {
+          this.scanDirectiveArgList();
+          this.skipInlineWhitespace();
+        }
+        if (this.peek() === ":") {
+          this.advance();
+        }
         return;
       }
 
-      let count: number | undefined;
-      let length: string | undefined;
+      // Special handling for @style with key=value pairs
+      if (word === "style") {
+        if (this.peek() === "(") {
+          // v2: @style(...) can be inline (@style(...)[...]) or block (@style(...): / @style(...)\n ...)
+          const savePos = this.pos;
+          const saveCol = this.column;
 
-      const isLengthToken = (raw: string) => /^(?:\d+(?:\.\d+)?)(?:in|pt|cm|mm)$/i.test(raw);
+          // Parse attributes/flags in-parens without emitting v2 arg tokens (kept as Record for existing AST)
+          const { attributes, isInline } = this.scanStyleParensAndMaybeInlineBracket(startCol);
+          if (isInline) {
+            // scanStyleParensAndMaybeInlineBracket already emitted INLINE_STYLE token
+            return;
+          }
 
-      // Parameter forms:
-      // - @indent:2
-      // - @indent=36pt
-      // - @indent 2   (only when the number is the only thing left on the line)
-      if (this.peek() === ":") {
-        this.advance();
-        const start = this.pos;
-        while (/[0-9]/.test(this.peek())) {
-          this.advance();
-        }
-        const raw = this.input.slice(start, this.pos);
-        if (raw) count = parseInt(raw, 10);
-      } else if (this.peek() === "=") {
-        // Equals form: allow length tokens and keep rest of line as content
-        const savePos = this.pos;
-        const saveCol = this.column;
-        this.advance();
-        const start = this.pos;
-        while (this.pos < this.input.length && this.peek() !== " " && this.peek() !== "\t" && this.peek() !== "\n") {
-          this.advance();
-        }
-        const raw = this.input.slice(start, this.pos);
-        if (raw && isLengthToken(raw)) {
-          length = raw;
-        } else {
-          // Roll back; treat '=' and following as content
+          // Block style with parentheses: emit MODIFIER + argument tokens so the parser can also interpret args later
+          // We already consumed the parens in scanStyleParensAndMaybeInlineBracket; restore and do generic arg scan.
           this.pos = savePos;
           this.column = saveCol;
-        }
-      } else {
-        // Try space form safely
-        const savePos = this.pos;
-        const saveCol = this.column;
-        this.skipInlineWhitespace();
 
-        const start = this.pos;
-        while (/[0-9.]/.test(this.peek())) {
-          this.advance();
+          this.pushToken({
+            type: TokenType.MODIFIER,
+            value: word,
+            line: this.line,
+            column: startCol,
+            indent: this.indentation.currentIndent(),
+            attributes,
+          });
+          this.lineHasContent = true;
+          this.skipInlineWhitespace();
+          if (this.peek() === "(") {
+            this.scanDirectiveArgList();
+            this.skipInlineWhitespace();
+          }
+          if (this.peek() === ":") {
+            this.advance();
+          }
+          return;
         }
-        while (/[a-zA-Z]/.test(this.peek())) {
-          this.advance();
-        }
-        const raw = this.input.slice(start, this.pos);
 
-        // Only treat as a count if the rest of the line is whitespace then newline/EOF
-        const afterDigitsPos = this.pos;
-        while (this.peek() === " " || this.peek() === "\t") {
-          this.advance();
-        }
-        if (raw && (this.peek() === "\n" || this.pos >= this.input.length)) {
-          if (/^\d+$/.test(raw)) count = parseInt(raw, 10);
-          else if (isLengthToken(raw)) length = raw;
-        } else {
-          // Roll back; it was content
-          this.pos = savePos;
-          this.column = saveCol;
-        }
+        // v2-only: @style requires parentheses, emit error for legacy block form
+        throw new Error(
+          `@style requires parentheses. Use @style(...) instead of @style key=value. ` +
+          `(line ${this.line}, column ${startCol})`
+        );
       }
 
+      // v2-only: modifiers use only @modifier(...) form
       this.pushToken({
         type: TokenType.MODIFIER,
         value: word,
         line: this.line,
         column: startCol,
         indent: this.indentation.currentIndent(),
-        count,
-        length,
       });
       this.lineHasContent = true;
+
+      // v2: optional argument list @modifier(...)
+      this.skipInlineWhitespace();
+      if (this.peek() === "(") {
+        this.scanDirectiveArgList();
+        this.skipInlineWhitespace();
+      }
+
+      // v2: inline content marker ':'
+      if (this.peek() === ":") {
+        this.advance();
+      }
+
       return;
     }
 
@@ -564,9 +472,7 @@ export class Lexer {
     this.pos = startPos + level;
     this.column = startCol + level;
 
-    const styleStart = this.pos;
     const style = this.parseNumberedStyle();
-    const afterStyle = this.pos;
 
     // A numbered item MUST be followed by whitespace (space/tab) or newline/EOF
     // This prevents @someone from being parsed as a list item
@@ -616,6 +522,552 @@ export class Lexer {
       marker,
     });
     this.lineHasContent = true;
+  }
+
+  /**
+   * Scan a v2-style directive argument list, emitting tokens used by src/parser/args.ts.
+   * Assumes the current character is '('.
+   *
+   * Notes:
+   * - Arguments are single-line (no newlines inside parens).
+   * - Values that are not simple literals are emitted as a single EXPRESSION token.
+   */
+  private scanDirectiveArgList(): void {
+    if (this.peek() !== "(") return;
+
+    this.pushToken({
+      type: TokenType.LPAREN,
+      value: "(",
+      line: this.line,
+      column: this.column,
+      indent: this.indentation.currentIndent(),
+    });
+    this.advance(); // (
+
+    while (this.pos < this.input.length) {
+      this.skipInlineWhitespace();
+      const ch = this.peek();
+
+      if (ch === "\n") {
+        throw new Error(`Directive arguments cannot span lines (line ${this.line}, column ${this.column})`);
+      }
+
+      if (ch === ")") {
+        this.pushToken({
+          type: TokenType.RPAREN,
+          value: ")",
+          line: this.line,
+          column: this.column,
+          indent: this.indentation.currentIndent(),
+        });
+        this.advance();
+        return;
+      }
+
+      if (ch === ",") {
+        this.pushToken({
+          type: TokenType.COMMA,
+          value: ",",
+          line: this.line,
+          column: this.column,
+          indent: this.indentation.currentIndent(),
+        });
+        this.advance();
+        continue;
+      }
+
+      // Parse one argument (positional, named, or flag)
+      this.scanSingleArgValue({
+        terminators: new Set([",", ")"]),
+      });
+    }
+
+    throw new Error(`Unterminated directive argument list (line ${this.line}, column ${this.column})`);
+  }
+
+  private scanSingleArgValue(opts: { terminators: Set<string> }): void {
+    this.skipInlineWhitespace();
+    const ch = this.peek();
+
+    if (ch === "\n") {
+      throw new Error(`Directive arguments cannot span lines (line ${this.line}, column ${this.column})`);
+    }
+
+    if (ch === "[") {
+      this.scanArgList();
+      return;
+    }
+
+    if (ch === '"') {
+      this.scanArgStringLiteral();
+      return;
+    }
+
+    if (/[0-9]/.test(ch) || (ch === "." && /[0-9]/.test(this.peek(1)))) {
+      this.scanArgNumberOrLengthOrExpression(opts.terminators);
+      return;
+    }
+
+    if (/[A-Za-z_]/.test(ch)) {
+      const startPos = this.pos;
+      const startCol = this.column;
+
+      const ident = this.scanRawIdentifier();
+      const identLower = ident.toLowerCase();
+
+      const afterIdentPos = this.pos;
+      const afterIdentCol = this.column;
+      this.skipInlineWhitespace();
+
+      // Named arg key: value
+      if (this.peek() === ":") {
+        this.pushToken({
+          type: TokenType.IDENTIFIER_ARG,
+          value: ident,
+          line: this.line,
+          column: startCol,
+          indent: this.indentation.currentIndent(),
+        });
+        this.pushToken({
+          type: TokenType.COLON_ARG,
+          value: ":",
+          line: this.line,
+          column: this.column,
+          indent: this.indentation.currentIndent(),
+        });
+        this.advance();
+        this.scanSingleArgValue({ terminators: opts.terminators });
+        return;
+      }
+
+      const next = this.peek();
+      const isTerminator = opts.terminators.has(next);
+      const isCloseBracket = next === "]";
+
+      if (isTerminator || isCloseBracket || next === "" || next === "\n") {
+        // Standalone identifier / boolean
+        if (identLower === "true" || identLower === "false") {
+          this.pushToken({
+            type: TokenType.BOOLEAN,
+            value: identLower,
+            line: this.line,
+            column: startCol,
+            indent: this.indentation.currentIndent(),
+          });
+        } else {
+          this.pushToken({
+            type: TokenType.IDENTIFIER_ARG,
+            value: ident,
+            line: this.line,
+            column: startCol,
+            indent: this.indentation.currentIndent(),
+          });
+        }
+        return;
+      }
+
+      // Expression starting with identifier (rollback and scan whole chunk)
+      this.pos = startPos;
+      this.column = startCol;
+      // Preserve any line state; args are single-line so line doesn't change
+      const expr = this.scanExpressionChunk(opts.terminators);
+      this.pushToken({
+        type: TokenType.EXPRESSION,
+        value: expr,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+
+      // Ensure we advanced; otherwise avoid infinite loop
+      if (this.pos === startPos) {
+        // Restore and advance one char defensively
+        this.pos = afterIdentPos;
+        this.column = afterIdentCol;
+      }
+      return;
+    }
+
+    // Fallback: treat as expression
+    const exprStartCol = this.column;
+    const expr = this.scanExpressionChunk(opts.terminators);
+    this.pushToken({
+      type: TokenType.EXPRESSION,
+      value: expr,
+      line: this.line,
+      column: exprStartCol,
+      indent: this.indentation.currentIndent(),
+    });
+  }
+
+  private scanArgList(): void {
+    // Emit '['
+    this.pushToken({
+      type: TokenType.LBRACKET_ARG,
+      value: "[",
+      line: this.line,
+      column: this.column,
+      indent: this.indentation.currentIndent(),
+    });
+    this.advance();
+
+    while (this.pos < this.input.length) {
+      this.skipInlineWhitespace();
+      const ch = this.peek();
+      if (ch === "\n") {
+        throw new Error(`List arguments cannot span lines (line ${this.line}, column ${this.column})`);
+      }
+      if (ch === "]") {
+        this.pushToken({
+          type: TokenType.RBRACKET_ARG,
+          value: "]",
+          line: this.line,
+          column: this.column,
+          indent: this.indentation.currentIndent(),
+        });
+        this.advance();
+        return;
+      }
+      if (ch === ",") {
+        this.pushToken({
+          type: TokenType.COMMA,
+          value: ",",
+          line: this.line,
+          column: this.column,
+          indent: this.indentation.currentIndent(),
+        });
+        this.advance();
+        continue;
+      }
+
+      this.scanSingleArgValue({ terminators: new Set([",", "]"]) });
+    }
+
+    throw new Error(`Unterminated list argument (line ${this.line}, column ${this.column})`);
+  }
+
+  private scanArgStringLiteral(): void {
+    const startCol = this.column;
+    const startPos = this.pos;
+    this.advance(); // opening "
+
+    while (this.pos < this.input.length) {
+      const ch = this.peek();
+      if (ch === "\n") {
+        throw new Error(`Unterminated string literal (line ${this.line}, column ${startCol})`);
+      }
+      if (ch === "\\") {
+        // Skip escaped char
+        this.advance();
+        if (this.pos < this.input.length) this.advance();
+        continue;
+      }
+      if (ch === '"') {
+        this.advance();
+        const raw = this.input.slice(startPos, this.pos);
+        this.pushToken({
+          type: TokenType.STRING_LITERAL,
+          value: raw,
+          line: this.line,
+          column: startCol,
+          indent: this.indentation.currentIndent(),
+        });
+        return;
+      }
+      this.advance();
+    }
+
+    throw new Error(`Unterminated string literal (line ${this.line}, column ${startCol})`);
+  }
+
+  private scanArgNumberOrLengthOrExpression(terminators: Set<string>): void {
+    const startCol = this.column;
+    const startPos = this.pos;
+
+    // Scan a chunk and then classify
+    const raw = this.scanExpressionChunk(terminators);
+    const trimmed = raw.trim();
+
+    if (/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(trimmed)) {
+      this.pushToken({
+        type: TokenType.NUMBER,
+        value: trimmed,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      return;
+    }
+
+    if (/^(?:\d+(?:\.\d+)?|\.\d+)(?:in|pt|cm|mm|twip)$/i.test(trimmed)) {
+      this.pushToken({
+        type: TokenType.LENGTH,
+        value: trimmed,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      return;
+    }
+
+    // Fallback to expression
+    this.pushToken({
+      type: TokenType.EXPRESSION,
+      value: trimmed,
+      line: this.line,
+      column: startCol,
+      indent: this.indentation.currentIndent(),
+    });
+
+    if (this.pos === startPos) {
+      this.advance();
+    }
+  }
+
+  private scanExpressionChunk(terminators: Set<string>): string {
+    const start = this.pos;
+    let depthParen = 0;
+    let depthBracket = 0;
+    let quote: '"' | "'" | null = null;
+
+    while (this.pos < this.input.length) {
+      const ch = this.peek();
+      if (ch === "\n") {
+        break;
+      }
+
+      if (quote) {
+        if (ch === "\\") {
+          this.advance();
+          if (this.pos < this.input.length) this.advance();
+          continue;
+        }
+        if (ch === quote) {
+          quote = null;
+          this.advance();
+          continue;
+        }
+        this.advance();
+        continue;
+      }
+
+      if (ch === '"' || ch === "'") {
+        quote = ch as any;
+        this.advance();
+        continue;
+      }
+
+      if (ch === "(") {
+        depthParen++;
+        this.advance();
+        continue;
+      }
+      if (ch === ")") {
+        if (depthParen === 0 && terminators.has(")")) {
+          break;
+        }
+        if (depthParen > 0) depthParen--;
+        this.advance();
+        continue;
+      }
+
+      if (ch === "[") {
+        depthBracket++;
+        this.advance();
+        continue;
+      }
+      if (ch === "]") {
+        if (depthBracket === 0 && terminators.has("]")) {
+          break;
+        }
+        if (depthBracket > 0) depthBracket--;
+        this.advance();
+        continue;
+      }
+
+      if (depthParen === 0 && depthBracket === 0 && terminators.has(ch)) {
+        break;
+      }
+
+      this.advance();
+    }
+
+    return this.input.slice(start, this.pos).trim();
+  }
+
+  private scanRawIdentifier(): string {
+    const start = this.pos;
+    while (this.pos < this.input.length && /[A-Za-z0-9_-]/.test(this.peek())) {
+      this.advance();
+    }
+    return this.input.slice(start, this.pos);
+  }
+
+  private findMatchingParenOnLine(): number | null {
+    if (this.peek() !== "(") return null;
+
+    let i = this.pos;
+    let depth = 0;
+    let quote: '"' | "'" | null = null;
+
+    while (i < this.input.length) {
+      const ch = this.input[i]!;
+      if (ch === "\n") return null;
+
+      if (quote) {
+        if (ch === "\\") {
+          i += 2;
+          continue;
+        }
+        if (ch === quote) {
+          quote = null;
+        }
+        i++;
+        continue;
+      }
+
+      if (ch === '"' || ch === "'") {
+        quote = ch as any;
+        i++;
+        continue;
+      }
+
+      if (ch === "(") {
+        depth++;
+        i++;
+        continue;
+      }
+      if (ch === ")") {
+        depth--;
+        if (depth === 0) return i;
+        i++;
+        continue;
+      }
+      i++;
+    }
+    return null;
+  }
+
+  private scanStyleParensAndMaybeInlineBracket(startCol: number): { attributes: Record<string, string>; isInline: boolean } {
+    if (this.peek() !== "(") {
+      return { attributes: {}, isInline: false };
+    }
+
+    const parenStartCol = this.column;
+    this.advance(); // (
+
+    const attributes: Record<string, string> = {};
+    while (this.pos < this.input.length && this.peek() !== ")") {
+      if (this.peek() === "\n") {
+        throw new Error(`@style(...) cannot span lines (line ${this.line}, column ${parenStartCol})`);
+      }
+
+      // Skip whitespace and commas
+      while (this.peek() === " " || this.peek() === "\t" || this.peek() === ",") {
+        this.advance();
+      }
+
+      if (this.peek() === ")") break;
+
+      const keyStart = this.pos;
+      while (this.pos < this.input.length && /[A-Za-z0-9_-]/.test(this.peek())) {
+        this.advance();
+      }
+      const key = this.input.slice(keyStart, this.pos);
+      if (!key) break;
+
+      // Skip whitespace
+      while (this.peek() === " " || this.peek() === "\t") {
+        this.advance();
+      }
+
+      const sep = this.peek();
+      if (sep === ":" || sep === "=") {
+        this.advance();
+        while (this.peek() === " " || this.peek() === "\t") {
+          this.advance();
+        }
+
+        let value = "";
+        if (this.peek() === '"') {
+          this.advance();
+          const valStart = this.pos;
+          while (this.pos < this.input.length && this.peek() !== '"' && this.peek() !== "\n") {
+            if (this.peek() === "\\") {
+              this.advance();
+              if (this.pos < this.input.length) this.advance();
+              continue;
+            }
+            this.advance();
+          }
+          value = this.input.slice(valStart, this.pos);
+          if (this.peek() !== '"') {
+            throw new Error(`Unclosed quoted value for @style ${key} at line ${this.line}`);
+          }
+          this.advance();
+        } else {
+          const valStart = this.pos;
+          while (
+            this.pos < this.input.length &&
+            this.peek() !== ")" &&
+            this.peek() !== "," &&
+            this.peek() !== "\n" &&
+            this.peek() !== " " &&
+            this.peek() !== "\t"
+          ) {
+            this.advance();
+          }
+          value = this.input.slice(valStart, this.pos).trim();
+        }
+
+        if (value !== "") {
+          attributes[key] = value;
+        }
+      } else {
+        // Flag
+        attributes[key] = "true";
+      }
+    }
+
+    if (this.peek() !== ")") {
+      throw new Error(`Expected ')' after @style(...) at line ${this.line}, column ${this.column}`);
+    }
+    this.advance();
+
+    // Inline form: @style(...)[content]
+    if (this.peek() === "[") {
+      this.advance();
+      const contentStart = this.pos;
+      let depth = 1;
+      while (depth > 0 && this.pos < this.input.length) {
+        const ch = this.peek();
+        if (ch === "\n") {
+          throw new Error(`Inline style cannot span lines at line ${this.line}, column ${this.column}`);
+        }
+        if (ch === "[") depth++;
+        else if (ch === "]") depth--;
+        if (depth > 0) this.advance();
+      }
+      const rawContent = this.input.slice(contentStart, this.pos);
+      if (this.peek() !== "]") {
+        throw new Error(`Expected ']' to close inline style at line ${this.line}, column ${this.column}`);
+      }
+      this.advance();
+
+      this.pushToken({
+        type: TokenType.INLINE_STYLE,
+        value: "@style",
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+        attributes,
+        rawContent,
+      });
+      this.lineHasContent = true;
+      return { attributes, isInline: true };
+    }
+
+    return { attributes, isInline: false };
   }
 
   private parseNumberedStyle(): string {
@@ -1054,6 +1506,50 @@ export class Lexer {
     }
   }
 
+  private scanHighlight(): void {
+    const startCol = this.column;
+    this.advance(); // =
+    this.advance(); // =
+
+    const textStart = this.pos;
+    while (this.pos < this.input.length) {
+      if (this.peek() === "=" && this.peek(1) === "=") {
+        break;
+      }
+      if (this.peek() === "\n") {
+        // Highlight cannot span lines
+        break;
+      }
+      this.advance();
+    }
+
+    if (this.peek() === "=" && this.peek(1) === "=") {
+      const text = this.input.slice(textStart, this.pos);
+      this.advance(); // =
+      this.advance(); // =
+      
+      this.pushToken({
+        type: TokenType.HIGHLIGHT,
+        value: text,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    } else {
+      // Failed to find closing ==, treat as text
+      const textSoFar = this.input.slice(textStart, this.pos);
+      this.pushToken({
+        type: TokenType.TEXT,
+        value: "==" + textSoFar,
+        line: this.line,
+        column: startCol,
+        indent: this.indentation.currentIndent(),
+      });
+      this.lineHasContent = true;
+    }
+  }
+
   private scanInlineCode(): void {
     const startCol = this.column;
     this.advance(); // `
@@ -1116,52 +1612,6 @@ export class Lexer {
     this.lineHasContent = true;
   }
 
-  private scanTableRow(): void {
-    const startCol = this.column;
-    this.advance(); // [
-
-    const content: { value: string; quoted: boolean }[] = [];
-    let current = "";
-    let inQuotes = false;
-    let cellQuoted = false;
-
-    while (this.pos < this.input.length && this.peek() !== "]") {
-      const char = this.peek();
-
-      if (char === '"') {
-        if (!inQuotes) {
-          // Starting a quoted section
-          inQuotes = true;
-          cellQuoted = true;
-        } else {
-          // Ending a quoted section
-          inQuotes = false;
-        }
-        this.advance();
-      } else if (char === "," && !inQuotes) {
-        content.push({ value: current.trim(), quoted: cellQuoted });
-        current = "";
-        cellQuoted = false;
-        this.advance();
-      } else {
-        current += char;
-        this.advance();
-      }
-    }
-
-    content.push({ value: current.trim(), quoted: cellQuoted });
-    this.advance(); // ]
-
-    this.pushToken({
-      type: TokenType.TABLE_ROW,
-      value: JSON.stringify(content),
-      line: this.line,
-      column: startCol,
-      indent: this.indentation.currentIndent(),
-    });
-    this.lineHasContent = true;
-  }
-
   private scanText(): void {
     const startCol = this.column;
     const textStart = this.pos;
@@ -1217,20 +1667,24 @@ export class Lexer {
   }
 
   /**
-   * Scan inline @style(attrs)[content] syntax.
-   * Called after we've recognized "@style" and seen "(" as next character.
+   * Scan inline @highlight(color)[content] syntax.
+   * Called after we've recognized "@highlight" and seen "(" as next character.
    */
-  private scanInlineStyle(startCol: number): void {
+  private scanInlineHighlight(startCol: number): void {
     // Consume (
     this.advance();
 
-    // Parse attributes
-    const attributes = this.parseInlineStyleAttributes();
+    // Parse color (simple string, not key=value)
+    const colorStart = this.pos;
+    while (this.pos < this.input.length && this.peek() !== ")" && this.peek() !== "\n") {
+      this.advance();
+    }
+    const color = this.input.slice(colorStart, this.pos).trim();
 
     // Expect )
     if (this.peek() !== ")") {
       throw new Error(
-        `Expected ')' after inline style attributes at line ${this.line}, column ${this.column}`
+        `Expected ')' after inline highlight color at line ${this.line}, column ${this.column}`
       );
     }
     this.advance();
@@ -1238,7 +1692,7 @@ export class Lexer {
     // Expect [
     if (this.peek() !== "[") {
       throw new Error(
-        `Expected '[' after inline style attributes at line ${this.line}, column ${this.column}`
+        `Expected '[' after inline highlight color at line ${this.line}, column ${this.column}`
       );
     }
     this.advance();
@@ -1250,7 +1704,7 @@ export class Lexer {
       const char = this.peek();
       if (char === "\n") {
         throw new Error(
-          `Inline style cannot span lines at line ${this.line}, column ${this.column}`
+          `Inline highlight cannot span lines at line ${this.line}, column ${this.column}`
         );
       }
       if (char === "[") depth++;
@@ -1263,84 +1717,21 @@ export class Lexer {
     // Consume closing ]
     if (this.peek() !== "]") {
       throw new Error(
-        `Expected ']' to close inline style at line ${this.line}, column ${this.column}`
+        `Expected ']' to close inline highlight at line ${this.line}, column ${this.column}`
       );
     }
     this.advance();
 
     this.pushToken({
-      type: TokenType.INLINE_STYLE,
-      value: "@style",
+      type: TokenType.INLINE_HIGHLIGHT,
+      value: "@highlight",
       line: this.line,
       column: startCol,
       indent: this.indentation.currentIndent(),
-      attributes,
+      attributes: color ? { color } : {},
       rawContent,
     });
     this.lineHasContent = true;
-  }
-
-  /**
-   * Parse attributes inside parentheses for inline @style.
-   * Format: key=value or key="quoted value", space-separated.
-   */
-  private parseInlineStyleAttributes(): Record<string, string> {
-    const attributes: Record<string, string> = {};
-
-    while (this.pos < this.input.length && this.peek() !== ")") {
-      // Skip whitespace
-      while (this.peek() === " " || this.peek() === "\t") {
-        this.advance();
-      }
-
-      if (this.peek() === ")") break;
-
-      // Parse key
-      const keyStart = this.pos;
-      while (this.pos < this.input.length && /[a-zA-Z0-9_-]/.test(this.peek())) {
-        this.advance();
-      }
-      const key = this.input.slice(keyStart, this.pos);
-      if (!key) break;
-
-      // Expect =
-      if (this.peek() !== "=") {
-        throw new Error(
-          `Expected '=' after attribute key '${key}' at line ${this.line}, column ${this.column}`
-        );
-      }
-      this.advance();
-
-      // Parse value (may be quoted or unquoted)
-      let value: string;
-      if (this.peek() === '"') {
-        this.advance();
-        const valStart = this.pos;
-        while (this.pos < this.input.length && this.peek() !== '"' && this.peek() !== "\n") {
-          this.advance();
-        }
-        value = this.input.slice(valStart, this.pos);
-        if (this.peek() === '"') {
-          this.advance();
-        } else {
-          throw new Error(
-            `Unclosed quoted value for attribute '${key}' at line ${this.line}, column ${this.column}`
-          );
-        }
-      } else {
-        const valStart = this.pos;
-        while (this.pos < this.input.length && !/[\s\n)]/.test(this.peek())) {
-          this.advance();
-        }
-        value = this.input.slice(valStart, this.pos);
-      }
-
-      if (key && value) {
-        attributes[key] = value;
-      }
-    }
-
-    return attributes;
   }
 
   private scanLineComment(): void {
@@ -1389,7 +1780,7 @@ export class Lexer {
   }
 
   private isSpecialChar(char: string): boolean {
-    return ["@", "{", "[", '"', "*", "_", "/", "#", "~", "`"].includes(char);
+    return ["@", "{", "[", '"', "*", "_", "/", "#", "~", "`", "="].includes(char);
   }
 
   private keywordToTokenType(keyword: string): TokenType {

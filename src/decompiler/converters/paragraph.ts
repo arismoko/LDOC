@@ -565,10 +565,11 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
   const num = paragraphNumbering(pNode);
   if (num) {
     const { prefix } = listPrefix(numInfo, num.numId, num.ilvl);
-    // Lists with alignment get inline alignment prefix
-    const alignPrefix = alignment === "center" ? "@center " : alignment === "right" ? "@right " : "";
+    // Lists with alignment: alignment will be handled by the generator's emitAligned logic
+    // We just record the alignment in the info for potential wrapping
     return {
-      line: `${alignPrefix}${prefix}${text}`.trimEnd(),
+      line: `${prefix}${text}`.trimEnd(),
+      alignment: alignment === "center" ? "center" : alignment === "right" ? "right" : undefined,
       // Avoid emitting @indent for list items; numbering carries indentation.
       indentLeftTwips: 0,
       isHeading: false,
@@ -582,7 +583,7 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
   if (uniformStyle && !isEmpty) {
     const plainText = paragraphTextPlain(pNode, isToc, rels);
     return {
-      line: `@${uniformStyle} ${plainText}`.trimEnd(),
+      line: `@${uniformStyle}: ${plainText}`.trimEnd(),
       alignment: alignment === "center" ? "center" : alignment === "right" ? "right" : undefined,
       indentLeftTwips,
       isHeading: false,

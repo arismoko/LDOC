@@ -1,16 +1,8 @@
 import { AlignmentType, HeadingLevel } from "docx";
+import type { CoreTextStyle } from "../shared/style-types";
 
 /** Style applied while compiling inline/block content. */
-export interface TextStyle {
-  bold?: boolean;
-  italics?: boolean;
-  allCaps?: boolean;
-  smallCaps?: boolean;
-  strike?: boolean;
-  doubleStrike?: boolean;
-  size?: number;
-  font?: string;
-  color?: string; // 6-hex without '#'
+export interface TextStyle extends CoreTextStyle {
   heading?: 1 | 2 | 3 | 4 | 5 | 6;
 }
 
@@ -36,92 +28,6 @@ export interface StyleConfig {
   heading6?: StyleSettings;
   header?: StyleSettings;
   footer?: StyleSettings;
-}
-
-export function parseStyleArgs(args: string, line: number, column: number): StyleSettings {
-  const settings: StyleSettings = {};
-  if (!args.trim()) return settings;
-
-  // Parse key=value pairs, handling quoted font names
-  let i = 0;
-  const s = args;
-  const skipWs = () => {
-    while (i < s.length && /\s/.test(s[i]!)) i++;
-  };
-
-  while (i < s.length) {
-    skipWs();
-    if (i >= s.length) break;
-
-    // Read key
-    const keyStart = i;
-    while (i < s.length && /[a-zA-Z0-9_]/.test(s[i]!)) i++;
-    const key = s.slice(keyStart, i).toLowerCase();
-    if (!key) {
-      throw new Error(`@styles: expected key at line ${line}, column ${column}`);
-    }
-
-    skipWs();
-    if (s[i] !== "=") {
-      throw new Error(`@styles: expected '=' after '${key}' at line ${line}, column ${column}`);
-    }
-    i++; // skip =
-    skipWs();
-
-    // Read value (possibly quoted)
-    let value: string;
-    if (s[i] === '"' || s[i] === "'") {
-      const quote = s[i]!;
-      i++;
-      const valStart = i;
-      while (i < s.length && s[i] !== quote) {
-        if (s[i] === "\\") i++; // skip escaped char
-        i++;
-      }
-      value = s.slice(valStart, i);
-      if (s[i] === quote) i++;
-    } else {
-      const valStart = i;
-      while (i < s.length && !/\s/.test(s[i]!)) i++;
-      value = s.slice(valStart, i);
-    }
-
-    // Apply to settings
-    switch (key) {
-      case "font":
-        settings.font = value;
-        break;
-      case "size": {
-        // Must be in pt, convert to half-points for docx
-        const m = value.match(/^([0-9]+(?:\.[0-9]+)?)pt$/i);
-        if (!m) {
-          throw new Error(`@styles: size must be in pt (e.g. 12pt) at line ${line}, column ${column}. Got: ${value}`);
-        }
-        const pt = parseFloat(m[1]!);
-        settings.size = Math.round(pt * 2); // half-points
-        break;
-      }
-      case "bold":
-        settings.bold = value.toLowerCase() === "true";
-        break;
-      case "italic":
-        settings.italic = value.toLowerCase() === "true";
-        break;
-      case "color": {
-        // Expect #RRGGBB, normalize to 6-hex without '#'
-        const colorMatch = value.match(/^#?([0-9A-Fa-f]{6})$/);
-        if (!colorMatch) {
-          throw new Error(`@styles: color must be #RRGGBB (e.g. #333333) at line ${line}, column ${column}. Got: ${value}`);
-        }
-        settings.color = colorMatch[1]!.toUpperCase();
-        break;
-      }
-      default:
-        throw new Error(`@styles: unknown key '${key}' at line ${line}, column ${column}. Valid keys: font, size, bold, italic, color`);
-    }
-  }
-
-  return settings;
 }
 
 export function buildDocumentStyles(styleConfig: StyleConfig): any {

@@ -11,7 +11,7 @@ import type {
   NumberingStyle,
 } from "../parser/ast";
 
-import { bookmarkSafeName, normalizeRefKey } from "./bookmark-utils";
+import { bookmarkSafeName, normalizeRefKey } from "../shared/bookmark-utils";
 import { numberingLabel } from "./numbering";
 import type { TextStyle } from "./styles";
 

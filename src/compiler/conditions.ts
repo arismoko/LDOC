@@ -1,5 +1,10 @@
 // Condition evaluation helpers for template/control-flow
 
+import { parseLiteral } from "../parser/utils";
+
+// Re-export parseLiteral for any existing consumers
+export { parseLiteral };
+
 /**
  * Resolve a dot-path on an object tree.
  * Returns undefined if any segment is missing.
@@ -11,22 +16,6 @@ export const getPathValue = (root: any, path: string[]): any => {
     else return undefined;
   }
   return v;
-};
-
-/**
- * Parse a literal string into its appropriate JavaScript value.
- */
-export const parseLiteral = (raw: string): any => {
-  const s = raw.trim();
-  if (s === "true") return true;
-  if (s === "false") return false;
-  if (s === "null") return null;
-  if (/^-?\d+(?:\.\d+)?$/.test(s)) return Number(s);
-  // quoted string
-  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    return s.slice(1, -1);
-  }
-  return s;
 };
 
 /**
@@ -281,8 +270,5 @@ export const evalCond = (
   };
 
   const result = parseExpression();
-  if (pos < tokens.length) {
-    // console.warn(`Expression has unconsumed tokens: ${tokens.slice(pos).join(" ")}`);
-  }
   return result;
 };

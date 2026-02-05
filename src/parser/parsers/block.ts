@@ -1,8 +1,8 @@
 import { TokenType, type Token } from "../lexer";
 import type { HeaderNode, ParagraphNode, ModifierNode, PageBreakNode, CommentNode, Node, ModifierType, HorizontalRuleNode, BlockquoteNode, FootnoteDefinitionNode, ColumnBreakNode } from "../ast";
-import { type ParserContext, parseInlineContent, tokensToInlineNodes, parseRestOfLineRaw } from "./inline";
-import { pushBlankLines, parseLengthToTwip } from "../utils";
+import { type ParserContext, parseInlineContent, tokensToInlineNodes } from "./inline";
 import { parseIndentedBlock } from "./helpers";
+import { parseDirectiveArgs } from "../args";
 
 export function parseHorizontalRule(ctx: ParserContext): HorizontalRuleNode {
   const token = ctx.stream.advance();
@@ -215,6 +215,43 @@ export function parseModifier(ctx: ParserContext): ModifierNode {
   const token = ctx.stream.advance();
   const modifier = token.value as ModifierType;
 
+  const args = parseDirectiveArgs(ctx.stream);
+  let count = token.count;
+  let length = token.length;
+  let attributes: Record<string, string> | undefined = token.attributes;
+
+  if (args.positional.length > 0 || args.named.size > 0) {
+    if ((modifier === "indent" || modifier === "outdent") && args.positional[0]?.type === "number") {
+      const n = args.positional[0].value;
+      if (Number.isInteger(n) && n >= 0) {
+        count = n;
+      }
+    }
+
+    if (modifier === "indent" || modifier === "outdent") {
+      const len = args.named.get("length");
+      if (len?.type === "length") {
+        length = len.raw;
+      }
+    }
+
+    if (modifier === "style") {
+      const merged: Record<string, string> = { ...(attributes ?? {}) };
+      for (const [k, v] of args.named) {
+        if (v.type === "string") merged[k] = v.value;
+        else if (v.type === "length") merged[k] = v.raw;
+        else if (v.type === "number") merged[k] = String(v.value);
+        else if (v.type === "boolean") merged[k] = v.value ? "true" : "false";
+        else if (v.type === "identifier") merged[k] = v.name;
+        else if (v.type === "expression") merged[k] = v.raw;
+      }
+      for (const flag of args.flags) {
+        if (!(flag in merged)) merged[flag] = "true";
+      }
+      attributes = Object.keys(merged).length > 0 ? merged : undefined;
+    }
+  }
+
   let content: Node[] = [];
   let hasEnd = false;
   let endLine = token.endLine;
@@ -259,9 +296,9 @@ export function parseModifier(ctx: ParserContext): ModifierNode {
     endLine,
     endColumn,
     modifier,
-    count: token.count,
-    length: token.length,
-    attributes: token.attributes,
+    count,
+    length,
+    attributes,
     content,
     hasEnd,
   };
@@ -305,14 +342,23 @@ export function parseComment(ctx: ParserContext): CommentNode {
 export function parseAnchor(ctx: ParserContext): Node {
   const token = ctx.stream.advance();
   const startPos = ctx.stream.getPosition();
-  let name = parseRestOfLineRaw(ctx);
+  const args = parseDirectiveArgs(ctx.stream);
+  
+  // V2 syntax only: @anchor(name)
+  if (args.positional.length === 0 && args.named.size === 0) {
+    throw new Error(`@anchor requires v2 syntax: @anchor(name) (line ${token.line})`);
+  }
+  
+  let name = "";
+  const v = args.positional[0];
+  if (v?.type === "string") name = v.value;
+  else if (v?.type === "identifier") name = v.name;
+  else if (v?.type === "expression") name = v.raw;
+  
   if (!name) {
     throw new Error(`@anchor requires a name at line ${token.line}, column ${token.column}`);
   }
-  // Allow quoted names: @anchor "Section 5.2"
-  if ((name.startsWith('"') && name.endsWith('"')) || (name.startsWith("'") && name.endsWith("'"))) {
-    name = name.slice(1, -1);
-  }
+  
   // Get end position from last consumed token
   const endPos = ctx.stream.getPosition();
   const endToken = endPos > startPos ? ctx.stream.getTokenAt(endPos - 1) : token;

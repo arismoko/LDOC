@@ -255,7 +255,7 @@ describe("Visual Layout Verification", () => {
       }
 
       const input = `
-@columns 2
+@columns(2)
 LEFT_COLUMN_MARKER
 @break
 RIGHT_COLUMN_MARKER
@@ -297,7 +297,7 @@ RIGHT_COLUMN_MARKER
       }
 
       const input = `
-@columns 3
+@columns(3)
 FIRST_COL
 @break
 SECOND_COL
@@ -338,7 +338,7 @@ THIRD_COL
       const input = `
 This is a paragraph BEFORE the columns.
 
-@columns 2
+@columns(2)
 Column 1 has MARKER_A content.
 @break
 Column 2 has MARKER_B content.
@@ -378,7 +378,7 @@ This is a paragraph AFTER the columns.
       }
 
       const input = `
-@columns 2
+@columns(2)
 LEFTCOL_LINE1
 
 LEFTCOL_LINE2
@@ -438,7 +438,7 @@ describe("Nested Columns Visual Verification", () => {
       // and still use native Word columns (which become CSS columns in HTML)
       const input = `
 - Item with nested columns:
-  @columns 2
+  @columns(2)
   NESTED_LEFT
   @break
   NESTED_RIGHT
@@ -484,7 +484,7 @@ describe("Layout Verification - Diagnostic", () => {
       }
 
       const input = `
-@columns 2
+@columns(2)
 COL1_TEXT
 @break
 COL2_TEXT

@@ -4,12 +4,12 @@ import { format } from "../src/formatter";
 describe("Formatter", () => {
   describe("Indentation", () => {
     test("defaults to tabs", () => {
-      const input = `@if condition
+      const input = `@if(condition)
   Then branch
 @end
 `;
       const formatted = format(input);
-      expect(formatted).toBe(`@if condition
+      expect(formatted).toBe(`@if(condition)
 \tThen branch
 @end
 `);
@@ -29,14 +29,14 @@ describe("Formatter", () => {
 
     test("indents nested @if blocks correctly", () => {
       // Input has correct indentation for parsing
-      const input = `@if true
+      const input = `@if(true)
   Hello
 @else
   World
 @end
 `;
       const formatted = format(input, { useTabs: false });
-      expect(formatted).toBe(`@if true
+      expect(formatted).toBe(`@if(true)
   Hello
 @else
   World
@@ -45,49 +45,49 @@ describe("Formatter", () => {
     });
 
     test("indents @foreach blocks correctly", () => {
-      const input = `@foreach item in items
+      const input = `@foreach(item, in: items)
   {{item}}
 @end
 `;
       const formatted = format(input, { useTabs: false });
-      expect(formatted).toBe(`@foreach item in items
+      expect(formatted).toBe(`@foreach(item, in: items)
   {{item}}
 @end
 `);
     });
 
     test("indents @repeat blocks correctly", () => {
-      const input = `@repeat 3
+      const input = `@repeat(3)
   Hello
 @end
 `;
       const formatted = format(input, { useTabs: false });
-      expect(formatted).toBe(`@repeat 3
+      expect(formatted).toBe(`@repeat(3)
   Hello
 @end
 `);
     });
 
     test("formats with tabs when requested", () => {
-      const input = `@if condition
+      const input = `@if(condition)
   Then branch
 @end
 `;
       const formatted = format(input, { useTabs: true });
-      expect(formatted).toBe(`@if condition
+      expect(formatted).toBe(`@if(condition)
 \tThen branch
 @end
 `);
     });
 
     test("indents @define templates correctly", () => {
-      const input = `@define MyBlock
+      const input = `@define(MyBlock)
   @box Hello
 
 Content after define
 `;
       const formatted = format(input, { useTabs: false });
-      expect(formatted).toContain("@define MyBlock");
+      expect(formatted).toContain("@define(MyBlock)");
       // The @box is a block modifier inside the template
       expect(formatted).toContain("@box");
     });
@@ -310,14 +310,14 @@ World
 
   describe("Control flow", () => {
     test("formats @if/@else/@end", () => {
-      const input = `@if condition
+      const input = `@if(condition)
   Then branch
 @else
   Else branch
 @end
 `;
       const formatted = format(input, { useTabs: false });
-      expect(formatted).toBe(`@if condition
+      expect(formatted).toBe(`@if(condition)
   Then branch
 @else
   Else branch
@@ -326,12 +326,12 @@ World
     });
 
     test("formats @columns region", () => {
-      const input = `@columns 2 separator
+      const input = `@columns(2, separator)
   Content
 @end
 `;
       const formatted = format(input, { useTabs: false });
-      expect(formatted).toContain("@columns 2");
+      expect(formatted).toContain("@columns(2");
       expect(formatted).toContain("separator");
       expect(formatted).toContain("  Content");
       expect(formatted).toContain("@end");
@@ -401,10 +401,10 @@ Content
     });
 
     test("formats modifiers with counts", () => {
-      const input = `@indent:2 Indented text
+      const input = `@indent(2) Indented text
 `;
       const formatted = format(input, { useTabs: false });
-      expect(formatted).toContain("@indent:2");
+      expect(formatted).toContain("@indent(2)");
     });
   });
 
@@ -427,11 +427,11 @@ Content
     });
 
     test("formats @anchor", () => {
-      const input = `@anchor target
+      const input = `@anchor(target)
 Content
 `;
       const formatted = format(input, { useTabs: false });
-      expect(formatted).toContain("@anchor target");
+      expect(formatted).toContain("@anchor(target)");
     });
 
     test("formats @pagebreak", () => {
@@ -446,26 +446,26 @@ Second
     });
 
     test("formats @use with arguments", () => {
-      const input = `@define Template(arg1, arg2)
+      const input = `@define(Template, arg1, arg2)
   Hello {{arg1}} {{arg2}}
 
-@use Template(arg1="value1", arg2="value2")
+@use(Template, arg1: "value1", arg2: "value2")
 `;
       const formatted = format(input, { useTabs: false });
-      expect(formatted).toContain("@use Template");
-      expect(formatted).toContain('arg1="value1"');
-      expect(formatted).toContain('arg2="value2"');
+      expect(formatted).toContain("@use(Template");
+      expect(formatted).toContain("arg1: value1");
+      expect(formatted).toContain("arg2: value2");
     });
 
     test("formats @use with label", () => {
-      const input = `@define Template()
+      const input = `@define(Template)
   Hello
 
-@use Template() as MyLabel
+@use(Template, label: MyLabel)
 `;
       const formatted = format(input, { useTabs: false });
       // @use without args doesn't need parens
-      expect(formatted).toContain("@use Template as MyLabel");
+      expect(formatted).toContain("@use(Template, label: MyLabel)");
     });
   });
 });

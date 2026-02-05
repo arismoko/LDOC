@@ -1,5 +1,6 @@
 import type { Node } from "./ast";
 import type { ParserContext } from "./parsers/inline";
+import { parseLengthToTwip as sharedParseLengthToTwip } from "../shared/units";
 
 export function pushBlankLines(target: Node[], line: number, column: number, newlineCount: number): void {
   // 3+ newlines => 1+ empty paragraphs for extra spacing
@@ -16,25 +17,12 @@ export function pushBlankLines(target: Node[], line: number, column: number, new
   }
 }
 
-export function parseLengthToTwip(raw: string, line: number): number {
-  const m = raw.trim().match(/^([0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt)$/i);
-  if (!m) {
-    throw new Error(`Invalid length: ${raw} at line ${line}. Use units like 1in, 2cm, 12pt.`);
-  }
-  const value = parseFloat(m[1]!);
-  const unit = m[2]!.toLowerCase();
-  switch (unit) {
-    case "in":
-      return Math.round(value * 1440);
-    case "cm":
-      return Math.round((value * 1440) / 2.54);
-    case "mm":
-      return Math.round((value * 1440) / 25.4);
-    case "pt":
-      return Math.round(value * 20);
-    default:
-      throw new Error(`Unsupported unit: ${unit}`);
-  }
+/**
+ * Parse a length string to twips (strict mode - requires units).
+ * Re-exports from shared/units for backward compatibility.
+ */
+export function parseLengthToTwip(raw: string, line?: number): number {
+  return sharedParseLengthToTwip(raw, { line, lenient: false });
 }
 
 export function parseLiteral(raw: string): any {

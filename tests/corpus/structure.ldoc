@@ -51,7 +51,7 @@
 // Paths are relative to the current file.
 // Note: Importing a non-existent file will error at compile time.
 // Example (commented out to avoid error):
-// @import ./shared-definitions.ldoc
+// @import(./shared-definitions.ldoc)
 
 // =============================================================================
 // @meta Block
@@ -91,11 +91,11 @@
 // =============================================================================
 // Create a named anchor for cross-references within the document.
 
-@anchor section-introduction
+@anchor(section-introduction)
 
 This paragraph follows the anchor and can be referenced using [[section-introduction]].
 
-@anchor "Section 5.2"
+@anchor("Section 5.2")
 
 Anchors can have quoted names with special characters.
 
@@ -111,9 +111,9 @@ Anchors can have quoted names with special characters.
 This content appears on a new page after the page break.
 
 // @columns - Multi-column layout with options
-// Syntax: @columns <count> [gap=<length>] [separator]
+// Syntax: @columns(count, gap: length, separator)
 
-@columns 2 gap=0.5in
+@columns(2, gap: 0.5in)
   ### Two Column Layout
   
   This is the left column content. Text flows naturally between columns.
@@ -123,7 +123,7 @@ This content appears on a new page after the page break.
   This text appears in the right column after the column break.
 @end
 
-@columns 3 gap=0.25in separator
+@columns(3, gap: 0.25in, separator)
   Column one content.
   
   @break

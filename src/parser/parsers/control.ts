@@ -1,14 +1,29 @@
 import { TokenType } from "../lexer";
 import type { Node } from "../ast";
-import { type ParserContext, parseRestOfLineRaw } from "./inline";
+import { type ParserContext } from "./inline";
 import { parseIndentedBlock } from "./helpers";
+import { extractCount, extractForeachArgs, parseDirectiveArgs } from "../args";
+
+function argValueToExpr(val: any): string {
+  if (!val) return "";
+  switch (val.type) {
+    case "expression": return val.raw;
+    case "identifier": return val.name;
+    case "string": return JSON.stringify(val.value);
+    case "number": return String(val.value);
+    case "boolean": return val.value ? "true" : "false";
+    case "length": return val.raw;
+    default: return "";
+  }
+}
 
 export function parseIf(ctx: ParserContext): Node {
   const token = ctx.stream.advance();
-  const condition = parseRestOfLineRaw(ctx);
-  if (!condition) {
-    throw new Error(`@if requires a condition at line ${token.line}, column ${token.column}`);
+  const args = parseDirectiveArgs(ctx.stream);
+  if (args.positional.length === 0) {
+    throw new Error(`@if requires v2 syntax: @if(condition) at line ${token.line}, column ${token.column}`);
   }
+  const condition = argValueToExpr(args.positional[0]);
 
   // Parse @if block
   const { content: thenBranch, hasEnd: ifHasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@if" });
@@ -46,10 +61,11 @@ export function parseIf(ctx: ParserContext): Node {
   // Parse @elseif blocks (transform to nested @if)
   while (ctx.stream.check(TokenType.ELSEIF)) {
     const elseifToken = ctx.stream.advance();
-    const elseifCond = parseRestOfLineRaw(ctx);
-    if (!elseifCond) {
-      throw new Error(`@elseif requires a condition at line ${elseifToken.line}, column ${elseifToken.column}`);
+    const elseifArgs = parseDirectiveArgs(ctx.stream);
+    if (elseifArgs.positional.length === 0) {
+      throw new Error(`@elseif requires v2 syntax: @elseif(condition) at line ${elseifToken.line}, column ${elseifToken.column}`);
     }
+    const elseifCond = argValueToExpr(elseifArgs.positional[0]);
 
     const { content: elseifThen, hasEnd: elseifHasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@elseif" });
 
@@ -113,14 +129,13 @@ export function parseIf(ctx: ParserContext): Node {
 
 export function parseRepeat(ctx: ParserContext): Node {
   const token = ctx.stream.advance();
-  const raw = parseRestOfLineRaw(ctx);
-  if (!raw) {
-    throw new Error(`@repeat requires a count at line ${token.line}, column ${token.column}`);
+  const args = parseDirectiveArgs(ctx.stream);
+  if (args.positional.length === 0) {
+    throw new Error(`@repeat requires v2 syntax: @repeat(count) at line ${token.line}, column ${token.column}`);
   }
-
-  const n = Number.parseInt(raw.trim(), 10);
-  if (!Number.isFinite(n) || String(n) !== raw.trim() || n < 0) {
-    throw new Error(`@repeat count must be a non-negative integer (line ${token.line}). Got: ${raw}`);
+  const n = extractCount(args, "repeat", token.line);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+    throw new Error(`@repeat count must be a non-negative integer (line ${token.line}). Got: ${String(n)}`);
   }
   if (n > 100) {
     throw new Error(`@repeat count exceeds maximum (100) (line ${token.line}). Got: ${n}`);
@@ -143,21 +158,11 @@ export function parseRepeat(ctx: ParserContext): Node {
 
 export function parseForeach(ctx: ParserContext): Node {
   const token = ctx.stream.advance();
-  const raw = parseRestOfLineRaw(ctx);
-  if (!raw) {
-    throw new Error(`@foreach requires syntax: @foreach <item> in <iterable> (line ${token.line})`);
+  const args = parseDirectiveArgs(ctx.stream);
+  if (args.positional.length === 0 && args.named.size === 0) {
+    throw new Error(`@foreach requires v2 syntax: @foreach(item, in: collection) at line ${token.line}, column ${token.column}`);
   }
-
-  const m = raw.match(/^([A-Za-z_][A-Za-z0-9_]*)\s+in\s+(.+)$/);
-  if (!m) {
-    throw new Error(`Invalid @foreach syntax at line ${token.line}. Expected: @foreach <item> in <iterable>. Got: ${raw}`);
-  }
-
-  const item = m[1]!;
-  const iterable = (m[2] ?? "").trim();
-  if (!iterable) {
-    throw new Error(`@foreach missing iterable at line ${token.line}`);
-  }
+  const { item, iterable } = extractForeachArgs(args, token.line);
 
   const { content: body, hasEnd } = parseIndentedBlock(ctx, { required: true, directiveName: "@foreach" });
   const lastChild = body[body.length - 1];
@@ -178,18 +183,27 @@ export function parseForeach(ctx: ParserContext): Node {
 export function parseSet(ctx: ParserContext): Node {
   const token = ctx.stream.advance();
   const startPos = ctx.stream.getPosition();
-  const raw = parseRestOfLineRaw(ctx);
-  if (!raw) {
-    throw new Error(`@set requires syntax: @set <variable> = <expression> (line ${token.line})`);
+  const args = parseDirectiveArgs(ctx.stream);
+  
+  if (args.positional.length === 0 && args.named.size === 0) {
+    throw new Error(`@set requires v2 syntax: @set(variable, value: expression) at line ${token.line}, column ${token.column}`);
   }
-
-  const m = raw.match(/^([a-zA-Z_][a-zA-Z0-9_.]*)\s*=\s*(.+)$/);
-  if (!m) {
-    throw new Error(`Invalid @set syntax at line ${token.line}. Expected: @set <variable> = <expression>. Got: ${raw}`);
+  
+  const first = args.positional[0];
+  let name = "";
+  if (first?.type === "identifier") {
+    name = first.name;
+  } else if (first?.type === "expression") {
+    // Handle dot paths like user.name which are parsed as expressions
+    name = first.raw;
+  } else {
+    throw new Error(`@set requires a variable name as first argument (line ${token.line})`);
   }
-
-  const name = m[1]!;
-  const expression = (m[2] ?? "").trim();
+  const value = args.named.get("value");
+  if (!value) {
+    throw new Error(`@set requires named argument value: <expression> (line ${token.line})`);
+  }
+  const expression = argValueToExpr(value);
   if (!expression) {
     throw new Error(`@set missing expression at line ${token.line}`);
   }

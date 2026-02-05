@@ -1,4 +1,5 @@
 import { findFirst, getOnlyKey, attrVal, type XmlNode } from "./xml";
+import { halfPointsToPt } from "../shared/units";
 
 export interface FontSizeStats {
   font?: string;
@@ -44,7 +45,7 @@ export function collectFontStatistics(bodyChildren: XmlNode[]): FontFrequency[] 
       if (szVal) {
         const halfPt = parseInt(szVal, 10);
         if (Number.isFinite(halfPt)) {
-          sizePt = halfPt / 2;
+          sizePt = halfPointsToPt(halfPt);
         }
       }
     }

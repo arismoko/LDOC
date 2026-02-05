@@ -6,13 +6,13 @@ import { describe, test, expect } from "bun:test";
 import { buildSymbolUsages } from "../src/lsp/references";
 import { buildDocumentIndex } from "../src/lsp/indexer";
 import { parse } from "../src/parser/parser";
-import { normalizeRefKey } from "../src/compiler/bookmark-utils";
+import { normalizeRefKey } from "../src/shared/bookmark-utils";
 
 describe("LSP References", () => {
   describe("buildSymbolUsages", () => {
     test("finds cross-reference usages", () => {
       const source = `
-@anchor section-one
+@anchor(section-one)
 
 See [[section-one]] for details.
 
@@ -29,12 +29,12 @@ Also check [[section-one]] again.
 
     test("finds macro usages", () => {
       const source = `
-@define Greeting(name)
+@define(Greeting, name)
   Hello {{name}}!
 @end
 
-@use Greeting(name="World")
-@use Greeting(name="Test")
+@use(Greeting, name: "World")
+@use(Greeting, name: "Test")
 `;
       const ast = parse(source);
       const usages = buildSymbolUsages("file:///test.ldoc", ast);
@@ -76,7 +76,7 @@ Title again: {{title}}
   describe("semantic diagnostics integration", () => {
     test("index tracks anchors for diagnostic matching", () => {
       const source = `
-@anchor known-anchor
+@anchor(known-anchor)
 
 See [[known-anchor]] - this should not warn.
 See [[unknown-anchor]] - this should warn.
@@ -97,12 +97,12 @@ See [[unknown-anchor]] - this should warn.
 
     test("index tracks macros for diagnostic matching", () => {
       const source = `
-@define KnownMacro()
+@define(KnownMacro)
   Content
 @end
 
-@use KnownMacro()
-@use UnknownMacro()
+@use(KnownMacro)
+@use(UnknownMacro)
 `;
       const ast = parse(source);
       const index = buildDocumentIndex("file:///test.ldoc", ast);

@@ -40,8 +40,10 @@ export enum TokenType {
   ITALIC = "ITALIC",
   BOLD_ITALIC = "BOLD_ITALIC",
   STRIKETHROUGH = "STRIKETHROUGH",
+  HIGHLIGHT = "HIGHLIGHT",
   INLINE_CODE = "INLINE_CODE",
   INLINE_STYLE = "INLINE_STYLE",  // @style(attrs)[content]
+  INLINE_HIGHLIGHT = "INLINE_HIGHLIGHT",  // @highlight(color)[content]
   FOOTNOTE_REF = "FOOTNOTE_REF",
   FOOTNOTE_DEF = "FOOTNOTE_DEF",
   IMAGE = "IMAGE",
@@ -49,7 +51,6 @@ export enum TokenType {
 
   // Table
   TABLE = "TABLE",
-  TABLE_ROW = "TABLE_ROW", // Legacy [cell, cell] syntax
   ROW = "ROW",
   CELL = "CELL",
 
@@ -69,6 +70,21 @@ export enum TokenType {
   INDENT = "INDENT",
   DEDENT = "DEDENT",
   NEWLINE = "NEWLINE",
+
+  // v2 directive arguments
+  LPAREN = "LPAREN",
+  RPAREN = "RPAREN",
+  COMMA = "COMMA",
+  COLON_ARG = "COLON_ARG",
+  LBRACKET_ARG = "LBRACKET_ARG",
+  RBRACKET_ARG = "RBRACKET_ARG",
+  NUMBER = "NUMBER",
+  LENGTH = "LENGTH",
+  STRING_LITERAL = "STRING_LITERAL",
+  BOOLEAN = "BOOLEAN",
+  IDENTIFIER_ARG = "IDENTIFIER_ARG",
+  EXPRESSION = "EXPRESSION",
+
   EOF = "EOF",
 }
 
@@ -95,13 +111,6 @@ export interface Token {
   rawContent?: string;
 }
 
-export interface LexerState {
-  pos: number;
-  line: number;
-  column: number;
-  indentStack: number[];
-}
-
 export const MODIFIERS = new Set([
   "center",
   "right",
@@ -120,6 +129,7 @@ export const MODIFIERS = new Set([
   "h6",
   "slot",
   "style",
+  "highlight",
 ]);
 
 // Legacy directives that are now errors (must use @document block)

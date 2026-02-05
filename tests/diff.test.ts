@@ -4,11 +4,11 @@ import { diffLdoc } from "../src/diff";
 describe("diffLdoc", () => {
   test("identical content with different indentation produces empty diff", () => {
     // Same content but with different indentation styles
-    const textA = `@if condition
+    const textA = `@if(condition)
   Then branch
 @end
 `;
-    const textB = `@if condition
+    const textB = `@if(condition)
     Then branch
 @end
 `;
