@@ -310,14 +310,4 @@ function emitFootnote(fn: ExtractedFootnoteRef): string {
   return `[^${fn.id}]`;
 }
 
-/**
- * Normalize whitespace in emitted text.
- * Collapses multiple spaces but preserves hard breaks.
- */
-export function normalizeEmittedText(text: string): string {
-  // Collapse multiple spaces but preserve newlines
-  let result = text.replace(/\r\n/g, "\n");
-  result = result.replace(/[\t\v\f]+/g, " ");
-  result = result.replace(/ +/g, " ");
-  return result;
-}
+

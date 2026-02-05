@@ -89,30 +89,3 @@ export function processBodyElementsV2(
 
   return emitNodes(semanticTree, ctx);
 }
-
-/**
- * Alternative entry point that takes already-extracted elements.
- * Useful when extraction is done separately (e.g., for headers/footers).
- */
-export function processExtractedElements(
-  extracted: import("./extraction/types").ExtractedBodyElement[],
-  numInfo: NumberingInfo,
-  options?: PipelineOptions,
-  indent: string = "",
-  rels?: Map<string, string>,
-): string[] {
-  const semanticOptions: SemanticOptions = {
-    emitIndent: shouldEmitIndent(options?.emitIndent),
-  };
-  const semanticTree = groupElements(extracted, numInfo, semanticOptions);
-
-  const ctx = createContext({
-    indent,
-    dominantStyle: options?.dominantStyle ?? {},
-    inTable: options?.inTable ?? false,
-    rels,
-    emitIndent: semanticOptions.emitIndent,
-  });
-
-  return emitNodes(semanticTree, ctx);
-}

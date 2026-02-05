@@ -61,11 +61,3 @@ export function tableContext(ctx: EmissionContext): EmissionContext {
     inTable: true,
   };
 }
-
-/**
- * Options controlling emission behavior.
- */
-export interface EmissionOptions {
-  /** Whether to emit @indent directives */
-  emitIndent: boolean;
-}

@@ -13,32 +13,18 @@ export type {
   SemanticGroup,
   SemanticNode,
   SemanticOptions,
-  SemanticDocument,
   SpacingGroupAttrs,
   AlignmentGroupAttrs,
   IndentGroupAttrs,
 } from "./types";
 
-export { isParagraph, isTable, isGroup, spacingEqual, hasStyleOverrides } from "./types";
+export { isParagraph, isTable, isGroup, spacingEqual } from "./types";
 
 // Classifier
-export {
-  classifyParagraph,
-  classifyParagraphs,
-  detectHeadingLevel,
-  isBlockquoteStyle,
-  isTocStyle,
-} from "./classifier";
+export { classifyParagraph } from "./classifier";
 
 // Grouper
 export { groupElements } from "./grouper";
 
 // Analyzer
-export {
-  detectUniformEmphasis,
-  detectUniformFontSize,
-  computeStyleDifference,
-  detectUniformStyleAttrs,
-  hasVariedStyles,
-} from "./analyzer";
 export type { DominantStyle } from "./analyzer";

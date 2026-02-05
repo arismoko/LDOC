@@ -27,11 +27,6 @@ export function getAttrs(nodeObj: XmlNode): Record<string, any> {
   return (nodeObj[":@"] as any) ?? {};
 }
 
-export function getChildren(nodeObj: XmlNode, tag: string): XmlNode[] {
-  const arr = nodeObj[tag];
-  return Array.isArray(arr) ? arr : [];
-}
-
 export function findFirst(nodes: XmlNode[] | undefined, tag: string): XmlNode | undefined {
   if (!nodes) return undefined;
   for (const n of nodes) {

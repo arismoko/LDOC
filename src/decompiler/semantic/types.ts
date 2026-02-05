@@ -11,11 +11,7 @@
  * - No LDOC syntax generation - just structure and classification
  */
 
-import type {
-  ExtractedParagraph,
-  ExtractedTable,
-  ExtractedRunStyle,
-} from "../extraction/types";
+import type { ExtractedParagraph, ExtractedTable } from "../extraction/types";
 
 /**
  * Semantic classification of a paragraph.
@@ -131,20 +127,6 @@ export interface SemanticOptions {
 }
 
 /**
- * Result of semantic analysis.
- */
-export interface SemanticDocument {
-  /** Root-level semantic nodes (may be paragraphs, tables, or groups) */
-  body: SemanticNode[];
-
-  /** Dominant style detected from document */
-  dominantStyle: {
-    font?: string;
-    sizePt?: number;
-  };
-}
-
-/**
  * Helper type guard: is this a SemanticParagraph?
  */
 export function isParagraph(node: SemanticNode): node is SemanticParagraph {
@@ -163,30 +145,6 @@ export function isTable(node: SemanticNode): node is SemanticTable {
  */
 export function isGroup(node: SemanticNode): node is SemanticGroup {
   return node.type === "group";
-}
-
-/**
- * Helper to check if a run style has any non-default properties.
- */
-export function hasStyleOverrides(style: ExtractedRunStyle): boolean {
-  return (
-    style.bold ||
-    style.italic ||
-    !!style.strike ||
-    !!style.underline ||
-    !!style.code ||
-    !!style.subscript ||
-    !!style.superscript ||
-    !!style.allCaps ||
-    !!style.smallCaps ||
-    !!style.doubleStrike ||
-    !!style.font ||
-    !!style.sizePt ||
-    !!style.color ||
-    !!style.highlight ||
-    style.characterSpacing !== undefined ||
-    !!style.shadingFill
-  );
 }
 
 /**

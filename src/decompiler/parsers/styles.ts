@@ -1,35 +1,11 @@
 import { xmlParser, findFirst, attrVal, getOnlyKey, type XmlNode } from "../xml";
 import { TWIPS_PER_LINE_UNIT, halfPointsToPt } from "../../shared/units";
 import { wordStyleToLdoc } from "../../shared/style-names";
-import type { CoreTextStyle } from "../../shared/style-types";
-
-export interface RunStyle extends CoreTextStyle {
-  bold: boolean;
-  italic: boolean;
-  code?: boolean;
-}
 
 export interface DocumentDefaults {
   font?: string;
   sizePt?: number;
 }
-
-export type HeadingStyleInfo = {
-  align?: "center" | "right" | "justify";
-  bold?: boolean;
-  italic?: boolean;
-  font?: string;
-  sizePt?: number;
-};
-
-export type HeadingStyles = {
-  heading1?: HeadingStyleInfo;
-  heading2?: HeadingStyleInfo;
-  heading3?: HeadingStyleInfo;
-  heading4?: HeadingStyleInfo;
-  heading5?: HeadingStyleInfo;
-  heading6?: HeadingStyleInfo;
-};
 
 export type ParagraphStyleInfo = {
   basedOn?: string;

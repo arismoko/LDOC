@@ -18,7 +18,7 @@ import type {
   IndentGroupAttrs,
 } from "../semantic/types";
 import { isParagraph, isTable, isGroup } from "../semantic/types";
-import type { EmissionContext, EmissionOptions } from "./types";
+import type { EmissionContext } from "./types";
 import { indentContext } from "./types";
 import { emitInlineContent } from "./inline";
 import { emitTable } from "./table";

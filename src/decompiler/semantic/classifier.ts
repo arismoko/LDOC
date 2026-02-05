@@ -22,7 +22,7 @@ import type { SemanticParagraph, ParagraphKind } from "./types";
  * Check if a style ID is a heading style (Heading1-6).
  * Returns the heading level (1-6) or undefined.
  */
-export function detectHeadingLevel(styleId: string | undefined): number | undefined {
+function detectHeadingLevel(styleId: string | undefined): number | undefined {
   if (!styleId) return undefined;
   const m = styleId.match(/^Heading([1-6])$/i);
   if (m) {
@@ -34,7 +34,7 @@ export function detectHeadingLevel(styleId: string | undefined): number | undefi
 /**
  * Check if a style ID is a blockquote style.
  */
-export function isBlockquoteStyle(styleId: string | undefined): boolean {
+function isBlockquoteStyle(styleId: string | undefined): boolean {
   if (!styleId) return false;
   const lower = styleId.toLowerCase();
   return (
@@ -48,7 +48,7 @@ export function isBlockquoteStyle(styleId: string | undefined): boolean {
 /**
  * Check if a style ID is a TOC style (TOC1-9).
  */
-export function isTocStyle(styleId: string | undefined): boolean {
+function isTocStyle(styleId: string | undefined): boolean {
   if (!styleId) return false;
   return /^toc[1-9]$/i.test(styleId);
 }
@@ -188,12 +188,4 @@ export function classifyParagraph(
   };
 }
 
-/**
- * Classify multiple paragraphs.
- */
-export function classifyParagraphs(
-  paragraphs: ExtractedParagraph[],
-  numInfo: NumberingInfo,
-): SemanticParagraph[] {
-  return paragraphs.map((p) => classifyParagraph(p, numInfo));
-}
+
