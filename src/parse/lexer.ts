@@ -135,25 +135,25 @@ export class Lexer {
 
     // Bold **
     if (char === "*" && this.peek(1) === "*") {
-      this.scanEmphasis("**", TokenType.BOLD_START, TokenType.BOLD_END);
+      this.scanEmphasis("**", TokenType.BOLD_MARKER);
       return;
     }
 
     // Italic *
     if (char === "*" && this.peek(1) !== "*") {
-      this.scanEmphasis("*", TokenType.ITALIC_START, TokenType.ITALIC_END);
+      this.scanEmphasis("*", TokenType.ITALIC_MARKER);
       return;
     }
 
     // Strikethrough ~~
     if (char === "~" && this.peek(1) === "~") {
-      this.scanEmphasis("~~", TokenType.STRIKE_START, TokenType.STRIKE_END);
+      this.scanEmphasis("~~", TokenType.STRIKE_MARKER);
       return;
     }
 
     // Highlight ==
     if (char === "=" && this.peek(1) === "=") {
-      this.scanEmphasis("==", TokenType.HIGHLIGHT_START, TokenType.HIGHLIGHT_END);
+      this.scanEmphasis("==", TokenType.HIGHLIGHT_MARKER);
       return;
     }
 
@@ -217,10 +217,31 @@ export class Lexer {
   // ===========================================================================
 
   private handleIndentation(): void {
+    const startCol = this.column;
     let spaces = 0;
-    while (!this.isAtEnd() && this.peek() === " ") {
-      spaces++;
+    let hasSpaces = false;
+    let hasTabs = false;
+
+    while (!this.isAtEnd() && (this.peek() === " " || this.peek() === "\t")) {
+      if (this.peek() === " ") {
+        hasSpaces = true;
+        spaces++;
+      } else {
+        hasTabs = true;
+        spaces += 4; // Tabs count as 4 spaces
+      }
       this.advance();
+    }
+
+    // Reject mixed tabs and spaces
+    if (hasSpaces && hasTabs) {
+      this.diagnostics.push(
+        error(
+          DiagnosticCode.INVALID_INDENT,
+          "Mixed tabs and spaces in indentation; use one or the other",
+          loc(this.line, startCol)
+        )
+      );
     }
     // Tabs count as 2 spaces
     while (!this.isAtEnd() && this.peek() === "\t") {
@@ -381,20 +402,13 @@ export class Lexer {
     this.tokens.push(token(TokenType.VARIABLE, expr.trim(), startLine, startCol, this.line, this.column));
   }
 
-  private scanEmphasis(marker: string, _startType: TokenType, _endType: TokenType): void {
+  private scanEmphasis(marker: string, type: TokenType): void {
     const startLine = this.line;
     const startCol = this.column;
     
-    // For now, just emit the marker - parser will determine start/end
     for (let i = 0; i < marker.length; i++) {
       this.advance();
     }
-
-    // Use a generic approach - emit the marker as-is
-    const type = marker === "**" ? TokenType.BOLD_START :
-                 marker === "*" ? TokenType.ITALIC_START :
-                 marker === "~~" ? TokenType.STRIKE_START :
-                 TokenType.HIGHLIGHT_START;
 
     this.tokens.push(token(type, marker, startLine, startCol, this.line, this.column));
   }
@@ -413,7 +427,7 @@ export class Lexer {
       this.advance();
     }
 
-    this.tokens.push(token(TokenType.CODE_START, content, startLine, startCol, this.line, this.column));
+    this.tokens.push(token(TokenType.CODE_MARKER, content, startLine, startCol, this.line, this.column));
   }
 
   private scanBracket(): void {

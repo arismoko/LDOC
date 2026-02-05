@@ -36,17 +36,12 @@ export enum TokenType {
   VARIABLE = "VARIABLE",    // {{ expr }}
   EXPRESSION = "EXPRESSION", // Expression inside {{ }}
   
-  // Inline formatting
-  BOLD_START = "BOLD_START",       // **
-  BOLD_END = "BOLD_END",
-  ITALIC_START = "ITALIC_START",   // *
-  ITALIC_END = "ITALIC_END",
-  STRIKE_START = "STRIKE_START",   // ~~
-  STRIKE_END = "STRIKE_END",
-  CODE_START = "CODE_START",       // `
-  CODE_END = "CODE_END",
-  HIGHLIGHT_START = "HIGHLIGHT_START", // ==
-  HIGHLIGHT_END = "HIGHLIGHT_END",
+  // Inline formatting markers (lexer emits same token for open/close; parser tracks state)
+  BOLD_MARKER = "BOLD_MARKER",           // **
+  ITALIC_MARKER = "ITALIC_MARKER",       // *
+  STRIKE_MARKER = "STRIKE_MARKER",       // ~~
+  CODE_MARKER = "CODE_MARKER",           // ` (content captured in value)
+  HIGHLIGHT_MARKER = "HIGHLIGHT_MARKER", // ==
   
   // Links and references
   LINK_START = "LINK_START",     // [

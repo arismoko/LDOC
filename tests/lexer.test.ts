@@ -58,19 +58,31 @@ describe("Lexer", () => {
       expect(types).toContain(TokenType.INDENT);
       expect(types).toContain(TokenType.DEDENT);
     });
+
+    test("tabs count as 4 spaces", () => {
+      const result = tokenize("Parent\n\tChild");
+      const types = result.tokens.map(t => t.type);
+      expect(types).toContain(TokenType.INDENT);
+    });
+
+    test("rejects mixed tabs and spaces", () => {
+      const result = tokenize("Parent\n \tChild");
+      expect(result.diagnostics.length).toBeGreaterThan(0);
+      expect(result.diagnostics[0]!.message).toContain("Mixed tabs and spaces");
+    });
   });
 
   describe("inline formatting", () => {
     test("tokenizes bold markers", () => {
       const result = tokenize("**bold**");
       const types = result.tokens.map(t => t.type);
-      expect(types.filter(t => t === TokenType.BOLD_START).length).toBe(2);
+      expect(types.filter(t => t === TokenType.BOLD_MARKER).length).toBe(2);
     });
 
     test("tokenizes italic markers", () => {
       const result = tokenize("*italic*");
       const types = result.tokens.map(t => t.type);
-      expect(types.filter(t => t === TokenType.ITALIC_START).length).toBe(2);
+      expect(types.filter(t => t === TokenType.ITALIC_MARKER).length).toBe(2);
     });
 
     test("tokenizes variables", () => {

@@ -121,6 +121,18 @@ Track architectural decisions and open questions.
 
 ---
 
+### 2026-02-05 - Phase 1 Quick Fixes (Post-Oracle Review)
+
+**Completed:**
+1. Renamed `*_START`/`*_END` tokens → `*_MARKER` (single token for open/close)
+   - Removed dead `BOLD_END`, `ITALIC_END`, `STRIKE_END`, `CODE_END`, `HIGHLIGHT_END`
+2. Fixed tab width: changed from 2 spaces to 4 spaces
+3. Added mixed tabs/spaces detection with diagnostic
+4. Excluded `src.bak/`, `tests.bak/`, `fidelity/` from tsconfig to clean up typecheck
+5. Added 2 new tests for tab handling (34 tests total)
+
+---
+
 ## Oracle Review: Phase 1 (2026-02-05)
 
 **Overall Verdict:** Solid work. Architecture is correct. Issues are refinements, not fundamental problems.
@@ -141,16 +153,16 @@ Track architectural decisions and open questions.
 
 ### Priority Fixes Identified
 
-| Issue                                  | Severity | Phase to Fix | Status  |
-| -------------------------------------- | -------- | ------------ | ------- |
-| Dead `*_END` token types               | Low      | Phase 1.5    | Pending |
-| Image token pipe-encoding              | Medium   | Phase 1.5    | Pending |
-| `Bold`/`Italic` vs `Styled` redundancy | Medium   | Phase 4      | Pending |
-| `loc` optional on IR nodes             | Medium   | Phase 3      | Pending |
-| No table parsing                       | High     | Phase 1.5    | Pending |
-| No link parsing                        | High     | Phase 1.5    | Pending |
-| Mixed tabs/spaces handling             | Low      | Phase 1.5    | Pending |
-| Tab = 2 spaces hardcoded               | Low      | Phase 1.5    | Pending |
+| Issue                                  | Severity | Phase to Fix | Status      |
+| -------------------------------------- | -------- | ------------ | ----------- |
+| Dead `*_END` token types               | Low      | Phase 1.5    | ✅ Fixed    |
+| Image token pipe-encoding              | Medium   | Phase 1.5    | Pending     |
+| `Bold`/`Italic` vs `Styled` redundancy | Medium   | Phase 4      | Pending     |
+| `loc` optional on IR nodes             | Medium   | Phase 3      | Pending     |
+| No table parsing                       | High     | Phase 1.5    | Pending     |
+| No link parsing                        | High     | Phase 1.5    | Pending     |
+| Mixed tabs/spaces handling             | Low      | Phase 1.5    | ✅ Fixed    |
+| Tab = 2 spaces hardcoded               | Low      | Phase 1.5    | ✅ Fixed    |
 
 ### Red Flags to Address
 

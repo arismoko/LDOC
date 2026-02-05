@@ -456,19 +456,19 @@ export class Parser {
           loc: loc(token.line, token.column),
         } as CSTVariable;
 
-      case TokenType.BOLD_START:
+      case TokenType.BOLD_MARKER:
         return this.parseEmphasis("bold");
 
-      case TokenType.ITALIC_START:
+      case TokenType.ITALIC_MARKER:
         return this.parseEmphasis("italic");
 
-      case TokenType.STRIKE_START:
+      case TokenType.STRIKE_MARKER:
         return this.parseEmphasis("strikethrough");
 
-      case TokenType.HIGHLIGHT_START:
+      case TokenType.HIGHLIGHT_MARKER:
         return this.parseEmphasis("highlight");
 
-      case TokenType.CODE_START:
+      case TokenType.CODE_MARKER:
         this.advance();
         return {
           type: "Emphasis",
@@ -522,10 +522,10 @@ export class Parser {
       
       // Check for closing marker
       if (
-        (kind === "bold" && token.type === TokenType.BOLD_START) ||
-        (kind === "italic" && token.type === TokenType.ITALIC_START) ||
-        (kind === "strikethrough" && token.type === TokenType.STRIKE_START) ||
-        (kind === "highlight" && token.type === TokenType.HIGHLIGHT_START)
+        (kind === "bold" && token.type === TokenType.BOLD_MARKER) ||
+        (kind === "italic" && token.type === TokenType.ITALIC_MARKER) ||
+        (kind === "strikethrough" && token.type === TokenType.STRIKE_MARKER) ||
+        (kind === "highlight" && token.type === TokenType.HIGHLIGHT_MARKER)
       ) {
         this.advance(); // consume closing marker
         break;
