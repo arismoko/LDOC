@@ -17,6 +17,9 @@ export type DecompilerOptions = {
    * Used to determine when to emit @style block modifiers.
    */
   dominantStyle?: FontSizeStats;
+
+  /** Internal hint: suppress table-default spacing noise. */
+  inTable?: boolean;
 };
 
 export type ParagraphInfo = {
@@ -41,6 +44,69 @@ type HyperlinkSegment = {
 };
 
 type ContentSegment = TextSegment | HyperlinkSegment;
+
+function paragraphHasSignificantInline(segments: ContentSegment[]): boolean {
+  for (const seg of segments) {
+    if ("type" in seg && seg.type === "hyperlink") {
+      for (const s of seg.segments) {
+        if (s.text.includes("  \n") || s.text.includes("\t") || s.text.length > 0) {
+          return true;
+        }
+      }
+      continue;
+    }
+    const s = seg as TextSegment;
+    if (s.text.includes("  \n") || s.text.includes("\t") || s.text.length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function paragraphIsWhitespaceOnly(segments: ContentSegment[]): boolean {
+  let sawAny = false;
+  for (const seg of segments) {
+    const textSegs: TextSegment[] = ("type" in seg && seg.type === "hyperlink")
+      ? seg.segments
+      : [seg as TextSegment];
+
+    for (const s of textSegs) {
+      if (!s.text) continue;
+      sawAny = true;
+      // If we have any explicit structure (hard break/tab) or any non-whitespace, it's not whitespace-only.
+      if (s.text.includes("  \n") || s.text.includes("\t")) return false;
+      if (s.text.trim().length > 0) return false;
+    }
+  }
+  return sawAny;
+}
+
+function normalizeParagraphLine(text: string): string {
+  // Avoid trailing newlines in emitted paragraph strings.
+  // A hard break at end-of-paragraph is represented as a line ending with "  "
+  // followed by the paragraph separator newline(s) outside of the paragraph content.
+  let out = text;
+  while (out.endsWith("\n")) out = out.slice(0, -1);
+
+  // Indentation handling in the lexer skips whitespace-only lines.
+  // That makes Markdown hard breaks on otherwise-empty lines lossy.
+  // Rewrite hard-break-only lines to an explicit token so they survive parsing.
+  // (Tokenizer treats `@br` as TokenType.HARD_BREAK.)
+  const lines = out.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (line.trim().length === 0 && line.endsWith("  ")) {
+      lines[i] = "@br";
+    }
+  }
+  return lines.join("\n");
+}
+
+function trimEndPreserveHardBreakSpace(s: string): string {
+  // Preserve markdown hard-break marker (two spaces) at end-of-string.
+  if (s.endsWith("  ")) return s;
+  return s.trimEnd();
+}
 
 function isTocStyle(styleId: string | undefined): boolean {
   if (!styleId) return false;
@@ -116,9 +182,45 @@ function paragraphSpacing(pNode: XmlNode): { after?: number; before?: number } |
   if (after === undefined && before === undefined) return undefined;
 
   return {
-    after: after ? parseInt(after, 10) : undefined,
-    before: before ? parseInt(before, 10) : undefined,
+    after: after !== undefined ? parseInt(after, 10) : undefined,
+    before: before !== undefined ? parseInt(before, 10) : undefined,
   };
+}
+
+const DOCX_NONEMPTY_MARKERS = new Set([
+  "w:t",
+  "w:drawing",
+  "w:pict",
+  "w:object",
+  "w:footnoteReference",
+  "w:endnoteReference",
+  "w:tab",
+  "w:br",
+  "w:cr",
+  "w:fldChar",
+  "w:instrText",
+  "w:fldSimple",
+]);
+
+const DOCX_TAB_MARKER = new Set(["w:tab"]);
+
+function xmlContainsAny(node: XmlNode, wanted: Set<string>): boolean {
+  const key = getOnlyKey(node);
+  if (!key) return false;
+  if (wanted.has(key)) return true;
+  const children = Array.isArray((node as any)[key]) ? ((node as any)[key] as XmlNode[]) : [];
+  for (const c of children ?? []) {
+    if (typeof c === "string" || typeof c === "number" || typeof c === "boolean") continue;
+    if (xmlContainsAny(c as XmlNode, wanted)) return true;
+  }
+  return false;
+}
+
+function paragraphHasDocxNonEmptyMarker(pNode: XmlNode): boolean {
+  // Conservative: only used as a fallback when paragraph text is empty.
+  // Some documents include non-rendered or structural nodes (e.g., tab stops or field codes)
+  // that we still want to preserve as a non-empty paragraph for roundtrip fidelity.
+  return xmlContainsAny(pNode, DOCX_NONEMPTY_MARKERS);
 }
 
 export function paragraphHasPageBreak(pNode: XmlNode): boolean {
@@ -282,6 +384,76 @@ function detectUniformFontSize(segments: ContentSegment[]): { font?: string; siz
     font: allSameFont ? font : undefined,
     sizePt: allSameSize ? sizePt : undefined,
   };
+}
+
+function detectUniformInlineStyleAttrs(
+  segments: ContentSegment[],
+  dominantStyle: FontSizeStats,
+): Record<string, string> | undefined {
+  const allTextSegs: TextSegment[] = [];
+  for (const seg of segments) {
+    if ("type" in seg && seg.type === "hyperlink") {
+      allTextSegs.push(...seg.segments);
+    } else {
+      allTextSegs.push(seg as TextSegment);
+    }
+  }
+
+  const withText = allTextSegs.filter((s) => s.text.trim().length > 0);
+  if (withText.length === 0) return undefined;
+
+  const makeAttrs = (s: TextSegment): Record<string, string> => {
+    const attrs: Record<string, string> = {};
+
+    // Compare font against dominant (case-insensitive)
+    if (s.style.font && dominantStyle.font) {
+      if (s.style.font.toLowerCase() !== dominantStyle.font.toLowerCase()) {
+        attrs.font = s.style.font;
+      }
+    } else if (s.style.font && !dominantStyle.font) {
+      attrs.font = s.style.font;
+    }
+
+    // Compare size against dominant
+    if (s.style.sizePt && dominantStyle.sizePt) {
+      if (s.style.sizePt !== dominantStyle.sizePt) {
+        attrs.size = `${s.style.sizePt}pt`;
+      }
+    } else if (s.style.sizePt && !dominantStyle.sizePt) {
+      attrs.size = `${s.style.sizePt}pt`;
+    }
+
+    // Color: any explicit color is notable
+    if (s.style.color) {
+      attrs.color = s.style.color;
+    }
+
+    // Character spacing
+    if (s.style.characterSpacing !== undefined) {
+      attrs.spacing = s.style.characterSpacing % 20 === 0
+        ? `${s.style.characterSpacing / 20}pt`
+        : `${s.style.characterSpacing}twip`;
+    }
+
+    // Background shading fill (not highlight; highlight is emitted separately)
+    if (s.style.shadingFill) {
+      attrs.background = `#${s.style.shadingFill}`;
+    }
+
+    return attrs;
+  };
+
+  const firstAttrs = makeAttrs(withText[0]!);
+  if (Object.keys(firstAttrs).length === 0) return undefined;
+  const firstJson = JSON.stringify(Object.entries(firstAttrs).sort(([a], [b]) => a.localeCompare(b)));
+
+  for (let i = 1; i < withText.length; i++) {
+    const a = makeAttrs(withText[i]!);
+    const aJson = JSON.stringify(Object.entries(a).sort(([x], [y]) => x.localeCompare(y)));
+    if (aJson !== firstJson) return undefined;
+  }
+
+  return firstAttrs;
 }
 
 /**
@@ -477,21 +649,43 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
   const alignment = paragraphAlignment(pNode);
   const indentLeftTwips = paragraphIndentLeftTwips(pNode, styles);
   const spacing = paragraphSpacing(pNode);
+  const effectiveSpacing = options?.inTable && spacing?.after === 0 && spacing.before === undefined
+    ? undefined
+    : spacing;
   
   // Check for TOC styles - don't emit list markers for TOC paragraphs
   const isToc = isTocStyle(styleId);
   
   // Get content segments for uniform style detection
   const contentSegments = paragraphSegments(pNode, rels);
+  const hasSignificantInline = paragraphHasSignificantInline(contentSegments);
   const uniformStyle = detectUniformStyle(contentSegments);
   
-  // Detect uniform font/size for @style emission
+  const dominant = options?.dominantStyle;
+
+  // Detect uniform inline style attrs for block @style hoisting.
+  // If all runs share the same style differences vs dominant, we emit a block @style(...) and
+  // render paragraph text without inline @style(...)[...] wrappers.
+  const hoistedStyleAttrs = dominant
+    ? detectUniformInlineStyleAttrs(contentSegments, dominant)
+    : undefined;
+
+  // Fallback: only font/size difference (legacy behavior)
   const paragraphFontSize = detectUniformFontSize(contentSegments);
-  const styleAttrs = computeStyleAttrs(paragraphFontSize, options?.dominantStyle);
-  
+  const styleAttrs = hoistedStyleAttrs ?? computeStyleAttrs(paragraphFontSize, dominant);
+
   // For TOC paragraphs, preserve tabs for readable title+page format
-  const text = paragraphText(pNode, isToc, rels, options?.dominantStyle);
-  const isEmpty = !text.trim();
+  const whitespaceOnly = paragraphIsWhitespaceOnly(contentSegments);
+  let rawText = whitespaceOnly
+    ? "@nbsp"
+    : paragraphText(pNode, isToc, rels, hoistedStyleAttrs ? undefined : dominant);
+
+  if (!rawText && paragraphHasDocxNonEmptyMarker(pNode)) {
+    // Prefer a real tab when paragraph content is tab-only.
+    rawText = xmlContainsAny(pNode, DOCX_TAB_MARKER) ? "@tab" : "@nbsp";
+  }
+  const text = normalizeParagraphLine(rawText);
+  const isEmpty = !text.trim() && !hasSignificantInline;
 
   // Check for heading style first
   if (styleId) {
@@ -523,7 +717,7 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
       // Single-line heading: use # syntax
       const hashes = "#".repeat(Math.max(1, Math.min(6, level)));
       return {
-        line: `${hashes} ${text}`.trimEnd(),
+        line: trimEndPreserveHardBreakSpace(`${hashes} ${text}`),
         indentLeftTwips,
         isHeading: true,
         isList: false,
@@ -536,7 +730,7 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
   // Check for blockquote style
   if (isBlockquoteStyle(styleId)) {
     return {
-      line: `> ${text}`.trimEnd(),
+      line: trimEndPreserveHardBreakSpace(`> ${text}`),
       alignment: alignment === "center" ? "center" : alignment === "right" ? "right" : undefined,
       indentLeftTwips: 0, // Don't also emit indent for blockquotes
       isHeading: false,
@@ -552,7 +746,7 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
     // For TOC, just emit the text without alignment modifiers on the line
     // (alignment will be handled by grouping logic)
     return {
-      line: text.trimEnd(),
+      line: trimEndPreserveHardBreakSpace(text),
       alignment: alignment === "center" ? "center" : alignment === "right" ? "right" : undefined,
       indentLeftTwips,
       isHeading: false,
@@ -568,7 +762,7 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
     // Lists with alignment: alignment will be handled by the generator's emitAligned logic
     // We just record the alignment in the info for potential wrapping
     return {
-      line: `${prefix}${text}`.trimEnd(),
+      line: trimEndPreserveHardBreakSpace(`${prefix}${text}`),
       alignment: alignment === "center" ? "center" : alignment === "right" ? "right" : undefined,
       // Avoid emitting @indent for list items; numbering carries indentation.
       indentLeftTwips: 0,
@@ -579,30 +773,42 @@ export function paragraphToLdoc(pNode: XmlNode, numInfo: NumberingInfo, styles: 
     };
   }
 
+  // Preserve named paragraph styles that aren't handled semantically
+  // (Heading, Blockquote, TOC are already handled above)
+  const isSemanticStyle = styleId && /^(Heading[1-6]|Quote|BlockQuote|IntenseQuote|TOC[1-9]|Normal)$/i.test(styleId);
+  const paragraphStyleAttr = styleId && !isSemanticStyle
+    ? { "paragraph-style": styleId }
+    : undefined;
+
   // Check for uniform @bold or @italic modifier (entire paragraph same style)
   if (uniformStyle && !isEmpty) {
-    const plainText = paragraphTextPlain(pNode, isToc, rels);
+    const plainText = normalizeParagraphLine(paragraphTextPlain(pNode, isToc, rels));
     return {
-      line: `@${uniformStyle}: ${plainText}`.trimEnd(),
+      line: trimEndPreserveHardBreakSpace(`@${uniformStyle}: ${plainText}`),
       alignment: alignment === "center" ? "center" : alignment === "right" ? "right" : undefined,
       indentLeftTwips,
       isHeading: false,
       isList: false,
       isEmpty,
       anchors: anchorsField,
+      styleAttrs: paragraphStyleAttr,
     };
   }
 
+  const finalStyleAttrs = paragraphStyleAttr
+    ? { ...styleAttrs, ...paragraphStyleAttr }
+    : styleAttrs;
+
   // Regular paragraph - capture alignment for potential grouping
   return {
-    line: text.trimEnd(),
+    line: trimEndPreserveHardBreakSpace(text),
     alignment: alignment === "center" ? "center" : alignment === "right" ? "right" : undefined,
     indentLeftTwips,
     isHeading: false,
     isList: false,
     isEmpty,
     anchors: anchorsField,
-    styleAttrs,
-    spacing,
+    styleAttrs: finalStyleAttrs,
+    spacing: effectiveSpacing,
   };
 }

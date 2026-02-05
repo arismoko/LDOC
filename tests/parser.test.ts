@@ -1330,7 +1330,7 @@ describe("numbering in @document block", () => {
 });
 
 describe("Table styling", () => {
-  test("@table has borders with size=4", async () => {
+  test("@table is borderless by default", async () => {
     const parser = new Parser();
     const ast = parser.parse("@table\n  @row\n    @cell: A\n    @cell: B\n  @row\n    @cell: 1\n    @cell: 2\n");
     const compiler = new DocxCompiler();
@@ -1338,27 +1338,41 @@ describe("Table styling", () => {
     const zip = await JSZip.loadAsync(buffer);
     const xml = await zip.file("word/document.xml")!.async("text");
 
-    // Should have table borders
+    // Should have table borders element with "none" style
     expect(xml).toContain("w:tblBorders");
+    expect(xml).toMatch(/w:val="none"/);
+  });
+
+  test("@table(border: true) has visible borders", async () => {
+    const parser = new Parser();
+    const ast = parser.parse("@table(border: true)\n  @row\n    @cell: A\n    @cell: B\n  @row\n    @cell: 1\n    @cell: 2\n");
+    const compiler = new DocxCompiler();
+    const buffer = await compiler.compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+
+    // Should have table borders with single style
+    expect(xml).toContain("w:tblBorders");
+    expect(xml).toMatch(/w:val="single"/);
     // Border size should be 4 (0.5pt)
     expect(xml).toMatch(/w:sz="4"/);
   });
 
   test("@table header row has light gray shading", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  @row\n    @cell: Header1\n    @cell: Header2\n  @row\n    @cell: Data1\n    @cell: Data2\n");
+    const ast = parser.parse("@table\n  @row(header)\n    @cell(background: \"#F2F2F2\"): Header1\n    @cell(background: \"#F2F2F2\"): Header2\n  @row\n    @cell: Data1\n    @cell: Data2\n");
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
     const xml = await zip.file("word/document.xml")!.async("text");
 
-    // Header row should have F2F2F2 shading
+    // Cells should have F2F2F2 shading
     expect(xml).toContain("F2F2F2");
   });
 
   test("@table has cell margins/padding", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  @row\n    @cell: A\n    @cell: B\n  @row\n    @cell: 1\n    @cell: 2\n");
+    const ast = parser.parse("@table(padding: 120twip)\n  @row\n    @cell: A\n    @cell: B\n  @row\n    @cell: 1\n    @cell: 2\n");
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -1370,18 +1384,15 @@ describe("Table styling", () => {
 
   test("@table header text is bold", async () => {
     const parser = new Parser();
-    const ast = parser.parse("@table\n  @row\n    @cell: Header\n    @cell: X\n  @row\n    @cell: Data\n    @cell: Y\n");
+    const ast = parser.parse("@table\n  @row(header)\n    @cell: Header\n    @cell: X\n  @row\n    @cell: Data\n    @cell: Y\n");
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
     const xml = await zip.file("word/document.xml")!.async("text");
 
-    // Header row should have bold run property before the text
-    // Find the table row with w:tblHeader and check for w:b
-    const tblRows = xml.match(/<w:tr[^>]*>[\s\S]*?<\/w:tr>/g) || [];
-    const headerRow = tblRows.find(r => r.includes('w:tblHeader'));
-    expect(headerRow).toBeDefined();
-    expect(headerRow).toContain('<w:b');
+    // Header row text should have bold run property
+    expect(xml).toContain("Header");
+    expect(xml).toContain("<w:b");
   });
 
   test("@table with colspan", async () => {

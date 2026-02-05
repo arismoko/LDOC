@@ -471,6 +471,28 @@ export function tokensToInlineNodes(tokens: Token[], definedTerms: Set<string>):
         });
         break;
 
+      case TokenType.NBSP:
+        nodes.push({
+          type: "text",
+          value: " ",
+          line: token.line,
+          column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
+        });
+        break;
+
+      case TokenType.TAB:
+        nodes.push({
+          type: "text",
+          value: "\t",
+          line: token.line,
+          column: token.column,
+          endLine: token.endLine,
+          endColumn: token.endColumn,
+        });
+        break;
+
       case TokenType.LINK:
         // Value is "text|url"
         const [linkText, linkUrl] = token.value.split("|");

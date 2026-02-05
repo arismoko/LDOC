@@ -1,9 +1,0 @@
-@meta
-  world: crazy frog
-@end
-@bold
-  hello world  
-  test!  
-@end
-
-**{{world}}**

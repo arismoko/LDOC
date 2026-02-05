@@ -252,8 +252,15 @@ export class Lexer {
       this.advance();
     }
 
-    // Skip empty lines
+    // Empty line: do not dedent on blank lines, but do allow starting an indented
+    // block on a whitespace-only line (needed to represent empty paragraphs inside
+    // blocks like headers/footers).
     if (this.peek() === "\n" || this.pos >= this.input.length) {
+      const currentIndent = this.indentation.currentIndent();
+      if (indent > currentIndent) {
+        this.indentation.pushIndent(indent);
+        this.tokens.push(this.makeToken(TokenType.INDENT, "", indent));
+      }
       return;
     }
 
@@ -1807,6 +1814,12 @@ export class Lexer {
         return TokenType.PAGEBREAK;
       case "break":
         return TokenType.COLUMN_BREAK;
+      case "br":
+        return TokenType.HARD_BREAK;
+      case "nbsp":
+        return TokenType.NBSP;
+      case "tab":
+        return TokenType.TAB;
       case "header":
         return TokenType.DOC_HEADER;
       case "footer":

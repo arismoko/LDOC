@@ -12,12 +12,108 @@ import {
   TableLayoutType,
   VerticalAlign,
   VerticalMergeType,
+  HeightRule,
   convertInchesToTwip,
+  TableBorders,
 } from "docx";
 
 import type { TableNode, ModifierNode, InlineNode, Node, TableCellNode } from "../parser/ast";
 import type { AlignmentType } from "docx";
 import type { TextStyle } from "./styles";
+import { parseLengthToTwipCompiler } from "./parse";
+
+function parseHexColor(raw: string): string | null {
+  const s = raw.trim().replace(/^"|"$/g, "");
+  const m = s.match(/^#?([0-9A-Fa-f]{6})$/);
+  if (!m) return null;
+  return (m[1] ?? "").toUpperCase();
+}
+
+function parseScalarLengthTwip(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const s = raw.trim().replace(/^"|"$/g, "");
+  if (!s) return undefined;
+  if (/\s/.test(s)) {
+    throw new Error(`Expected a single length value, got: ${raw}`);
+  }
+  return parseLengthToTwipCompiler(s);
+}
+
+function parseHeightRule(raw: string | undefined): (typeof HeightRule)[keyof typeof HeightRule] | undefined {
+  if (!raw) return undefined;
+  const s = raw.trim().replace(/^"|"$/g, "");
+  if (!s) return undefined;
+  const lower = s.toLowerCase();
+  if (lower === "auto") return HeightRule.AUTO;
+  if (lower === "atleast") return HeightRule.ATLEAST;
+  if (lower === "exact") return HeightRule.EXACT;
+  throw new Error(`Unknown heightRule: ${raw}`);
+}
+
+/** Cell margins in twips (top, right, bottom, left) */
+interface CellMargins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/**
+ * Parse padding value to cell margins.
+ * Accepts:
+ *  - single length: "0.08in" -> all sides
+ *  - [v, h] list: "[6pt, 12pt]" -> vertical, horizontal
+ *  - [t, r, b, l] list: "[1pt, 2pt, 3pt, 4pt]"
+ *  - legacy whitespace-separated: "6pt 12pt" (for robustness)
+ */
+function parsePadding(raw: string | undefined): CellMargins | undefined {
+  if (!raw) return undefined;
+  let s = raw.trim().replace(/^"|"$/g, "");
+  if (!s) return undefined;
+
+  // Handle list syntax: [v, h] or [t, r, b, l]
+  const listMatch = s.match(/^\[(.+)\]$/);
+  if (listMatch) {
+    const items = listMatch[1]!.split(",").map(x => x.trim()).filter(Boolean);
+    if (items.length === 2) {
+      // [vertical, horizontal]
+      const v = parseLengthToTwipCompiler(items[0]!);
+      const h = parseLengthToTwipCompiler(items[1]!);
+      return { top: v, bottom: v, left: h, right: h };
+    } else if (items.length === 4) {
+      // [top, right, bottom, left]
+      return {
+        top: parseLengthToTwipCompiler(items[0]!),
+        right: parseLengthToTwipCompiler(items[1]!),
+        bottom: parseLengthToTwipCompiler(items[2]!),
+        left: parseLengthToTwipCompiler(items[3]!),
+      };
+    }
+    throw new Error(`padding list must have 2 or 4 items, got: ${raw}`);
+  }
+
+  // Handle legacy whitespace-separated form: "6pt 12pt" etc.
+  const parts = s.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    // single value -> all sides
+    const val = parseLengthToTwipCompiler(parts[0]!);
+    return { top: val, right: val, bottom: val, left: val };
+  } else if (parts.length === 2) {
+    // [v, h]
+    const v = parseLengthToTwipCompiler(parts[0]!);
+    const h = parseLengthToTwipCompiler(parts[1]!);
+    return { top: v, bottom: v, left: h, right: h };
+  } else if (parts.length === 4) {
+    // [t, r, b, l]
+    return {
+      top: parseLengthToTwipCompiler(parts[0]!),
+      right: parseLengthToTwipCompiler(parts[1]!),
+      bottom: parseLengthToTwipCompiler(parts[2]!),
+      left: parseLengthToTwipCompiler(parts[3]!),
+    };
+  }
+  throw new Error(`Invalid padding format: ${raw}`);
+}
 
 /**
  * Context interface for table/box compilation.
@@ -73,7 +169,8 @@ export function compileTable(
     color: "000000",
   };
 
-  const cellMargin = 120; // ~120 twips for padding
+  // Optional table-level default padding
+  const tableDefaultPadding = parsePadding(node.attributes?.padding);
 
   let bookmarksForFirstRow = forcedBookmarks;
 
@@ -206,10 +303,24 @@ export function compileTable(
       const cellOptions: any = {
         children: cellChildren,
         verticalAlign: VerticalAlign.TOP,
-        shading: isHeader
-          ? { type: ShadingType.CLEAR, fill: "F2F2F2" }
-          : undefined,
       };
+
+      // Cell-level background
+      const cellAttrs = cellNode.attributes;
+      if (cellAttrs?.background) {
+        const bgColor = parseHexColor(cellAttrs.background);
+        if (bgColor) {
+          cellOptions.shading = { type: ShadingType.CLEAR, fill: bgColor };
+        }
+      }
+
+      // Cell-level padding overrides table default
+      const cellPadding = parsePadding(cellAttrs?.padding);
+      if (cellPadding) {
+        cellOptions.margins = cellPadding;
+      } else if (tableDefaultPadding) {
+        cellOptions.margins = tableDefaultPadding;
+      }
 
       // Add colspan (columnSpan)
       if (cellNode.colspan > 1) {
@@ -228,10 +339,22 @@ export function compileTable(
       cellIdx++;
     }
 
-    return new TableRow({
+    // Build row options with height/heightRule from row attributes
+    const rowOptions: any = {
       children: cells,
       tableHeader: isHeader,
-    });
+    };
+
+    const rowAttrs = row.attributes;
+    if (rowAttrs?.height) {
+      const heightTwip = parseScalarLengthTwip(rowAttrs.height);
+      if (heightTwip !== undefined) {
+        const rule = parseHeightRule(rowAttrs.heightRule) ?? HeightRule.ATLEAST;
+        rowOptions.height = { value: heightTwip, rule };
+      }
+    }
+
+    return new TableRow(rowOptions);
   });
 
   return new Table({
@@ -241,21 +364,28 @@ export function compileTable(
       : { size: 100, type: WidthType.PERCENTAGE },
     layout: node.columnWidths ? TableLayoutType.FIXED : TableLayoutType.AUTOFIT,
     columnWidths: node.columnWidths,
-    indent: indentLeftTwip ? { size: indentLeftTwip, type: WidthType.DXA } : undefined,
-    borders: {
+    indent: (() => {
+      const attrIndent = parseScalarLengthTwip(node.attributes?.indent);
+      const base = (indentLeftTwip ?? 0) + (attrIndent ?? 0);
+      return base > 0 ? { size: base, type: WidthType.DXA } : undefined;
+    })(),
+    // Tables are borderless by default (common for layout tables in legal docs).
+    // Use @table(border: true) attribute to enable borders.
+    // Must explicitly use TableBorders.NONE to prevent Word from using default styles.
+    borders: node.attributes?.border ? {
       top: tableBorder,
       bottom: tableBorder,
       left: tableBorder,
       right: tableBorder,
       insideHorizontal: tableBorder,
       insideVertical: tableBorder,
-    },
-    margins: {
-      top: cellMargin,
-      bottom: cellMargin,
-      left: cellMargin,
-      right: cellMargin,
-    },
+    } : TableBorders.NONE,
+    margins: tableDefaultPadding ? {
+      top: tableDefaultPadding.top,
+      bottom: tableDefaultPadding.bottom,
+      left: tableDefaultPadding.left,
+      right: tableDefaultPadding.right,
+    } : undefined,
   });
 }
 

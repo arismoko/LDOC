@@ -5,6 +5,9 @@ dist/
 *.docx
 *.pdf
 
+# Test fixtures
+!tests/fixtures/*.docx
+
 # Local debug scripts
 debug*.ts
 
@@ -19,9 +22,14 @@ debug*.ts
 
 # Local scratch/debug artifacts
 .scratch/
+.tmp/
 
 # Roundtrip test outputs (regenerated)
 examples/_roundtrip/
+
+# Fidelity harness artifacts
+fidelity/artifacts/
+fidelity/.env
 
 # LibreOffice lock files
 ~$*

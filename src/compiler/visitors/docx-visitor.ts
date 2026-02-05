@@ -98,8 +98,11 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
         this.makeBookmarkParagraph(ids, indent),
       
       compileNode: (node, style, alignment, indent, forcedBookmarks) => {
+        // In table cells, Word defaults to spacing-after=0. Ensure empty paragraphs
+        // (EmptyParagraphNode/BlankNode) also get spacing-after=0 via ctx.defaultSpacing.
+        const tableCtx = { ...this.ctx, defaultSpacing: { after: 0 } };
         const v = new DocxNodeVisitor(
-          this.ctx,
+          tableCtx,
           forcedBookmarks,
           { ...this.currentStyle, ...style },
           alignment || this.currentAlignment,
@@ -432,6 +435,14 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
         nextParagraphOptions = {
           ...nextParagraphOptions,
           spacing,
+        };
+      }
+
+      // Apply paragraph-style (named Word paragraph style)
+      if (attrs["paragraph-style"]) {
+        nextParagraphOptions = {
+          ...nextParagraphOptions,
+          style: attrs["paragraph-style"],
         };
       }
     }

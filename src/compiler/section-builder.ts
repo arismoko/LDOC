@@ -22,6 +22,8 @@ export interface BasePageProps {
     bottom?: number;
     left?: number;
     right?: number;
+    header?: number;
+    footer?: number;
   };
   size?: {
     width?: number;

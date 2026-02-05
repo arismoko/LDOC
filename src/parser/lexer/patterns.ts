@@ -48,6 +48,8 @@ export enum TokenType {
   FOOTNOTE_DEF = "FOOTNOTE_DEF",
   IMAGE = "IMAGE",
   HARD_BREAK = "HARD_BREAK",
+  NBSP = "NBSP",
+  TAB = "TAB",
 
   // Table
   TABLE = "TABLE",
@@ -152,6 +154,9 @@ export const KEYWORDS = new Set([
   "cell",
   "pagebreak",
   "break",
+  "br",
+  "nbsp",
+  "tab",
   "todo",
   "header",
   "footer",

@@ -43,6 +43,21 @@ export function parseIndentedBlock(
         `${options.directiveName ?? "Block"} must be followed by an indented block (line ${token.line})`
       );
     }
+
+    // Allow an explicit empty block terminated by @end:
+    // @directive
+    // @end
+    // Only consume newlines if @end follows, otherwise preserve them for outer parsing.
+    const savedPos = ctx.stream.getPosition();
+    while (ctx.stream.check(TokenType.NEWLINE)) {
+      ctx.stream.advance();
+    }
+    if (ctx.stream.check(TokenType.END)) {
+      endToken = ctx.stream.advance();
+      hasEnd = true;
+      return { content, hasEnd, endToken };
+    }
+    ctx.stream.setPosition(savedPos);
     return { content, hasEnd };
   }
 

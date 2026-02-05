@@ -30,17 +30,20 @@ export interface StyleConfig {
   footer?: StyleSettings;
 }
 
-export function buildDocumentStyles(styleConfig: StyleConfig): any {
-  // If no style config, return undefined to preserve default behavior
-  if (Object.keys(styleConfig).length === 0) {
+export function buildDocumentStyles(
+  styleConfig: StyleConfig,
+  defaultSpacing?: { before?: number; after?: number; line?: number }
+): any {
+  // If no style config and no spacing, return undefined to preserve default behavior
+  if (Object.keys(styleConfig).length === 0 && !defaultSpacing) {
     return undefined;
   }
 
   const styles: any = {};
 
   // Build default run properties for body text
-  if (styleConfig.body) {
-    const bodySettings = styleConfig.body;
+  if (styleConfig.body || defaultSpacing) {
+    const bodySettings = styleConfig.body ?? {};
     const runProps: any = {};
     if (bodySettings.font) runProps.font = bodySettings.font;
     if (bodySettings.size !== undefined) runProps.size = bodySettings.size;
@@ -48,12 +51,43 @@ export function buildDocumentStyles(styleConfig: StyleConfig): any {
     if (bodySettings.italic !== undefined) runProps.italics = bodySettings.italic;
     if (bodySettings.color) runProps.color = bodySettings.color;
 
-    if (Object.keys(runProps).length > 0) {
+    // Build paragraph props with spacing and alignment
+    const paragraphProps: any = {};
+    if (defaultSpacing) {
+      const spacing: any = {};
+      if (defaultSpacing.after !== undefined) spacing.after = defaultSpacing.after;
+      if (defaultSpacing.before !== undefined) spacing.before = defaultSpacing.before;
+      if (defaultSpacing.line !== undefined) spacing.line = defaultSpacing.line;
+      if (Object.keys(spacing).length > 0) {
+        paragraphProps.spacing = spacing;
+      }
+    }
+    // Add body alignment to paragraph defaults
+    if (bodySettings.align) {
+      switch (bodySettings.align) {
+        case "justify":
+          paragraphProps.alignment = AlignmentType.JUSTIFIED;
+          break;
+        case "center":
+          paragraphProps.alignment = AlignmentType.CENTER;
+          break;
+        case "right":
+          paragraphProps.alignment = AlignmentType.RIGHT;
+          break;
+        // "left" is default, no need to set
+      }
+    }
+
+    if (Object.keys(runProps).length > 0 || Object.keys(paragraphProps).length > 0) {
       styles.default = {
-        document: {
-          run: runProps,
-        },
+        document: {},
       };
+      if (Object.keys(runProps).length > 0) {
+        styles.default.document.run = runProps;
+      }
+      if (Object.keys(paragraphProps).length > 0) {
+        styles.default.document.paragraph = paragraphProps;
+      }
     }
   }
 

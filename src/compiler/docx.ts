@@ -298,7 +298,8 @@ export class DocxCompiler {
     const docKeywords = (this.ctx.variables.document as any)?.keywords;
 
     // Build document styles from @styles directives
-    const docStyles = buildDocumentStyles(this.ctx.styleConfig);
+    // Pass defaultSpacing to set in docDefaults (pPrDefault) instead of per-paragraph
+    const docStyles = buildDocumentStyles(this.ctx.styleConfig, this.ctx.defaultSpacing);
 
     const doc = new Document({
       numbering: this.ctx.numberingConfig,

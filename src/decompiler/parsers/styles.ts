@@ -38,7 +38,9 @@ export type ParagraphStyleInfo = {
 
 export type ParagraphStyleMap = Map<string, ParagraphStyleInfo>;
 
-export function parseSpacingFromStylesXml(stylesXml: string | undefined): { lineMultiplier?: number } | undefined {
+export function parseSpacingFromStylesXml(
+  stylesXml: string | undefined,
+): { lineMultiplier?: number; beforeTwip?: number; afterTwip?: number; align?: "left" | "center" | "right" | "justify" } | undefined {
   if (!stylesXml) return undefined;
 
   const tree = xmlParser.parse(stylesXml) as XmlNode[];
@@ -59,24 +61,40 @@ export function parseSpacingFromStylesXml(stylesXml: string | undefined): { line
 
   const pPrChildren = pPr["w:pPr"] as XmlNode[];
   const spacing = findFirst(pPrChildren, "w:spacing");
-  if (!spacing) return undefined;
+  
+  const lineVal = spacing ? attrVal(spacing, "@_w:line") : undefined;
+  const lineRule = spacing ? attrVal(spacing, "@_w:lineRule") : undefined;
+  const beforeVal = spacing ? attrVal(spacing, "@_w:before") : undefined;
+  const afterVal = spacing ? attrVal(spacing, "@_w:after") : undefined;
 
-  const lineVal = attrVal(spacing, "@_w:line");
-  const lineRule = attrVal(spacing, "@_w:lineRule");
+  const beforeTwip = beforeVal !== undefined ? parseInt(beforeVal, 10) : undefined;
+  const afterTwip = afterVal !== undefined ? parseInt(afterVal, 10) : undefined;
+  const base: { lineMultiplier?: number; beforeTwip?: number; afterTwip?: number; align?: "left" | "center" | "right" | "justify" } = {};
+  if (Number.isFinite(beforeTwip as any)) base.beforeTwip = beforeTwip;
+  if (Number.isFinite(afterTwip as any)) base.afterTwip = afterTwip;
+
+  // Check for default alignment (w:jc)
+  const jc = findFirst(pPrChildren, "w:jc");
+  const jcVal = attrVal(jc, "@_w:val");
+  if (jcVal === "both") {
+    base.align = "justify";
+  } else if (jcVal === "center" || jcVal === "right" || jcVal === "left") {
+    base.align = jcVal;
+  }
 
   if (lineVal && lineRule === "auto") {
     const line = parseInt(lineVal, 10);
     // In auto mode, line is in 1/240ths of a line (TWIPS_PER_LINE_UNIT = single space)
     const multiplier = line / TWIPS_PER_LINE_UNIT;
     // Check for common multipliers
-    if (Math.abs(multiplier - 1.0) < 0.05) return { lineMultiplier: 1.0 };
-    if (Math.abs(multiplier - 1.15) < 0.05) return { lineMultiplier: 1.15 };
-    if (Math.abs(multiplier - 1.5) < 0.05) return { lineMultiplier: 1.5 };
-    if (Math.abs(multiplier - 2.0) < 0.05) return { lineMultiplier: 2.0 };
+    if (Math.abs(multiplier - 1.0) < 0.05) return { ...base, lineMultiplier: 1.0 };
+    if (Math.abs(multiplier - 1.15) < 0.05) return { ...base, lineMultiplier: 1.15 };
+    if (Math.abs(multiplier - 1.5) < 0.05) return { ...base, lineMultiplier: 1.5 };
+    if (Math.abs(multiplier - 2.0) < 0.05) return { ...base, lineMultiplier: 2.0 };
     // Not a standard multiplier, don't emit
   }
 
-  return undefined;
+  return Object.keys(base).length > 0 ? base : undefined;
 }
 
 /**

@@ -7,7 +7,7 @@ import { parseDocumentRels, parseLayoutFromSectPr, parseHeaderFooterRefs, parseS
 import { parseFootnotes, type FootnoteInfo } from "./parsers/footnotes";
 import { type DecompilerOptions } from "./converters/paragraph";
 import { processChildren } from "./generator";
-import { twipsToInches, formatInches } from "../shared/units";
+import { twipsToInches, formatInches, formatTwipsAsPt } from "../shared/units";
 
 export type { DecompilerOptions };
 
@@ -121,11 +121,18 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
   const output: string[] = [];
 
   // Emit layout directives as @document block
-  const hasNonDefaultMargins = layout.margins && !(
-    Math.abs(twipsToInches(layout.margins.top) - 1) < 0.05 &&
-    Math.abs(twipsToInches(layout.margins.right) - 1) < 0.05 &&
-    Math.abs(twipsToInches(layout.margins.bottom) - 1) < 0.05 &&
-    Math.abs(twipsToInches(layout.margins.left) - 1) < 0.05
+  // Default header/footer distances in docx lib are ~720 twips (0.5in)
+  const DEFAULT_HF_DISTANCE = 720;
+  const hasNonDefaultHfDistances = layout.margins && (
+    (layout.margins.header !== undefined && Math.abs(layout.margins.header - DEFAULT_HF_DISTANCE) > 50) ||
+    (layout.margins.footer !== undefined && Math.abs(layout.margins.footer - DEFAULT_HF_DISTANCE) > 50)
+  );
+  const hasNonDefaultMargins = layout.margins && (
+    Math.abs(twipsToInches(layout.margins.top) - 1) >= 0.05 ||
+    Math.abs(twipsToInches(layout.margins.right) - 1) >= 0.05 ||
+    Math.abs(twipsToInches(layout.margins.bottom) - 1) >= 0.05 ||
+    Math.abs(twipsToInches(layout.margins.left) - 1) >= 0.05 ||
+    hasNonDefaultHfDistances
   );
   
   // Check if we have styles to emit (beyond just body defaults)
@@ -137,7 +144,13 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
     )
   );
   const hasDominantStyles = dominantStyle.font || dominantStyle.sizePt || hasNonBodyStyles;
-  const hasLayoutSettings = hasNonDefaultMargins || layout.landscape || (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0) || hasDominantStyles;
+  const hasLayoutSettings =
+    hasNonDefaultMargins ||
+    layout.landscape ||
+    (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0) ||
+    spacingInfo?.beforeTwip !== undefined ||
+    spacingInfo?.afterTwip !== undefined ||
+    hasDominantStyles;
 
   if (hasLayoutSettings) {
     output.push("@document");
@@ -149,15 +162,33 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
       output.push(`    right: ${formatInches(twipsToInches(right))}in`);
       output.push(`    bottom: ${formatInches(twipsToInches(bottom))}in`);
       output.push(`    left: ${formatInches(twipsToInches(left))}in`);
+      if (layout.margins.header !== undefined && Math.abs(layout.margins.header - DEFAULT_HF_DISTANCE) > 50) {
+        output.push(`    header: ${formatInches(twipsToInches(layout.margins.header))}in`);
+      }
+      if (layout.margins.footer !== undefined && Math.abs(layout.margins.footer - DEFAULT_HF_DISTANCE) > 50) {
+        output.push(`    footer: ${formatInches(twipsToInches(layout.margins.footer))}in`);
+      }
     }
     
     if (layout.landscape) {
       output.push("  orientation: landscape");
     }
     
-    if (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0) {
+    if (
+      (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0) ||
+      spacingInfo?.beforeTwip !== undefined ||
+      spacingInfo?.afterTwip !== undefined
+    ) {
       output.push(`  spacing:`);
-      output.push(`    line: ${spacingInfo.lineMultiplier}`);
+      if (spacingInfo?.lineMultiplier && spacingInfo.lineMultiplier !== 1.0) {
+        output.push(`    line: ${spacingInfo.lineMultiplier}`);
+      }
+      if (spacingInfo?.beforeTwip !== undefined) {
+        output.push(`    before: ${formatTwipsAsPt(spacingInfo.beforeTwip)}`);
+      }
+      if (spacingInfo?.afterTwip !== undefined) {
+        output.push(`    after: ${formatTwipsAsPt(spacingInfo.afterTwip)}`);
+      }
     }
     
     // Emit all used styles
@@ -172,6 +203,10 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
       }
       if (dominantStyle.sizePt) {
         bodyLines.push(`      size: ${dominantStyle.sizePt}pt`);
+      }
+      // Add default alignment if justify (most common non-default)
+      if (spacingInfo?.align === "justify") {
+        bodyLines.push(`      align: justify`);
       }
       if (bodyLines.length > 0) {
         styleLines.push("    body:", ...bodyLines);
@@ -199,22 +234,42 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
   }
 
   // Emit header if present
-  if (hfRefs.defaultHeader) {
-    const headerLines = await parseHeaderFooterContent(zip, hfRefs.defaultHeader, rels, numInfo, paragraphStyles, options, rels);
-    const nonEmptyLines = headerLines.filter((l) => l.trim());
-    if (nonEmptyLines.length > 0) {
-      output.push("@header\n" + nonEmptyLines.map((l) => `  ${l}`).join("\n"));
+  const emitHeaderFooterBlock = async (
+    prefix: "" | "@firstpage " | "@evenpage ",
+    kind: "header" | "footer",
+    rId: string,
+  ): Promise<void> => {
+    const lines = await parseHeaderFooterContent(zip, rId, rels, numInfo, paragraphStyles, options, rels);
+    
+    // Filter out whitespace-only content (@tab, @nbsp, @br are not meaningful content)
+    const whitespaceTokens = /^@(tab|nbsp|br)$/;
+    const hasContent = (l: string): boolean => {
+      const trimmed = l.trim();
+      if (!trimmed) return false;
+      // Check if line is just a whitespace token, possibly nested in @style
+      const withoutStyle = trimmed.replace(/@style\([^)]*\)\s*/g, "").trim();
+      return withoutStyle !== "" && !whitespaceTokens.test(withoutStyle);
+    };
+    
+    const meaningfulLines = lines.filter(hasContent);
+    
+    // Skip header/footer blocks with no meaningful content
+    if (meaningfulLines.length === 0) {
+      return;
     }
-  }
 
-  // Emit footer if present
-  if (hfRefs.defaultFooter) {
-    const footerLines = await parseHeaderFooterContent(zip, hfRefs.defaultFooter, rels, numInfo, paragraphStyles, options, rels);
-    const nonEmptyLines = footerLines.filter((l) => l.trim());
-    if (nonEmptyLines.length > 0) {
-      output.push("@footer\n" + nonEmptyLines.map((l) => `  ${l}`).join("\n"));
-    }
-  }
+    const header = `${prefix}@${kind}`.trim();
+    const nonEmptyLines = lines.filter((l) => l.trim());
+    output.push(header + "\n" + nonEmptyLines.map((l) => `  ${l}`).join("\n") + "\n@end");
+  };
+
+  if (hfRefs.defaultHeader) await emitHeaderFooterBlock("", "header", hfRefs.defaultHeader);
+  if (hfRefs.firstHeader) await emitHeaderFooterBlock("@firstpage ", "header", hfRefs.firstHeader);
+  if (hfRefs.evenHeader) await emitHeaderFooterBlock("@evenpage ", "header", hfRefs.evenHeader);
+
+  if (hfRefs.defaultFooter) await emitHeaderFooterBlock("", "footer", hfRefs.defaultFooter);
+  if (hfRefs.firstFooter) await emitHeaderFooterBlock("@firstpage ", "footer", hfRefs.firstFooter);
+  if (hfRefs.evenFooter) await emitHeaderFooterBlock("@evenpage ", "footer", hfRefs.evenFooter);
 
   // Partition body children into sections based on sectPr in paragraph pPr
   type Section = {
@@ -300,7 +355,11 @@ export async function docxToLdoc(input: ArrayBuffer | Uint8Array | Buffer, optio
   }
 
   // Combine output
-  const finalOutput = [...output, ...blocks];
+  // If body begins with blank lines, add one extra to preserve leading empty paragraphs.
+  // In LDOC semantics, 3+ newlines are needed to encode empty paragraphs; the boundary
+  // between @document preamble and body otherwise under-counts by one.
+  const bodyBlocks = blocks.length > 0 && blocks[0] === "" ? ["", ...blocks] : blocks;
+  const finalOutput = [...output, ...bodyBlocks];
 
   // Emit footnote definitions at the end
   if (footnotes.size > 0) {

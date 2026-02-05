@@ -109,27 +109,40 @@ export function collectFontStatistics(bodyChildren: XmlNode[]): FontFrequency[] 
 
 /**
  * Compute dominant style from statistics and document defaults.
- * Prefers document defaults if available, otherwise uses frequency mode.
+ * Uses the most frequent font/size combo if it dominates the document,
+ * otherwise falls back to document defaults.
  */
 export function computeDominantStyle(
   stats: FontFrequency[],
   docDefaults: FontSizeStats
 ): FontSizeStats {
-  // If we have document defaults, use them as the base
   const result: FontSizeStats = {
     font: docDefaults.font,
     sizePt: docDefaults.sizePt,
   };
   
-  // If we're missing either, try to fill from frequency stats
-  if (stats.length > 0) {
-    const top = stats[0]!;
-    if (!result.font && top.font) {
-      result.font = top.font;
-    }
-    if (!result.sizePt && top.sizePt) {
-      result.sizePt = top.sizePt;
-    }
+  if (stats.length === 0) return result;
+  
+  // Find total char count
+  const totalChars = stats.reduce((sum, s) => sum + s.charCount, 0);
+  if (totalChars === 0) return result;
+  
+  const top = stats[0]!;
+  
+  // If top combo covers majority (>50%) of content, prefer it over docDefaults
+  const topPct = top.charCount / totalChars;
+  if (topPct > 0.5) {
+    if (top.font) result.font = top.font;
+    if (top.sizePt) result.sizePt = top.sizePt;
+    return result;
+  }
+  
+  // Otherwise fill in missing values from frequency stats
+  if (!result.font && top.font) {
+    result.font = top.font;
+  }
+  if (!result.sizePt && top.sizePt) {
+    result.sizePt = top.sizePt;
   }
   
   return result;

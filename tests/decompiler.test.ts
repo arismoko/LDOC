@@ -78,6 +78,22 @@ describe("Decompiler", () => {
     expect(result.source).toContain("@anchor(TestAnchor)");
   });
 
+  test("hoists uniform inline style to block @style", async () => {
+    const ldoc = `@style(size: 10pt)
+  First paragraph.
+
+  Second paragraph.
+`;
+    const docx = await compile(await parse(ldoc));
+    const result = await decompile(docx);
+    // Implementation may choose to promote the uniform style into @document defaults,
+    // but it should not emit repetitive inline @style(...)[...] wrappers.
+    expect(result.source).toContain("10pt");
+    expect(result.source).toContain("First paragraph.");
+    expect(result.source).toContain("Second paragraph.");
+    expect(result.source).not.toContain("@style(size: 10pt)[");
+  });
+
   test("ignores hidden bookmarks starting with underscore", async () => {
     // Create a DOCX with a hidden bookmark (_GoBack style)
     const ldoc = "Some text.";

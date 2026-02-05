@@ -32,7 +32,17 @@ export function normalizeWs(s: string, preserveTabs = false, trimEnd = true): st
   result = result.replace(/  \n/g, "\x00HARDBREAK\x00");
   result = result.replace(/ +/g, " ");
   result = result.replace(/\x00HARDBREAK\x00/g, "  \n");
-  return trimEnd ? result.trimEnd() : result;
+
+  if (!trimEnd) return result;
+
+  // Preserve terminal hard-break markers ("  \n") when trimming.
+  // These represent explicit DOCX w:br/w:cr and must survive round-trip.
+  const m = result.match(/(?:  \n)+$/);
+  if (!m) return result.trimEnd();
+
+  const suffix = m[0];
+  const core = result.slice(0, -suffix.length).trimEnd();
+  return core + suffix;
 }
 
 export function wrapEmphasis(text: string, style: EmphasisStyle): string {
@@ -181,7 +191,7 @@ type InlineStyleAttrs = {
   size?: string;  // e.g. "14pt"
   color?: string; // e.g. "FF0000"
   spacing?: string; // e.g. "20twip" or "1pt"
-  background?: string; // e.g. "yellow" or "#FF0000"
+  background?: string; // e.g. "#FF0000" (shading)
 };
 
 /**
@@ -216,10 +226,8 @@ function getInlineStyleAttrs(
       : `${style.characterSpacing}twip`;
   }
 
-  // Prefer highlight for background (shading is secondary)
-  if (style.highlight) {
-    attrs.background = style.highlight;
-  } else if (style.shadingFill) {
+  // Only treat custom shading as background; highlight is emitted as == / @highlight()
+  if (style.shadingFill) {
     attrs.background = `#${style.shadingFill}`;
   }
   
@@ -303,11 +311,17 @@ export function coalesceInlineStyles(
           return parts
             .map((part, i) => {
               const suffix = i < parts.length - 1 ? "\n" : "";
+              // Preserve markdown hard-break marker (two spaces at end-of-line)
+              // by moving it OUTSIDE the @style(...)[...] wrapper.
+              const hasHardBreak = part.endsWith("  ");
+              const core = hasHardBreak ? part.slice(0, -2) : part;
+              const hardBreakSuffix = hasHardBreak ? "  " : "";
               // Only wrap non-whitespace parts
-              if (part.trim()) {
-                return `@style(${attrStr})[${part}]${suffix}`;
+              if (core.trim()) {
+                return `@style(${attrStr})[${core}]${hardBreakSuffix}${suffix}`;
               }
-              return part + suffix;
+              // Whitespace-only line: don't wrap; still preserve hard break if present.
+              return core + hardBreakSuffix + suffix;
             })
             .join("");
         }

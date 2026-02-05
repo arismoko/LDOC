@@ -14,6 +14,10 @@ function argValueToString(val: any): string {
     case "length": return val.raw;
     case "identifier": return val.name;
     case "expression": return val.raw;
+    case "list":
+      // Format list as "[item1, item2, ...]"
+      const items = (val.items ?? []).map((item: any) => argValueToString(item));
+      return `[${items.join(", ")}]`;
     default: return "";
   }
 }
@@ -36,6 +40,7 @@ export function parseTable(ctx: ParserContext): TableNode {
   let lastToken = token;
 
   const tableArgs = parseDirectiveArgs(ctx.stream);
+  const tableHeaderFlag = tableArgs.flags?.has("header") ?? false;
   let columnWidths: number[] | undefined;
 
   const v2Widths = tableArgs.named.get("widths");
@@ -101,7 +106,9 @@ export function parseTable(ctx: ParserContext): TableNode {
               }
               // Block content
               else if (ctx.stream.check(TokenType.NEWLINE)) {
-                ctx.stream.skipNewlines();
+                const s = ctx.stream.peek();
+                const nn = ctx.stream.consumeNewlines();
+                pushBlankLines(content, s.line, s.column, nn);
                 if (ctx.stream.check(TokenType.INDENT)) {
                   ctx.stream.advance();
                   while (!ctx.stream.isAtEnd() && !ctx.stream.check(TokenType.DEDENT)) {
@@ -155,7 +162,7 @@ export function parseTable(ctx: ParserContext): TableNode {
           endLine: rowToken.endLine,
           endColumn: rowToken.endColumn,
           cells,
-          isHeader: rowArgs.flags?.has("header") ? true : isFirst,
+          isHeader: (rowArgs.flags?.has("header") ?? false) || (tableHeaderFlag && isFirst),
           attributes: Object.keys(rowAttributes).length > 0 ? rowAttributes : undefined,
         });
         isFirst = false;
@@ -184,6 +191,10 @@ export function parseTable(ctx: ParserContext): TableNode {
 
     resolveRowspans(rows);
 
+    // Build table attributes (excluding widths which is handled specially)
+    const tableAttributes = argsToAttributes(tableArgs);
+    delete tableAttributes.widths; // widths is handled via columnWidths
+
     return {
       type: "table",
       line: token.line,
@@ -193,10 +204,15 @@ export function parseTable(ctx: ParserContext): TableNode {
       rows,
       hasEnd,
       columnWidths,
+      attributes: Object.keys(tableAttributes).length > 0 ? tableAttributes : undefined,
     };
   }
 
   resolveRowspans(rows);
+
+  // Build table attributes (excluding widths which is handled specially)
+  const tableAttributes = argsToAttributes(tableArgs);
+  delete tableAttributes.widths; // widths is handled via columnWidths
 
   return {
     type: "table",
@@ -207,6 +223,7 @@ export function parseTable(ctx: ParserContext): TableNode {
     rows,
     hasEnd: false,
     columnWidths,
+    attributes: Object.keys(tableAttributes).length > 0 ? tableAttributes : undefined,
   };
 }
 

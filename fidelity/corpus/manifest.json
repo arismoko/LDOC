@@ -1,0 +1,78 @@
+{
+  "$schema": "./manifest.schema.json",
+  "version": 1,
+  "documents": [
+    {
+      "id": "cot_POWELL",
+      "file": "cot_POWELL.docx",
+      "description": "Certificate of Trust - single page legal certificate",
+      "tags": ["certificate", "single-page", "tables"]
+    },
+    {
+      "id": "will_MICHAEL",
+      "file": "will_MICHAEL POWELL.docx",
+      "description": "Last Will and Testament",
+      "tags": ["will", "multi-page", "lists", "headers"]
+    },
+    {
+      "id": "will_LEANN",
+      "file": "will - LEANN POWELL.docx",
+      "description": "Last Will and Testament",
+      "tags": ["will", "multi-page", "lists", "headers"]
+    },
+    {
+      "id": "poa_MICHAEL",
+      "file": "poa - Michael Powell.docx",
+      "description": "Power of Attorney",
+      "tags": ["poa", "legal-form"]
+    },
+    {
+      "id": "poa_LEANN",
+      "file": "poa - Leann Powell.docx",
+      "description": "Power of Attorney",
+      "tags": ["poa", "legal-form"]
+    },
+    {
+      "id": "hcd_MICHAEL",
+      "file": "hcd_Michael Powell.docx",
+      "description": "Health Care Directive",
+      "tags": ["hcd", "medical", "legal-form"]
+    },
+    {
+      "id": "hcd_LEANN",
+      "file": "hcd - Leann Powell.docx",
+      "description": "Health Care Directive",
+      "tags": ["hcd", "medical", "legal-form"]
+    },
+    {
+      "id": "dpp_MICHAEL",
+      "file": "dpp_MICHAEL.docx",
+      "description": "Disposition of Personal Property",
+      "tags": ["dpp", "property"]
+    },
+    {
+      "id": "dpp_LEANN",
+      "file": "dpp - LEANN.docx",
+      "description": "Disposition of Personal Property",
+      "tags": ["dpp", "property"]
+    },
+    {
+      "id": "rt_POWELL",
+      "file": "rt_POWELL.docx",
+      "description": "Revocable Trust document",
+      "tags": ["trust", "multi-page", "complex"]
+    },
+    {
+      "id": "toc_POWELL",
+      "file": "toc_POWELL.docx",
+      "description": "Table of Contents / index document",
+      "tags": ["toc", "index"]
+    },
+    {
+      "id": "cover_letter",
+      "file": "Cover Letter Draft POWELL.docx",
+      "description": "Cover letter",
+      "tags": ["letter", "simple"]
+    }
+  ]
+}

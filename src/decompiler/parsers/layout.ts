@@ -8,7 +8,7 @@ export type SectionProps = {
 };
 
 export type LayoutInfo = {
-  margins?: { top: number; right: number; bottom: number; left: number };
+  margins?: { top: number; right: number; bottom: number; left: number; header?: number; footer?: number };
   landscape?: boolean;
   spacing?: { lineMultiplier?: number };
 };
@@ -18,6 +18,8 @@ export type HeaderFooterRefs = {
   defaultFooter?: string;
   firstHeader?: string;
   firstFooter?: string;
+  evenHeader?: string;
+  evenFooter?: string;
 };
 
 export function parseSectionProps(sectPrNode: XmlNode): SectionProps {
@@ -59,6 +61,8 @@ export function parseLayoutFromSectPr(sectPrNode: XmlNode): LayoutInfo {
       const right = attrVal(child, "@_w:right");
       const bottom = attrVal(child, "@_w:bottom");
       const left = attrVal(child, "@_w:left");
+      const header = attrVal(child, "@_w:header");
+      const footer = attrVal(child, "@_w:footer");
       if (top && right && bottom && left) {
         layout.margins = {
           top: parseInt(top, 10),
@@ -66,6 +70,12 @@ export function parseLayoutFromSectPr(sectPrNode: XmlNode): LayoutInfo {
           bottom: parseInt(bottom, 10),
           left: parseInt(left, 10),
         };
+        if (header) {
+          layout.margins.header = parseInt(header, 10);
+        }
+        if (footer) {
+          layout.margins.footer = parseInt(footer, 10);
+        }
       }
     }
     if (key === "w:pgSz") {
@@ -92,6 +102,8 @@ export function parseHeaderFooterRefs(sectPrNode: XmlNode): HeaderFooterRefs {
         refs.defaultHeader = rId;
       } else if (type === "first" && rId) {
         refs.firstHeader = rId;
+      } else if (type === "even" && rId) {
+        refs.evenHeader = rId;
       }
     }
     if (key === "w:footerReference") {
@@ -101,6 +113,8 @@ export function parseHeaderFooterRefs(sectPrNode: XmlNode): HeaderFooterRefs {
         refs.defaultFooter = rId;
       } else if (type === "first" && rId) {
         refs.firstFooter = rId;
+      } else if (type === "even" && rId) {
+        refs.evenFooter = rId;
       }
     }
   }
