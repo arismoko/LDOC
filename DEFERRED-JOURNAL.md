@@ -119,4 +119,55 @@ Track architectural decisions and open questions.
 - Link parsing (need [text](url) handling)
 - Inline code with content
 
+---
+
+## Oracle Review: Phase 1 (2026-02-05)
+
+**Overall Verdict:** Solid work. Architecture is correct. Issues are refinements, not fundamental problems.
+
+### Scores
+
+| Criterion      | Score | Notes                                        |
+| -------------- | ----- | -------------------------------------------- |
+| Architecture   | 9/10  | Multi-phase is correct, CST/IR split is good |
+| Type Design    | 7/10  | Good bones, some redundancies                |
+| Implementation | 6/10  | Works but has gaps                           |
+| Error Handling | 5/10  | Structure good, recovery missing             |
+| Completeness   | 6/10  | Tables, links incomplete                     |
+
+### Validation
+
+> "This follows the classic multi-pass compiler architecture used by TypeScript, Roslyn, and Rust. You're on par structurally."
+
+### Priority Fixes Identified
+
+| Issue                                  | Severity | Phase to Fix | Status  |
+| -------------------------------------- | -------- | ------------ | ------- |
+| Dead `*_END` token types               | Low      | Phase 1.5    | Pending |
+| Image token pipe-encoding              | Medium   | Phase 1.5    | Pending |
+| `Bold`/`Italic` vs `Styled` redundancy | Medium   | Phase 4      | Pending |
+| `loc` optional on IR nodes             | Medium   | Phase 3      | Pending |
+| No table parsing                       | High     | Phase 1.5    | Pending |
+| No link parsing                        | High     | Phase 1.5    | Pending |
+| Mixed tabs/spaces handling             | Low      | Phase 1.5    | Pending |
+| Tab = 2 spaces hardcoded               | Low      | Phase 1.5    | Pending |
+
+### Red Flags to Address
+
+1. **Emphasis tokens** - `BOLD_START`/`BOLD_END` confusion. Rename to `BOLD_MARKER` or remove `*_END`.
+2. **Image token** - Uses `alt|src` pipe encoding. Fragile if alt contains `|`.
+3. **Links incomplete** - `LINK_START` emitted but never handled in parser.
+4. **No error recovery** - One parse error cascades into many.
+
+### Recommendations for Future Phases
+
+1. **Unified node factories** - Centralize location calculation
+2. **Trivia handling** - Preserve comments/whitespace for formatter
+3. **Pratt parser** - For complex expressions if needed
+4. **Scope chain** - If nested `@define` is supported
+
+### Oracle's Conclusion
+
+> "The issues I've flagged are refinements, not fundamental problems. Your architecture will scale. **Ship Phase 2.**"
+
 
