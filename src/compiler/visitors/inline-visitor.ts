@@ -5,8 +5,15 @@ import fs from "node:fs";
 import type { CompilationContext } from "../context";
 import { resolveVariable, createTextRuns } from "../text";
 import type { TextStyle } from "../styles";
-import { ptToHalfPoints, PT_VALUE_REGEX } from "../../shared/units";
+import { ptToHalfPoints, PT_VALUE_REGEX, parseLengthToTwip } from "../../shared/units";
 import { isHighlightColor, DEFAULT_HIGHLIGHT_COLOR } from "../../shared/highlight";
+
+function parseHexColor(raw: string): string | null {
+  const s = raw.trim();
+  const m = s.match(/^#?([0-9A-Fa-f]{6})$/);
+  if (!m) return null;
+  return (m[1] ?? "").toUpperCase();
+}
 
 export class InlineNodeVisitor implements NodeVisitor<any[]> {
   constructor(

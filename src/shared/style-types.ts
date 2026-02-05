@@ -33,4 +33,10 @@ export interface CoreTextStyle {
   smallCaps?: boolean;
   doubleStrike?: boolean;
   highlight?: HighlightColor;
+
+  /** Run character spacing in twips (1/20 pt), maps to w:spacing. */
+  characterSpacing?: number;
+
+  /** Run shading fill color as 6-hex without '#', maps to w:shd/@_w:fill. */
+  shadingFill?: string;
 }

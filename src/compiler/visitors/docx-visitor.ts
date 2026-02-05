@@ -45,7 +45,15 @@ import { getNumberingReference, getListTextIndentTwip } from "../numbering";
 import { compileTable, compileBox, type TableCompilerContext } from "../table";
 import { inlineText } from "../text";
 import { compileInlineNodes } from "./inline-visitor";
-import { ptToHalfPoints, PT_VALUE_REGEX } from "../../shared/units";
+import { ptToHalfPoints, PT_VALUE_REGEX, parseLengthToTwip as parseLengthToTwipShared } from "../../shared/units";
+import { isHighlightColor } from "../../shared/highlight";
+
+function parseHexColor(raw: string): string | null {
+  const s = raw.trim();
+  const m = s.match(/^#?([0-9A-Fa-f]{6})$/);
+  if (!m) return null;
+  return (m[1] ?? "").toUpperCase();
+}
 
 export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
   constructor(
@@ -328,9 +336,11 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
     let nextParagraphOptions = this.paragraphOptions;
 
     if (node.modifier === "style" && node.attributes) {
+      const attrs = node.attributes;
+
       // Apply alignment
-      if (node.attributes.align) {
-        const alignVal = String(node.attributes.align).toLowerCase();
+      if (attrs.align) {
+        const alignVal = String(attrs.align).toLowerCase();
         if (alignVal === "center") nextAlignment = AlignmentType.CENTER;
         else if (alignVal === "right") nextAlignment = AlignmentType.RIGHT;
         else if (alignVal === "justify") nextAlignment = AlignmentType.JUSTIFIED;
@@ -338,13 +348,13 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       }
 
       // Apply font
-      if (node.attributes.font) {
-        nextStyle.font = node.attributes.font;
+      if (attrs.font) {
+        nextStyle.font = attrs.font;
       }
       
       // Apply size (parse pt value to half-points for docx)
-      if (node.attributes.size) {
-        const sizeMatch = node.attributes.size.match(PT_VALUE_REGEX);
+      if (attrs.size) {
+        const sizeMatch = attrs.size.match(PT_VALUE_REGEX);
         if (sizeMatch) {
           const pt = parseFloat(sizeMatch[1]!);
           nextStyle.size = ptToHalfPoints(pt); // docx uses half-points
@@ -352,49 +362,70 @@ export class DocxNodeVisitor implements NodeVisitor<(Paragraph | Table)[]> {
       }
       
       // Apply color (hex without #)
-      if (node.attributes.color) {
-        const colorMatch = node.attributes.color.match(/^#?([0-9A-Fa-f]{6})$/);
+      if (attrs.color) {
+        const colorMatch = attrs.color.match(/^#?([0-9A-Fa-f]{6})$/);
         if (colorMatch) {
           nextStyle.color = colorMatch[1]!.toUpperCase();
         }
       }
 
       // Apply text formatting flags
-      if (node.attributes.bold !== undefined) {
-        nextStyle.bold = node.attributes.bold === "true" || node.attributes.bold === "";
+      if (attrs.bold !== undefined) {
+        nextStyle.bold = attrs.bold === "true" || attrs.bold === "";
       }
-      if (node.attributes.italic !== undefined) {
-        nextStyle.italics = node.attributes.italic === "true" || node.attributes.italic === "";
+      if (attrs.italic !== undefined) {
+        nextStyle.italics = attrs.italic === "true" || attrs.italic === "";
       }
-      if (node.attributes.underline !== undefined) {
-        nextStyle.underline = node.attributes.underline === "true" || node.attributes.underline === "";
+      if (attrs.underline !== undefined) {
+        nextStyle.underline = attrs.underline === "true" || attrs.underline === "";
       }
-      if (node.attributes.strike !== undefined) {
-        nextStyle.strike = node.attributes.strike === "true" || node.attributes.strike === "";
+      if (attrs.strike !== undefined) {
+        nextStyle.strike = attrs.strike === "true" || attrs.strike === "";
       }
-      if (node.attributes.caps !== undefined) {
-        nextStyle.allCaps = node.attributes.caps === "true" || node.attributes.caps === "";
+      if (attrs.caps !== undefined) {
+        nextStyle.allCaps = attrs.caps === "true" || attrs.caps === "";
       }
-      if (node.attributes["small-caps"] !== undefined) {
-        nextStyle.smallCaps = node.attributes["small-caps"] === "true" || node.attributes["small-caps"] === "";
+      if (attrs["small-caps"] !== undefined) {
+        nextStyle.smallCaps = attrs["small-caps"] === "true" || attrs["small-caps"] === "";
       }
-      if (node.attributes.subscript !== undefined) {
-        nextStyle.subscript = node.attributes.subscript === "true" || node.attributes.subscript === "";
+      if (attrs.subscript !== undefined) {
+        nextStyle.subscript = attrs.subscript === "true" || attrs.subscript === "";
       }
-      if (node.attributes.superscript !== undefined) {
-        nextStyle.superscript = node.attributes.superscript === "true" || node.attributes.superscript === "";
+      if (attrs.superscript !== undefined) {
+        nextStyle.superscript = attrs.superscript === "true" || attrs.superscript === "";
+      }
+
+      // Background/highlight
+      if (attrs.background) {
+        const bg = attrs.background.trim();
+        if (isHighlightColor(bg)) {
+          nextStyle.highlight = bg;
+          nextStyle.shadingFill = undefined;
+        } else {
+          const hex = parseHexColor(bg);
+          if (!hex) {
+            throw new Error(`@style background must be a highlight color name or #RRGGBB (line ${node.line})`);
+          }
+          nextStyle.shadingFill = hex;
+          nextStyle.highlight = undefined;
+        }
+      }
+
+      // Character spacing / tracking
+      if (attrs.spacing) {
+        nextStyle.characterSpacing = parseLengthToTwipShared(attrs.spacing, { line: node.line });
       }
 
       // Apply spacing
-      if (node.attributes["spacing-after"] || node.attributes["spacing-before"]) {
+      if (attrs["spacing-after"] || attrs["spacing-before"]) {
         const spacing: any = { ...nextParagraphOptions?.spacing };
 
-        if (node.attributes["spacing-after"]) {
-          const val = parseInt(node.attributes["spacing-after"], 10);
+        if (attrs["spacing-after"]) {
+          const val = parseInt(attrs["spacing-after"], 10);
           if (!isNaN(val)) spacing.after = val;
         }
-        if (node.attributes["spacing-before"]) {
-          const val = parseInt(node.attributes["spacing-before"], 10);
+        if (attrs["spacing-before"]) {
+          const val = parseInt(attrs["spacing-before"], 10);
           if (!isNaN(val)) spacing.before = val;
         }
 

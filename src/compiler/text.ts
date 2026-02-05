@@ -1,7 +1,7 @@
 // Text compilation helpers for Legal Document DSL
 // Extracted from docx.ts for modularity
 
-import { TextRun, Tab } from "docx";
+import { TextRun, Tab, ShadingType } from "docx";
 import type { IRunOptions } from "docx";
 
 import type {
@@ -111,6 +111,8 @@ export function createSingleTextRun(text: string, style: TextStyle): TextRun {
     ...(style.subscript ? { subScript: true } : {}),
     ...(style.superscript ? { superScript: true } : {}),
     ...(style.highlight ? { highlight: style.highlight } : {}),
+    ...(style.characterSpacing !== undefined ? { characterSpacing: style.characterSpacing } : {}),
+    ...(style.shadingFill ? { shading: { fill: style.shadingFill, type: ShadingType.CLEAR } } : {}),
     ...(style.size ? { size: style.size } : {}),
     ...(style.font ? { font: style.font } : {}),
     ...(style.color ? { color: style.color } : {}),

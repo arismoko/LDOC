@@ -982,7 +982,7 @@ export class Lexer {
       }
 
       const sep = this.peek();
-      if (sep === ":" || sep === "=") {
+      if (sep === ":") {
         this.advance();
         while (this.peek() === " " || this.peek() === "\t") {
           this.advance();
@@ -1023,6 +1023,8 @@ export class Lexer {
         if (value !== "") {
           attributes[key] = value;
         }
+      } else if (sep === "=") {
+        throw new Error(`@style(...) uses ':' for named args (found '=' at line ${this.line}, column ${this.column})`);
       } else {
         // Flag
         attributes[key] = "true";

@@ -180,6 +180,8 @@ type InlineStyleAttrs = {
   font?: string;
   size?: string;  // e.g. "14pt"
   color?: string; // e.g. "FF0000"
+  spacing?: string; // e.g. "20twip" or "1pt"
+  background?: string; // e.g. "yellow" or "#FF0000"
 };
 
 /**
@@ -206,6 +208,20 @@ function getInlineStyleAttrs(
   if (style.color) {
     attrs.color = style.color;
   }
+
+  if (style.characterSpacing !== undefined) {
+    // Prefer pt when divisible by 20
+    attrs.spacing = style.characterSpacing % 20 === 0
+      ? `${style.characterSpacing / 20}pt`
+      : `${style.characterSpacing}twip`;
+  }
+
+  // Prefer highlight for background (shading is secondary)
+  if (style.highlight) {
+    attrs.background = style.highlight;
+  } else if (style.shadingFill) {
+    attrs.background = `#${style.shadingFill}`;
+  }
   
   return Object.keys(attrs).length > 0 ? attrs : null;
 }
@@ -217,11 +233,13 @@ function formatInlineStyleAttrs(attrs: InlineStyleAttrs): string {
   const parts: string[] = [];
   if (attrs.font) {
     // Quote if contains spaces
-    parts.push(attrs.font.includes(" ") ? `font="${attrs.font}"` : `font=${attrs.font}`);
+    parts.push(`font: ${attrs.font.includes(" ") ? JSON.stringify(attrs.font) : attrs.font}`);
   }
-  if (attrs.size) parts.push(`size=${attrs.size}`);
-  if (attrs.color) parts.push(`color=${attrs.color}`);
-  return parts.join(" ");
+  if (attrs.size) parts.push(`size: ${attrs.size}`);
+  if (attrs.color) parts.push(`color: ${attrs.color}`);
+  if (attrs.spacing) parts.push(`spacing: ${attrs.spacing}`);
+  if (attrs.background) parts.push(`background: ${attrs.background}`);
+  return parts.join(", ");
 }
 
 /**
@@ -230,7 +248,13 @@ function formatInlineStyleAttrs(attrs: InlineStyleAttrs): string {
 function sameInlineStyle(a: InlineStyleAttrs | null, b: InlineStyleAttrs | null): boolean {
   if (!a && !b) return true;
   if (!a || !b) return false;
-  return a.font === b.font && a.size === b.size && a.color === b.color;
+  return (
+    a.font === b.font &&
+    a.size === b.size &&
+    a.color === b.color &&
+    a.spacing === b.spacing &&
+    a.background === b.background
+  );
 }
 
 /**
@@ -238,55 +262,62 @@ function sameInlineStyle(a: InlineStyleAttrs | null, b: InlineStyleAttrs | null)
  * Call order: this wraps emphasis coalescing.
  */
 export function coalesceInlineStyles(
-  segments: TextSegment[], 
+  segments: TextSegment[],
   dominant: { font?: string; sizePt?: number }
 ): string {
   if (segments.length === 0) return "";
-  
+
   // Group adjacent segments with same inline style attrs
   // Break groups at newlines to avoid @style()[] spanning lines
   const groups: { attrs: InlineStyleAttrs | null; segments: TextSegment[] }[] = [];
-  
+
   for (const seg of segments) {
     const attrs = getInlineStyleAttrs(seg.style, dominant);
     const lastGroup = groups[groups.length - 1];
-    
+
     // Check if previous segment ended with newline - if so, start new group
     const prevSeg = lastGroup?.segments[lastGroup.segments.length - 1];
     const prevEndsWithNewline = prevSeg?.text.includes("\n");
-    
+
     if (lastGroup && sameInlineStyle(lastGroup.attrs, attrs) && !prevEndsWithNewline) {
       lastGroup.segments.push(seg);
     } else {
       groups.push({ attrs, segments: [seg] });
     }
   }
-  
+
   // Process each group
-  return groups.map(group => {
-    // First coalesce emphasis within the group
-    const emphasisText = coalesceStyledSegments(group.segments);
-    
-    // Then wrap with @style if needed
-    if (group.attrs) {
-      const attrStr = formatInlineStyleAttrs(group.attrs);
-      // If content contains newlines, we can't wrap in inline @style()[]
-      // Split by newline and wrap each non-empty line separately
-      if (emphasisText.includes("\n")) {
-        const parts = emphasisText.split("\n");
-        return parts.map((part, i) => {
-          const suffix = i < parts.length - 1 ? "\n" : "";
-          // Only wrap non-whitespace parts
-          if (part.trim()) {
-            return `@style(${attrStr})[${part}]${suffix}`;
-          }
-          return part + suffix;
-        }).join("");
+  return groups
+    .map((group) => {
+      // First coalesce emphasis within the group
+      const emphasisText = coalesceStyledSegments(group.segments);
+
+      // Then wrap with @style if needed
+      if (group.attrs) {
+        const attrStr = formatInlineStyleAttrs(group.attrs);
+
+        // If content contains newlines, we can't wrap in inline @style()[]
+        // Split by newline and wrap each non-empty line separately
+        if (emphasisText.includes("\n")) {
+          const parts = emphasisText.split("\n");
+          return parts
+            .map((part, i) => {
+              const suffix = i < parts.length - 1 ? "\n" : "";
+              // Only wrap non-whitespace parts
+              if (part.trim()) {
+                return `@style(${attrStr})[${part}]${suffix}`;
+              }
+              return part + suffix;
+            })
+            .join("");
+        }
+
+        return `@style(${attrStr})[${emphasisText}]`;
       }
-      return `@style(${attrStr})[${emphasisText}]`;
-    }
-    return emphasisText;
-  }).join("");
+
+      return emphasisText;
+    })
+    .join("");
 }
 
 function truthyWordBool(val: string | undefined): boolean {
@@ -356,6 +387,16 @@ export function parseRunStyle(runNode: XmlNode): RunStyle {
   const highlightVal = attrVal(highlightNode, "@_w:val");
   const highlight = highlightVal && isHighlightColor(highlightVal) ? highlightVal : undefined;
 
+  // Extract shading fill from w:shd
+  const shdNode = findFirst(rPrChildren, "w:shd");
+  const fillVal = attrVal(shdNode, "@_w:fill");
+  const shadingFill = fillVal && fillVal.toLowerCase() !== "auto" ? fillVal.toUpperCase() : undefined;
+
+  // Extract character spacing from w:spacing (twips)
+  const spacingNode = findFirst(rPrChildren, "w:spacing");
+  const spacingVal = attrVal(spacingNode, "@_w:val");
+  const characterSpacing = spacingVal ? parseInt(spacingVal, 10) : undefined;
+
   return { 
     bold, 
     italic, 
@@ -365,6 +406,8 @@ export function parseRunStyle(runNode: XmlNode): RunStyle {
     sizePt: Number.isFinite(sizePt) ? sizePt : undefined,
     color,
     highlight,
+    shadingFill,
+    characterSpacing: Number.isFinite(characterSpacing) ? characterSpacing : undefined,
   };
 }
 

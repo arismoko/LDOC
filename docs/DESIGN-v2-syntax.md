@@ -324,13 +324,17 @@ Text with @style(bold)[important] words.
 - **size**: `length` - Font size (e.g., `12pt`)
 - **color**: `string` - Text color (name or hex)
 - **background**: `string` - Highlight/background color
-- **spacing**: `length` - Letter spacing
+- **spacing**: `length` - Letter spacing (run character spacing)
 
 **Inline Syntax:**
 ```ldoc
 This has @style(bold)[strong emphasis] in it.
 This has @style(color: red, italic)[warning text] here.
 ```
+
+**Notes:**
+- `background:` accepts either a standard highlight color name (e.g. `yellow`, `lightGray`, `darkYellow`) or a hex color (`#RRGGBB`).
+- `spacing:` is interpreted as DOCX run character spacing in twips (1/20 pt). Examples: `1pt`, `2twip`, `0.5mm`.
 
 #### Convenience Aliases
 

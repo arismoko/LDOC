@@ -1458,6 +1458,35 @@ describe("Table styling", () => {
   });
 });
 
+describe("@style background and spacing", () => {
+  test("@style(background: yellow) compiles to w:highlight", async () => {
+    const parser = new Parser();
+    const ast = parser.parse("@style(background: yellow): Hi\n");
+    const buffer = await new DocxCompiler().compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toMatch(/<w:highlight[^>]*w:val="yellow"/);
+  });
+
+  test("@style(background: #FF0000) compiles to w:shd fill", async () => {
+    const parser = new Parser();
+    const ast = parser.parse("@style(background: \"#FF0000\"): Hi\n");
+    const buffer = await new DocxCompiler().compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toMatch(/<w:shd[^>]*w:fill="FF0000"/);
+  });
+
+  test("@style(spacing: 1pt) compiles to w:spacing val=20", async () => {
+    const parser = new Parser();
+    const ast = parser.parse("@style(spacing: 1pt): Hi\n");
+    const buffer = await new DocxCompiler().compile(ast);
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toMatch(/<w:spacing[^>]*w:val="20"/);
+  });
+});
+
 describe("DOCX -> LDOC (decompile)", () => {
   test("round-trip headings, emphasis, lists, and tables", async () => {
     const input = `# Title
@@ -1975,7 +2004,7 @@ Normal paragraph.
 
 describe("Inline Style", () => {
   test("tokenizes inline style", () => {
-    const lexer = new Lexer('Text @style(color=red)[styled] more');
+    const lexer = new Lexer('Text @style(color: red)[styled] more');
     const tokens = lexer.tokenize();
     const styleToken = tokens.find(t => t.type === TokenType.INLINE_STYLE);
     expect(styleToken).toBeDefined();
@@ -1984,7 +2013,7 @@ describe("Inline Style", () => {
   });
 
   test("tokenizes multiple attributes", () => {
-    const lexer = new Lexer('@style(font=Arial size=14pt color=FF0000)[text]');
+    const lexer = new Lexer('@style(font: Arial, size: 14pt, color: FF0000)[text]');
     const tokens = lexer.tokenize();
     const styleToken = tokens.find(t => t.type === TokenType.INLINE_STYLE);
     expect(styleToken!.attributes).toEqual({ 
@@ -1995,14 +2024,14 @@ describe("Inline Style", () => {
   });
 
   test("tokenizes quoted attribute values", () => {
-    const lexer = new Lexer('@style(font="Times New Roman")[text]');
+    const lexer = new Lexer('@style(font: "Times New Roman")[text]');
     const tokens = lexer.tokenize();
     const styleToken = tokens.find(t => t.type === TokenType.INLINE_STYLE);
     expect(styleToken!.attributes!.font).toBe("Times New Roman");
   });
 
   test("handles balanced brackets in content", () => {
-    const lexer = new Lexer('@style(color=red)[array[0] value]');
+    const lexer = new Lexer('@style(color: red)[array[0] value]');
     const tokens = lexer.tokenize();
     const styleToken = tokens.find(t => t.type === TokenType.INLINE_STYLE);
     expect(styleToken!.rawContent).toBe("array[0] value");
@@ -2010,7 +2039,7 @@ describe("Inline Style", () => {
 
   test("parses inline style to AST", () => {
     const parser = new Parser();
-    const ast = parser.parse('The @style(color=red)[penalty] is due.');
+    const ast = parser.parse('The @style(color: red)[penalty] is due.');
     const para = ast.body[0] as any;
     const inlineStyle = para.content.find((n: any) => n.type === "inline_style");
     expect(inlineStyle).toBeDefined();
@@ -2019,7 +2048,7 @@ describe("Inline Style", () => {
 
   test("parses nested markdown in inline style", () => {
     const parser = new Parser();
-    const ast = parser.parse('@style(color=red)[**bold text**]');
+    const ast = parser.parse('@style(color: red)[**bold text**]');
     const para = ast.body[0] as any;
     const inlineStyle = para.content.find((n: any) => n.type === "inline_style");
     expect(inlineStyle.content[0].type).toBe("emphasis");
@@ -2027,7 +2056,7 @@ describe("Inline Style", () => {
 
   test("compiles inline style with color", async () => {
     const parser = new Parser();
-    const ast = parser.parse('Normal @style(color=FF0000)[red text] normal');
+    const ast = parser.parse('Normal @style(color: FF0000)[red text] normal');
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -2038,7 +2067,7 @@ describe("Inline Style", () => {
 
   test("compiles inline style with font", async () => {
     const parser = new Parser();
-    const ast = parser.parse('@style(font=Arial)[styled]');
+    const ast = parser.parse('@style(font: Arial)[styled]');
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -2048,7 +2077,7 @@ describe("Inline Style", () => {
 
   test("compiles inline style with size", async () => {
     const parser = new Parser();
-    const ast = parser.parse('@style(size=24pt)[big text]');
+    const ast = parser.parse('@style(size: 24pt)[big text]');
     const compiler = new DocxCompiler();
     const buffer = await compiler.compile(ast);
     const zip = await JSZip.loadAsync(buffer);
@@ -2059,12 +2088,12 @@ describe("Inline Style", () => {
   });
 
   test("error on unclosed inline style", () => {
-    const lexer = new Lexer('@style(color=red)[unclosed');
+    const lexer = new Lexer('@style(color: red)[unclosed');
     expect(() => lexer.tokenize()).toThrow();
   });
 
   test("error on multiline content", () => {
-    const lexer = new Lexer('@style(color=red)[line1\nline2]');
+    const lexer = new Lexer('@style(color: red)[line1\nline2]');
     expect(() => lexer.tokenize()).toThrow();
   });
 

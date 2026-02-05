@@ -73,7 +73,7 @@ export function parseLengthToTwip(raw: string | number, options: ParseLengthOpti
   const trimmed = String(raw).trim();
 
   // Try to match with units
-  const withUnits = trimmed.match(/^([0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt)$/i);
+  const withUnits = trimmed.match(/^([0-9]+(?:\.[0-9]+)?)(in|cm|mm|pt|twip)$/i);
   if (withUnits) {
     const value = parseFloat(withUnits[1]!);
     const unit = withUnits[2]!.toLowerCase();
@@ -86,6 +86,8 @@ export function parseLengthToTwip(raw: string | number, options: ParseLengthOpti
         return Math.round(value * TWIPS_PER_MM);
       case "pt":
         return Math.round(value * TWIPS_PER_PT);
+      case "twip":
+        return Math.round(value);
       default:
         throw new Error(`Unsupported unit: ${unit}`);
     }
