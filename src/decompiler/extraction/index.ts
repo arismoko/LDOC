@@ -9,3 +9,4 @@ export * from "./types";
 export { extractRunElements, parseRunStyle, isTextRun } from "./run";
 export { extractParagraph } from "./paragraph";
 export { extractTable } from "./table";
+export { extractBodyElements } from "./body";
