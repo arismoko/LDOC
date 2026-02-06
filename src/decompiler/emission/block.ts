@@ -98,6 +98,7 @@ function emitHeading(para: SemanticParagraph, ctx: EmissionContext): string[] {
 
 /**
  * Emit a list item.
+ * If the list item has a named style (e.g. LegalList), wraps in @style(style: X).
  */
 function emitListItem(para: SemanticParagraph, ctx: EmissionContext): string[] {
   const lines: string[] = [];
@@ -108,14 +109,28 @@ function emitListItem(para: SemanticParagraph, ctx: EmissionContext): string[] {
   const prefix = para.listPrefix ?? "- ";
   const content = emitInlineContent(para.extracted.content, ctx);
 
-  // Handle multi-line list items
-  const contentLines = content.split("\n");
-  lines.push(`${ctx.indent}${prefix}${contentLines[0] ?? ""}`);
+  // Check for named style that needs to be preserved
+  const styleId = para.extracted.styleId;
+  const needsStyleName = styleId && !isStructuralStyle(styleId);
 
-  // Continuation lines get extra indentation
-  const continuationIndent = ctx.indent + " ".repeat(prefix.length);
-  for (let i = 1; i < contentLines.length; i++) {
-    lines.push(`${continuationIndent}${contentLines[i]}`);
+  if (needsStyleName) {
+    // Wrap list item in @style(style: X) block
+    lines.push(`${ctx.indent}@style(style: ${styleId})`);
+    const childCtx = indentContext(ctx);
+    const contentLines = content.split("\n");
+    lines.push(`${childCtx.indent}${prefix}${contentLines[0] ?? ""}`);
+    const continuationIndent = childCtx.indent + " ".repeat(prefix.length);
+    for (let i = 1; i < contentLines.length; i++) {
+      lines.push(`${continuationIndent}${contentLines[i]}`);
+    }
+  } else {
+    // Normal list item
+    const contentLines = content.split("\n");
+    lines.push(`${ctx.indent}${prefix}${contentLines[0] ?? ""}`);
+    const continuationIndent = ctx.indent + " ".repeat(prefix.length);
+    for (let i = 1; i < contentLines.length; i++) {
+      lines.push(`${continuationIndent}${contentLines[i]}`);
+    }
   }
 
   return lines;
