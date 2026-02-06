@@ -31,6 +31,7 @@ import type {
   CSTDefinedTerm,
   CSTBlank,
   CSTFootnoteDef,
+  CSTInlineDirective,
   ParseResult,
   CSTPositionalArg,
   CSTNamedArg,
@@ -1082,23 +1083,51 @@ export class Parser {
   }
 
   private parseInlineDirective(): CSTInline | null {
-    const directive = this.parseDirective();
+    const startToken = this.peek();
+    const startLoc = loc(startToken.line, startToken.column);
     
-    // Convert to inline directive if it's inline-compatible
-    if (directive.name === "br") {
-      return { type: "HardBreak", loc: directive.loc } as CSTHardBreak;
+    // Consume the DIRECTIVE token
+    this.advance();
+    const name = startToken.value;
+    
+    // Parse optional arguments (...)
+    const { args } = this.parseArgumentsWithRecovery();
+    
+    // Handle special directives
+    if (name === "br") {
+      return { type: "HardBreak", loc: startLoc } as CSTHardBreak;
+    }
+    if (name === "tab") {
+      return { type: "Tab", loc: startLoc };
     }
     
-    if (directive.name === "tab") {
-      return { type: "Tab", loc: directive.loc };
+    // Check for bracket content: @name(args)[content]
+    const content: CSTInline[] = [];
+    if (!this.isAtEnd() && this.peek().type === TokenType.TEXT && this.peek().value === "[") {
+      this.advance(); // consume "["
+      // Parse inline content until we hit "]"
+      while (!this.isAtEnd() && !this.isBlockEnd()) {
+        const tok = this.peek();
+        if (tok.type === TokenType.TEXT && tok.value === "]") {
+          this.advance(); // consume "]"
+          break;
+        }
+        const inline = this.parseInline();
+        if (inline) {
+          content.push(inline);
+        }
+      }
     }
-
-    // For now, return as text
+    
+    const endTok = this.previous();
+    
     return {
-      type: "Text",
-      value: `@${directive.name}`,
-      loc: directive.loc,
-    } as CSTText;
+      type: "InlineDirective",
+      name,
+      arguments: args,
+      content,
+      loc: span(startLoc, loc(endTok.line, endTok.column, endTok.endLine, endTok.endColumn)),
+    } as CSTInlineDirective;
   }
 
   // ===========================================================================
