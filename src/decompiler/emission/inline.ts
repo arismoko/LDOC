@@ -141,8 +141,10 @@ function getStyleAttrs(
     attrs.color = style.color;
   }
 
-  // Character spacing
-  if (style.characterSpacing !== undefined) {
+  // Character spacing — only emit if significant (> 1pt = 20 twips).
+  // Values ≤ 1pt are Word's internal kerning/justification noise
+  // that varies on reflow and has no semantic meaning.
+  if (style.characterSpacing !== undefined && Math.abs(style.characterSpacing) > 20) {
     attrs.spacing =
       style.characterSpacing % 20 === 0
         ? `${style.characterSpacing / 20}pt`
@@ -206,7 +208,18 @@ function emitRunText(run: ExtractedRun): string {
 }
 
 /**
+ * Normalize character spacing: values below the significance threshold
+ * (±20 twips = ±1pt) are treated as zero for comparison and merging.
+ */
+function normalizeCharSpacing(v: number | undefined): number | undefined {
+  if (v === undefined) return undefined;
+  return Math.abs(v) > 20 ? v : undefined;
+}
+
+/**
  * Compare two run styles for equality.
+ * Trivial character spacing differences (< 1pt) are ignored so that
+ * runs differing only in kerning noise merge into a single run.
  */
 function sameRunStyle(a: ExtractedRunStyle, b: ExtractedRunStyle): boolean {
   return (
@@ -224,7 +237,7 @@ function sameRunStyle(a: ExtractedRunStyle, b: ExtractedRunStyle): boolean {
     a.sizePt === b.sizePt &&
     a.color === b.color &&
     a.highlight === b.highlight &&
-    a.characterSpacing === b.characterSpacing &&
+    normalizeCharSpacing(a.characterSpacing) === normalizeCharSpacing(b.characterSpacing) &&
     a.shadingFill === b.shadingFill
   );
 }
