@@ -39,6 +39,10 @@ export interface DocumentMetadata {
   custom: Record<string, unknown>;
   /** Page layout settings */
   layout?: PageLayout;
+  /** Document headers */
+  headers?: HeaderFooterConfig;
+  /** Document footers */
+  footers?: HeaderFooterConfig;
 }
 
 export interface PageLayout {

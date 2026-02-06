@@ -46,6 +46,37 @@ describe("Parser", () => {
       expect(directive.body).not.toBeNull();
       expect(directive.body!.length).toBeGreaterThan(0);
     });
+
+    test("parses @document with opaque YAML-like body", () => {
+      const result = parseSource(`@document
+  margins:
+    top: 0.9in
+    right: 1in
+  styles:
+    body:
+      font: Arial
+
+Some content.
+`);
+      const directive = result.cst.children[0] as CSTDirective;
+      expect(directive.type).toBe("Directive");
+      expect(directive.name).toBe("document");
+      // Body should be null (opaque body instead)
+      expect(directive.body).toBeNull();
+      // Opaque body should contain the YAML-like content
+      expect(directive.opaqueBody).toBeDefined();
+      expect(directive.opaqueBody).toContain("margins:");
+      expect(directive.opaqueBody).toContain("top: 0.9in");
+      expect(directive.opaqueBody).toContain("styles:");
+      expect(directive.opaqueBody).toContain("font: Arial");
+      // The content after @document should not be in the opaque body
+      expect(directive.opaqueBody).not.toContain("Some content");
+      
+      // The content after should be a separate paragraph
+      expect(result.cst.children.length).toBe(2);
+      const para = result.cst.children[1];
+      expect(para?.type).toBe("Paragraph");
+    });
   });
 
   describe("headers", () => {
@@ -184,6 +215,28 @@ describe("Parser", () => {
       const list = result.cst.children[0] as CSTList;
       expect(list.type).toBe("List");
       expect(list.items[0]!.marker).toBe("2|a"); // level 2, alpha style
+    });
+
+    test("parses legal numbering @@1.1", () => {
+      const result = parseSource("@@1.1 Sub-section");
+      const list = result.cst.children[0] as CSTList;
+      expect(list.type).toBe("List");
+      expect(list.items[0]!.marker).toBe("2|1.1"); // level 2, decimal_sub style
+    });
+
+    test("parses deep legal numbering @@@2.1.3", () => {
+      const result = parseSource("@@@2.1.3 Deep item");
+      const list = result.cst.children[0] as CSTList;
+      expect(list.type).toBe("List");
+      expect(list.items[0]!.marker).toBe("3|2.1.3"); // level 3, decimal_sub style
+    });
+
+    test("treats '1. text' at line start as plain text, not list", () => {
+      const result = parseSource("1. The name of the trust is:");
+      const para = result.cst.children[0] as CSTParagraph;
+      expect(para.type).toBe("Paragraph");
+      const text = para.content.map(c => c.type === "Text" ? c.value : "").join("");
+      expect(text).toContain("1. The name");
     });
   });
 

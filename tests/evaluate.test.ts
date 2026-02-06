@@ -172,6 +172,74 @@ Hello
     expect(doc.metadata.custom.client).toBe("Acme Corp");
     expect(doc.metadata.custom.matter).toBe("12345");
   });
+
+  test("parses YAML-like body for margins", () => {
+    const doc = fullEvaluate(`
+@document
+  margins:
+    top: 0.9in
+    right: 1in
+    bottom: 1.2in
+    left: 0.8in
+
+Hello
+`);
+    expect(doc.metadata.layout).toBeDefined();
+    expect(doc.metadata.layout?.margins).toBeDefined();
+    expect(doc.metadata.layout?.margins?.top).toBe(1296); // 0.9in = 1296 twips
+    expect(doc.metadata.layout?.margins?.right).toBe(1440); // 1in = 1440 twips
+    expect(doc.metadata.layout?.margins?.bottom).toBe(1728); // 1.2in = 1728 twips
+    expect(doc.metadata.layout?.margins?.left).toBe(1152); // 0.8in = 1152 twips
+  });
+
+  test("parses YAML-like body for orientation", () => {
+    const doc = fullEvaluate(`
+@document
+  orientation: landscape
+
+Hello
+`);
+    expect(doc.metadata.layout?.orientation).toBe("landscape");
+  });
+
+  test("parses nested styles in YAML-like body", () => {
+    const doc = fullEvaluate(`
+@document
+  styles:
+    body:
+      font: Times New Roman
+      size: 12pt
+    h1:
+      bold: true
+
+Hello
+`);
+    // Styles should be in custom metadata
+    const styles = doc.metadata.custom.styles as Record<string, unknown>;
+    expect(styles).toBeDefined();
+    expect((styles.body as Record<string, unknown>).font).toBe("Times New Roman");
+    expect((styles.h1 as Record<string, unknown>).bold).toBe(true);
+  });
+
+  test("YAML-like body does not pollute document blocks", () => {
+    const doc = fullEvaluate(`
+@document
+  margins:
+    top: 1in
+    right: 1in
+  spacing:
+    after: 6pt
+  styles:
+    body:
+      font: Arial
+
+Hello world.
+`);
+    // Should only have 1 block (the "Hello world." paragraph)
+    // NOT the YAML content as paragraphs
+    expect(doc.blocks.length).toBe(1);
+    expect((doc.blocks[0] as Paragraph).content[0]).toHaveProperty("value", "Hello world.");
+  });
 });
 
 // =============================================================================

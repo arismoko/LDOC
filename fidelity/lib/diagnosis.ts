@@ -1,17 +1,17 @@
 /**
  * Stage diagnosis - identify WHERE in the pipeline issues occur
  *
- * Pipeline: Original DOCX -> Decompiler -> LDOC -> Parser -> AST -> Compiler -> Recompiled DOCX
+ * Pipeline: Original DOCX -> Decompiler -> LDOC -> Parser -> CST -> Evaluator -> Document -> Emitter -> Recompiled DOCX
  */
 
 import type { StageDiagnosis } from "./checks/types";
-import type { DocumentNode, Node } from "../../src/parser/ast";
+import type { CSTDocument, CSTNode, CSTInline, CSTListItem, CSTTableRow, CSTTableCell } from "../../src/types/cst";
+import type { Document, Block, Inline, ListItem, TableRow, TableCell } from "../../src/types/document-ir";
 
 export interface ParagraphCounts {
   original: number;
-  /** @deprecated LDOC counting is imprecise - use AST count instead */
-  ldoc: number;
-  ast: number;
+  cst: number;
+  document: number;
   recompiled: number;
 }
 
@@ -168,85 +168,148 @@ export function countLdocParagraphs(ldocSource: string): number {
  * Count paragraph-like nodes in AST.
  * Counts: paragraph, empty_paragraph, header, numbered_item, bullet_item, blockquote (as container)
  */
-export function countAstParagraphs(ast: DocumentNode): number {
+export function countCstParagraphs(cst: CSTDocument): number {
   let count = 0;
 
-  function countNode(node: Node): void {
-    switch (node.type) {
-      case "paragraph":
-      case "header":
-        count++;
-        break;
-      case "empty_paragraph":
-        // empty_paragraph has a count field for consecutive blank lines
-        count += (node as { count: number }).count;
-        break;
-      case "numbered_item":
-      case "bullet_item":
-        count++;
-        // Also count children recursively
-        if ("children" in node && Array.isArray(node.children)) {
-          for (const child of node.children) {
-            countNode(child);
-          }
-        }
-        break;
-      case "blockquote":
-        // Blockquote contains content, count recursively
-        if ("content" in node && Array.isArray(node.content)) {
-          for (const child of node.content) {
-            countNode(child as Node);
-          }
-        }
-        break;
-      case "table":
-        // Tables contain rows with cells that may contain paragraphs
-        if ("rows" in node && Array.isArray(node.rows)) {
-          for (const row of node.rows) {
-            if ("cells" in row && Array.isArray(row.cells)) {
-              for (const cell of row.cells) {
-                if ("content" in cell && Array.isArray(cell.content)) {
-                  for (const child of cell.content) {
-                    countNode(child as Node);
-                  }
-                }
-              }
-            }
-          }
-        }
-        break;
-      case "columns_region":
-      case "modifier":
-      case "footnote_def":
-        // These contain nested content
-        if ("content" in node && Array.isArray(node.content)) {
-          for (const child of node.content) {
-            countNode(child as Node);
-          }
-        }
-        if ("children" in node && Array.isArray(node.children)) {
-          for (const child of node.children) {
-            countNode(child);
-          }
-        }
-        break;
-      case "doc_header":
-      case "doc_footer":
-        // Header/footer contain content
-        if ("content" in node && Array.isArray(node.content)) {
-          for (const child of node.content) {
-            countNode(child as Node);
-          }
-        }
-        break;
+  function countInline(inline: CSTInline): void {
+    if (inline.type === "InlineDirective") {
+      for (const child of inline.content) {
+        countInline(child);
+      }
     }
   }
 
-  // Count body nodes
-  for (const node of ast.body) {
+  function countNode(node: CSTNode | CSTListItem | CSTTableRow | CSTTableCell): void {
+    switch (node.type) {
+      case "Paragraph":
+      case "Header":
+        count++;
+        return;
+      case "ListItem":
+        count++;
+        for (const child of node.content) {
+          countInline(child);
+        }
+        for (const child of node.children) {
+          countNode(child);
+        }
+        return;
+      case "List":
+        for (const item of node.items) {
+          countNode(item);
+        }
+        return;
+      case "Blockquote":
+        for (const child of node.content) {
+          countNode(child);
+        }
+        return;
+      case "Table":
+        for (const row of node.rows) {
+          countNode(row);
+        }
+        return;
+      case "TableRow":
+        for (const cell of node.cells) {
+          countNode(cell);
+        }
+        return;
+      case "TableCell":
+        for (const child of node.content) {
+          countNode(child);
+        }
+        return;
+      case "FootnoteDef":
+        for (const child of node.content) {
+          countNode(child);
+        }
+        return;
+      case "Directive":
+        for (const child of node.body ?? []) {
+          countNode(child);
+        }
+        return;
+      default:
+        return;
+    }
+  }
+
+  for (const node of cst.children) {
     countNode(node);
   }
 
+  return count;
+}
+
+export function countDocumentParagraphs(document: Document): number {
+  let count = 0;
+
+  function countInline(inline: Inline): void {
+    if (inline.type === "Styled" || inline.type === "Bold" || inline.type === "Italic" ||
+        inline.type === "Underline" || inline.type === "Strikethrough" || inline.type === "Highlight") {
+      for (const child of inline.content) {
+        countInline(child);
+      }
+    }
+  }
+
+  function countBlocks(blocks: Block[]): void {
+    for (const block of blocks) {
+      switch (block.type) {
+        case "Paragraph":
+        case "Heading":
+          count++;
+          for (const child of block.content) {
+            countInline(child);
+          }
+          break;
+        case "List":
+          for (const item of block.items) {
+            countListItem(item);
+          }
+          break;
+        case "Blockquote":
+          countBlocks(block.content);
+          break;
+        case "Table":
+          for (const row of block.rows) {
+            countTableRow(row);
+          }
+          break;
+        case "Section":
+          countBlocks(block.content);
+          break;
+        case "Footnote":
+          countBlocks(block.content);
+          break;
+        case "PageBreak":
+        case "ColumnBreak":
+        case "HorizontalRule":
+          count++;
+          break;
+      }
+    }
+  }
+
+  function countListItem(item: ListItem): void {
+    count++;
+    for (const child of item.content) {
+      countInline(child);
+    }
+    countBlocks(item.children);
+  }
+
+  function countTableRow(row: TableRow): void {
+    for (const cell of row.cells) {
+      countTableCell(cell);
+    }
+  }
+
+  function countTableCell(cell: TableCell): void {
+    countBlocks(cell.content);
+  }
+
+  countBlocks(document.blocks);
   return count;
 }
 
@@ -260,44 +323,56 @@ export function countAstParagraphs(ast: DocumentNode): number {
  * since it comes from the parser.
  */
 export function diagnoseStage(counts: ParagraphCounts): StageDiagnosis {
-  const { original, ast, recompiled } = counts;
+  const { original, cst, document, recompiled } = counts;
 
-  // If AST count != original -> decompiler+parser issue
-  // (We can't distinguish decompiler from parser without accurate LDOC counting)
-  if (ast !== original) {
-    const diff = ast - original;
+  if (cst !== original) {
+    const diff = cst - original;
     const direction = diff > 0 ? "added" : "lost";
     return {
       likely_stage: "decompiler",
       confidence: "medium",
-      evidence: `Paragraph count diverges at AST: ${original} -> ${ast} (${Math.abs(diff)} ${direction})`,
+      evidence: `Paragraph count diverges at CST: ${original} -> ${cst} (${Math.abs(diff)} ${direction})`,
       paragraph_counts: counts,
       first_divergence: {
         stage: "decompiler",
-        paragraph_index: Math.min(original, ast),
+        paragraph_index: Math.min(original, cst),
         detail: `Decompiler/Parser ${direction} ${Math.abs(diff)} paragraph(s)`,
       },
     };
   }
 
-  // If recompiled count != AST count -> compiler issue
-  if (recompiled !== ast) {
-    const diff = recompiled - ast;
+  if (document !== cst) {
+    const diff = document - cst;
     const direction = diff > 0 ? "added" : "lost";
     return {
-      likely_stage: "compiler",
-      confidence: "high",
-      evidence: `Paragraph count diverges at recompiled: ${ast} -> ${recompiled} (${Math.abs(diff)} ${direction})`,
+      likely_stage: "evaluator",
+      confidence: "medium",
+      evidence: `Paragraph count diverges at Document IR: ${cst} -> ${document} (${Math.abs(diff)} ${direction})`,
       paragraph_counts: counts,
       first_divergence: {
-        stage: "compiler",
-        paragraph_index: Math.min(ast, recompiled),
-        detail: `Compiler ${direction} ${Math.abs(diff)} paragraph(s)`,
+        stage: "evaluator",
+        paragraph_index: Math.min(cst, document),
+        detail: `Evaluator ${direction} ${Math.abs(diff)} paragraph(s)`,
       },
     };
   }
 
-  // Counts all match but we still have failures
+  if (recompiled !== document) {
+    const diff = recompiled - document;
+    const direction = diff > 0 ? "added" : "lost";
+    return {
+      likely_stage: "emitter",
+      confidence: "high",
+      evidence: `Paragraph count diverges at recompiled: ${document} -> ${recompiled} (${Math.abs(diff)} ${direction})`,
+      paragraph_counts: counts,
+      first_divergence: {
+        stage: "emitter",
+        paragraph_index: Math.min(document, recompiled),
+        detail: `Emitter ${direction} ${Math.abs(diff)} paragraph(s)`,
+      },
+    };
+  }
+
   return {
     likely_stage: "unknown",
     confidence: "low",
@@ -313,8 +388,8 @@ export function diagnoseStage(counts: ParagraphCounts): StageDiagnosis {
  * Note: LDOC count is omitted as it's imprecise without parsing.
  */
 export function formatCountChain(counts: ParagraphCounts): string {
-  const { original, ast, recompiled } = counts;
-  return `${original} → ${ast} → ${recompiled}`;
+  const { original, cst, document, recompiled } = counts;
+  return `${original} → ${cst} → ${document} → ${recompiled}`;
 }
 
 /**
@@ -326,7 +401,9 @@ export function getStageEmoji(stage: StageDiagnosis["likely_stage"]): string {
       return "\u{1F527}"; // wrench
     case "parser":
       return "\u{1F4D6}"; // open book
-    case "compiler":
+    case "evaluator":
+      return "\u{1F9E0}"; // brain
+    case "emitter":
       return "\u{1F3D7}\uFE0F"; // building construction
     case "unknown":
       return "\u{2753}"; // question mark

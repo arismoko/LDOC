@@ -6,10 +6,11 @@
 export interface ParagraphAlignment {
   index: number;
   original: string | null;
-  ldoc: string | null;
-  ast: string | null;
+  cst: string | null;
+  document: string | null;
   recompiled: string | null;
   status: "match" | "content_diff" | "missing_original" | "missing_recompiled" | "added";
+  divergedAt?: "decompiler" | "parser" | "evaluator" | "emitter";
 }
 
 export interface AlignmentReport {
@@ -29,14 +30,14 @@ export interface AlignmentReport {
  */
 export function alignParagraphs(
   originalParas: string[],
-  ldocParas: string[],
-  astParas: string[],
+  cstParas: string[],
+  documentParas: string[],
   recompiledParas: string[]
 ): AlignmentReport {
   const maxLen = Math.max(
     originalParas.length,
-    ldocParas.length,
-    astParas.length,
+    cstParas.length,
+    documentParas.length,
     recompiledParas.length
   );
   
@@ -49,11 +50,12 @@ export function alignParagraphs(
   
   for (let i = 0; i < maxLen; i++) {
     const orig = originalParas[i] ?? null;
-    const ldoc = ldocParas[i] ?? null;
-    const ast = astParas[i] ?? null;
+    const cst = cstParas[i] ?? null;
+    const doc = documentParas[i] ?? null;
     const recomp = recompiledParas[i] ?? null;
     
     let status: ParagraphAlignment["status"];
+    let divergedAt: ParagraphAlignment["divergedAt"];
     
     if (orig === null && recomp !== null) {
       status = "added";
@@ -67,6 +69,15 @@ export function alignParagraphs(
     } else {
       status = "content_diff";
       contentDiff++;
+      
+      // Determine where divergence started
+      if (normalize(orig) !== normalize(cst)) {
+        divergedAt = "decompiler";
+      } else if (normalize(cst) !== normalize(doc)) {
+        divergedAt = "evaluator";
+      } else if (normalize(doc) !== normalize(recomp)) {
+        divergedAt = "emitter";
+      }
     }
     
     if (status !== "match" && firstDivergence === null) {
@@ -76,10 +87,11 @@ export function alignParagraphs(
     alignments.push({
       index: i,
       original: truncate(orig, 60),
-      ldoc: truncate(ldoc, 60),
-      ast: truncate(ast, 60),
+      cst: truncate(cst, 60),
+      document: truncate(doc, 60),
       recompiled: truncate(recomp, 60),
       status,
+      ...(divergedAt && { divergedAt }),
     });
   }
   

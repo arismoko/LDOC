@@ -14,3 +14,4 @@
 export { Evaluator, evaluate, type EvaluateOptions, type EvaluatorContext } from "./evaluator.ts";
 export { evalCondition, truthy, resolveVariable } from "./expressions.ts";
 export { resolveInterpolation, interpolateString } from "./interpolation.ts";
+export { parseDocumentConfig, configToPageLayout, parseLengthToTwips, type DocumentConfig, type StyleConfig } from "./document-config.ts";

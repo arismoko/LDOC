@@ -35,8 +35,8 @@ Generated: ${new Date().toISOString()}
 ## Pipeline Analysis
 
 \`\`\`
-Original DOCX ──→ Decompiler+Parser ──→ AST ──→ Compiler ──→ Recompiled DOCX
-     ${paragraphCounts.original} paras               ${paragraphCounts.ast} nodes    ${paragraphCounts.recompiled} paras
+ Original DOCX ──→ Decompiler+Parser ──→ CST ──→ Evaluator ──→ Document ──→ Emitter ──→ Recompiled DOCX
+     ${paragraphCounts.original} paras               ${paragraphCounts.cst} nodes    ${paragraphCounts.document} blocks    ${paragraphCounts.recompiled} paras
 \`\`\`
 
 ### Paragraph Count Chain
@@ -44,8 +44,9 @@ Original DOCX ──→ Decompiler+Parser ──→ AST ──→ Compiler ─�
 | Stage | Count | Delta | Status |
 |-------|-------|-------|--------|
 | Original DOCX | ${paragraphCounts.original} | - | baseline |
-| AST (parsed) | ${paragraphCounts.ast} | ${formatDelta(paragraphCounts.ast - paragraphCounts.original)} | ${paragraphCounts.ast === paragraphCounts.original ? "✓" : "✗ DIVERGED"} |
-| Recompiled DOCX | ${paragraphCounts.recompiled} | ${formatDelta(paragraphCounts.recompiled - paragraphCounts.ast)} | ${paragraphCounts.recompiled === paragraphCounts.ast ? "✓" : "✗ DIVERGED"} |
+| CST (parsed) | ${paragraphCounts.cst} | ${formatDelta(paragraphCounts.cst - paragraphCounts.original)} | ${paragraphCounts.cst === paragraphCounts.original ? "✓" : "✗ DIVERGED"} |
+| Document IR | ${paragraphCounts.document} | ${formatDelta(paragraphCounts.document - paragraphCounts.cst)} | ${paragraphCounts.document === paragraphCounts.cst ? "✓" : "✗ DIVERGED"} |
+| Recompiled DOCX | ${paragraphCounts.recompiled} | ${formatDelta(paragraphCounts.recompiled - paragraphCounts.document)} | ${paragraphCounts.recompiled === paragraphCounts.document ? "✓" : "✗ DIVERGED"} |
 
 `;
 
@@ -85,11 +86,42 @@ Original DOCX ──→ Decompiler+Parser ──→ AST ──→ Compiler ─�
 
 - \`original.docx\` - Source document
 - \`decompiled.ldoc\` - LDOC output from decompiler
-- \`ast.json\` - Parsed AST as JSON
+- \`recompiled.ldoc\` - LDOC from decompiling the recompiled DOCX
+- \`cst.json\` - Parsed CST as JSON
+- \`document.json\` - Document IR after evaluation
+- \`styled.json\` - StyledDocument after style resolution
 - \`recompiled.docx\` - Final output after full roundtrip
 - \`alignment.json\` - Paragraph-level alignment report
 
 `;
+
+  // Include LDOC diff comparison if both files exist
+  const decompiledLdocPath = join(ctx.artifactsDir, "decompiled.ldoc");
+  const recompiledLdocPath = join(ctx.artifactsDir, "recompiled.ldoc");
+  if (existsSync(decompiledLdocPath) && existsSync(recompiledLdocPath)) {
+    try {
+      const decompiledLdoc = readFileSync(decompiledLdocPath, "utf-8");
+      const recompiledLdoc = readFileSync(recompiledLdocPath, "utf-8");
+      const decompiledLines = decompiledLdoc.split("\n").length;
+      const recompiledLines = recompiledLdoc.split("\n").length;
+      const lineDelta = recompiledLines - decompiledLines;
+      const match = decompiledLdoc === recompiledLdoc;
+
+      report += `## LDOC Diff
+
+| File | Lines | Delta | Match |
+|------|-------|-------|-------|
+| decompiled.ldoc | ${decompiledLines} | - | baseline |
+| recompiled.ldoc | ${recompiledLines} | ${formatDelta(lineDelta)} | ${match ? "✓ IDENTICAL" : "✗ DIFFERS"} |
+
+`;
+      if (!match) {
+        report += `> Run \`diff decompiled.ldoc recompiled.ldoc\` in artifacts dir to see differences.\n\n`;
+      }
+    } catch {
+      // Skip if files can't be read
+    }
+  }
 
   // Include alignment table if available
   const alignmentPath = join(ctx.artifactsDir, "alignment.json");
@@ -113,14 +145,19 @@ Original DOCX ──→ Decompiler+Parser ──→ AST ──→ Compiler ─�
 4. Common issues: whitespace handling, empty paragraph detection, style mapping
 `;
   } else if (diagnosis?.likely_stage === "parser") {
-    report += `1. Compare \`decompiled.ldoc\` line count to \`ast.json\` node count
+    report += `1. Compare \`decompiled.ldoc\` line count to \`cst.json\` node count
 2. Check if parser is merging or splitting content unexpectedly
-3. Look at \`src/parser/\` for parsing rules
+3. Look at \`src/parse/\` for parsing rules
 `;
-  } else if (diagnosis?.likely_stage === "compiler") {
-    report += `1. Compare \`ast.json\` structure to \`recompiled.docx\`
-2. Check if compiler is emitting correct paragraph structure
-3. Look at \`src/compiler/\` for emission logic
+  } else if (diagnosis?.likely_stage === "evaluator") {
+    report += `1. Compare \`cst.json\` to \`document.json\` for expansion changes
+2. Check macro expansion, @if/@foreach handling
+3. Look at \`src/evaluate/\` for expansion logic
+`;
+  } else if (diagnosis?.likely_stage === "emitter") {
+    report += `1. Compare \`document.json\` and \`styled.json\` to \`recompiled.docx\`
+2. Check if emit is preserving block structure
+3. Look at \`src/emit/\` for emission logic
 `;
   } else {
     report += `1. Content differs but structure matches - likely formatting/style issue

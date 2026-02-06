@@ -94,6 +94,16 @@ export interface CSTDirective extends CSTBase {
   name: string;
   arguments: CSTArgument[];
   body: CSTNode[] | null;
+  /**
+   * Raw YAML-like content for configuration directives (@document, @meta).
+   * 
+   * When present, `body` will be null. The opaque body is not parsed by
+   * the main parser - it's passed to specialized parsers in the evaluator.
+   * 
+   * @see Parser.OPAQUE_BODY_DIRECTIVES - Controls which directives use this
+   * @see src/evaluate/document-config.ts - Parser for @document opaque bodies
+   */
+  opaqueBody?: string;
   incomplete?: IncompleteMarker;  // For partial directives (unclosed parens, missing body)
 }
 

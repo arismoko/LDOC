@@ -87,14 +87,50 @@ function formatValue(count: number, fmt: string | undefined, ilvl: number): stri
   }
 }
 
+/**
+ * Get the format marker for directive-style lists.
+ * Maps DOCX numFmt to LDOC format markers: "1" (decimal), "a" (lowerLetter), etc.
+ */
+function getFormatMarker(fmt: string | undefined, ilvl: number): string {
+  const effectiveFmt = fmt ?? getDefaultFormat(ilvl);
+  switch (effectiveFmt) {
+    case "decimal":
+      return "1";
+    case "lowerLetter":
+      return "a";
+    case "upperLetter":
+      return "A";
+    case "lowerRoman":
+      return "i";
+    case "upperRoman":
+      return "I";
+    default:
+      return "1";
+  }
+}
+
 export function listPrefix(numInfo: NumberingInfo, numId: string, ilvl: number): { prefix: string; isList: boolean } {
   const absId = numInfo.numToAbstract.get(numId);
   const levels = absId ? numInfo.abstractLevels.get(absId) : undefined;
   const fmt = levels?.get(ilvl)?.numFmt;
-  const depth = Math.max(0, ilvl) + 1;
-  const at = "@".repeat(depth);
+  const depth = Math.max(0, ilvl) + 1; // ilvl 0 → depth 1, ilvl 1 → depth 2, etc.
   
-  if (fmt === "bullet") return { prefix: `${at}- `, isList: true };
+  // For bullets:
+  // - Top-level (depth 1): use Markdown-style "- "
+  // - Nested (depth > 1): use directive-style "@@- ", "@@@- ", etc.
+  if (fmt === "bullet") {
+    if (depth === 1) {
+      return { prefix: "- ", isList: true };
+    } else {
+      // Directive-style: @@ = level 1, @@@ = level 2, so depth + 1 @-symbols
+      const at = "@".repeat(depth + 1);
+      return { prefix: `${at}- `, isList: true };
+    }
+  }
+  
+  // For ordered lists:
+  // - Top-level (depth 1): use Markdown-style "1. ", "2. ", "a. ", etc.
+  // - Nested (depth > 1): use directive-style "@@1 ", "@@@a ", etc.
   
   // Get or create counter for this numId
   let numCounters = numInfo.counters.get(numId);
@@ -115,6 +151,9 @@ export function listPrefix(numInfo: NumberingInfo, numId: string, ilvl: number):
     }
   }
   
-  const value = formatValue(currentCount, fmt, ilvl);
-  return { prefix: `${at}${value} `, isList: true };
+  // All levels use directive-style: @@1, @@a, @@@1, @@@a, etc.
+  // @@ = level 1 (top-level), @@@ = level 2, etc. (depth + 1 @-symbols)
+  const at = "@".repeat(depth + 1);
+  const formatMarker = getFormatMarker(fmt, ilvl);
+  return { prefix: `${at}${formatMarker} `, isList: true };
 }

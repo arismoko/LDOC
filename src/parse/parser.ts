@@ -100,8 +100,19 @@ function missingFormatter(kind: string): IncompleteMarker {
 }
 
 /**
- * Directives that require a body (indented block).
- * Used for error recovery to detect missing bodies.
+ * Directives that require an indented body block.
+ * 
+ * Used for error recovery: if body is missing, parser adds an
+ * `incomplete` marker to the CST node for LSP completions.
+ * 
+ * ## Difference from OPAQUE_BODY_DIRECTIVES:
+ * 
+ * - `DIRECTIVES_REQUIRING_BODY`: Body is required, parsed as normal CST nodes
+ * - `OPAQUE_BODY_DIRECTIVES`: Body is optional, captured as raw text
+ * 
+ * A directive can be in both sets (though currently none are).
+ * 
+ * @see Parser.OPAQUE_BODY_DIRECTIVES - For YAML-style config bodies
  */
 const DIRECTIVES_REQUIRING_BODY = new Set([
   "if",
@@ -222,7 +233,6 @@ export class Parser {
         return "interpolation";
       case TokenType.HEADER_MARKER:
       case TokenType.BULLET:
-      case TokenType.NUMBERED:
       case TokenType.NUMBERED_ITEM:
       case TokenType.BLOCKQUOTE:
         return "block";
@@ -260,10 +270,7 @@ export class Parser {
         return this.parseHeader();
 
       case TokenType.BULLET:
-        return this.parseList(false);
-
-      case TokenType.NUMBERED:
-        return this.parseList(true);
+        return this.parseBulletList();
 
       case TokenType.NUMBERED_ITEM:
         return this.parseNumberedItemList();
@@ -301,6 +308,34 @@ export class Parser {
   // Directives
   // ===========================================================================
 
+  /**
+   * Directives with YAML-like opaque bodies (configuration, not content).
+   * 
+   * These are parsed specially - the indented body is captured as raw text
+   * in `opaqueBody` rather than parsed as CST nodes. This is because:
+   * 
+   * 1. The body contains key-value configuration, not LDOC content
+   * 2. The syntax uses `key: value` which conflicts with LDOC parsing
+   * 3. The evaluator (not parser) handles interpretation
+   * 
+   * ## When to add a directive here:
+   * 
+   * Add if the directive's body is **configuration data**, not content to render.
+   * 
+   * ✅ Add: `@document` (page settings), `@meta` (variables)
+   * ❌ Don't add: `@define` (body is LDOC to render), `@style` (wraps content)
+   * 
+   * ## Adding a new opaque-body directive:
+   * 
+   * 1. Add the directive name to this set
+   * 2. Create a parser in `src/evaluate/` (like `document-config.ts`)
+   * 3. Handle in evaluator's directive processing
+   * 
+   * @see parseOpaqueBody - The method that captures raw body text
+   * @see src/evaluate/document-config.ts - Example opaque body parser
+   */
+  private static readonly OPAQUE_BODY_DIRECTIVES = new Set(["document", "meta"]);
+
   private parseDirective(): CSTDirective {
     const token = this.advance(); // DIRECTIVE token
     const startLoc = loc(token.line, token.column);
@@ -310,24 +345,30 @@ export class Parser {
     
     // Check for body (indented block)
     let body: CSTNode[] | null = null;
+    let opaqueBody: string | undefined;
     let bodyIncomplete: IncompleteMarker | undefined;
     this.skipNewlines();
     
     if (this.check(TokenType.INDENT)) {
-      this.advance(); // consume INDENT
-      body = [];
-      
-      while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
-        // Use parseNodeSafe for error recovery in body
-        const node = this.parseNodeSafe();
-        if (node) {
-          body.push(node);
+      // Check if this is an opaque-body directive
+      if (Parser.OPAQUE_BODY_DIRECTIVES.has(name)) {
+        opaqueBody = this.parseOpaqueBody();
+      } else {
+        this.advance(); // consume INDENT
+        body = [];
+        
+        while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+          // Use parseNodeSafe for error recovery in body
+          const node = this.parseNodeSafe();
+          if (node) {
+            body.push(node);
+          }
+          this.skipNewlines();
         }
-        this.skipNewlines();
-      }
-      
-      if (this.check(TokenType.DEDENT)) {
-        this.advance();
+        
+        if (this.check(TokenType.DEDENT)) {
+          this.advance();
+        }
       }
     } else if (directiveRequiresBody(name)) {
       // No body present but directive requires one
@@ -344,6 +385,11 @@ export class Parser {
       loc: span(startLoc, loc(endLoc.line, endLoc.column, endLoc.endLine, endLoc.endColumn)),
     };
 
+    // Add opaque body if present
+    if (opaqueBody !== undefined) {
+      directive.opaqueBody = opaqueBody;
+    }
+
     // Add incomplete marker if arguments were unclosed or body is missing
     // Prefer argument incompleteness over body incompleteness
     if (argsIncomplete) {
@@ -353,6 +399,69 @@ export class Parser {
     }
 
     return directive;
+  }
+
+  /**
+   * Parse an opaque body for @document/@meta directives.
+   * 
+   * Consumes all indented content as raw text, handling nested indentation
+   * properly. Returns the raw text with leading whitespace preserved.
+   */
+  private parseOpaqueBody(): string {
+    const lines: string[] = [];
+    let baseIndent = 0;
+    let indentDepth = 0;
+    
+    // Consume the initial INDENT
+    if (this.check(TokenType.INDENT)) {
+      this.advance();
+      indentDepth = 1;
+      // Get the column of the next token to determine base indent
+      const nextToken = this.peek();
+      baseIndent = nextToken.column;
+    }
+    
+    let currentLine = "";
+    
+    while (!this.isAtEnd() && indentDepth > 0) {
+      const tok = this.peek();
+      
+      if (tok.type === TokenType.INDENT) {
+        this.advance();
+        indentDepth++;
+      } else if (tok.type === TokenType.DEDENT) {
+        this.advance();
+        indentDepth--;
+        if (indentDepth <= 0) {
+          // We've exited the opaque body
+          break;
+        }
+      } else if (tok.type === TokenType.NEWLINE) {
+        // Save current line and start new one
+        if (currentLine) {
+          lines.push(currentLine);
+        } else if (lines.length > 0) {
+          // Preserve blank lines within the body
+          lines.push("");
+        }
+        currentLine = "";
+        this.advance();
+      } else {
+        // TEXT or other content - preserve with proper indentation
+        // Calculate relative indent from base
+        const relativeIndent = tok.column - baseIndent;
+        const indent = relativeIndent > 0 ? "  ".repeat(Math.floor(relativeIndent / 2)) : "";
+        currentLine = indent + tok.value;
+        this.advance();
+      }
+    }
+    
+    // Don't forget the last line
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+    
+    return lines.join("\n");
   }
 
   /**
@@ -557,22 +666,19 @@ export class Parser {
     };
   }
 
-  private parseList(ordered: boolean): CSTList {
+  private parseBulletList(): CSTList {
     const items: CSTListItem[] = [];
     const firstToken = this.peek();
     const startLoc = loc(firstToken.line, firstToken.column);
 
-    while (
-      !this.isAtEnd() &&
-      (this.check(ordered ? TokenType.NUMBERED : TokenType.BULLET))
-    ) {
-      items.push(this.parseListItem(ordered));
+    while (!this.isAtEnd() && this.check(TokenType.BULLET)) {
+      items.push(this.parseBulletItem());
       this.skipNewlines();
     }
 
     return {
       type: "List",
-      ordered,
+      ordered: false,
       items,
       loc: span(
         startLoc,
@@ -581,8 +687,8 @@ export class Parser {
     };
   }
 
-  private parseListItem(ordered: boolean): CSTListItem {
-    const marker = this.advance(); // BULLET or NUMBERED
+  private parseBulletItem(): CSTListItem {
+    const marker = this.advance(); // BULLET
     const startLoc = loc(marker.line, marker.column);
     
     const content = this.parseInlineContent();

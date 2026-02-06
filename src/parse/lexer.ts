@@ -29,6 +29,11 @@ export class Lexer {
   // Indentation tracking
   private indentStack: number[] = [0];
   private atLineStart = true;
+  
+  // Context tracking for argument parsing
+  // When parenDepth > 0, we're inside directive arguments and comma/colon/equals are special tokens
+  // When parenDepth == 0, they should be treated as regular text characters
+  private parenDepth = 0;
 
   constructor(input: string) {
     this.input = input;
@@ -118,13 +123,6 @@ export class Lexer {
       return;
     }
 
-    // Numbered list (1. 2. a. etc)
-    if (this.isDigit(char) || this.isLetter(char)) {
-      if (this.tryNumberedItem()) {
-        return;
-      }
-    }
-
     // Blockquote
     if (char === ">") {
       this.emit(TokenType.BLOCKQUOTE, ">");
@@ -202,31 +200,37 @@ export class Lexer {
       return;
     }
 
-    // Argument syntax
+    // Argument syntax - only special inside parentheses
     if (char === "(") {
+      this.parenDepth++;
       this.emit(TokenType.LPAREN, "(");
       this.advance();
       return;
     }
     if (char === ")") {
+      if (this.parenDepth > 0) this.parenDepth--;
       this.emit(TokenType.RPAREN, ")");
       this.advance();
       return;
     }
-    if (char === ",") {
-      this.emit(TokenType.COMMA, ",");
-      this.advance();
-      return;
-    }
-    if (char === ":") {
-      this.emit(TokenType.COLON, ":");
-      this.advance();
-      return;
-    }
-    if (char === "=") {
-      this.emit(TokenType.EQUALS, "=");
-      this.advance();
-      return;
+    // Comma, colon, equals are only special tokens inside parentheses
+    // Outside parentheses, they are regular text and will be captured by scanText()
+    if (this.parenDepth > 0) {
+      if (char === ",") {
+        this.emit(TokenType.COMMA, ",");
+        this.advance();
+        return;
+      }
+      if (char === ":") {
+        this.emit(TokenType.COLON, ":");
+        this.advance();
+        return;
+      }
+      if (char === "=") {
+        this.emit(TokenType.EQUALS, "=");
+        this.advance();
+        return;
+      }
     }
 
     // String literal
@@ -344,20 +348,16 @@ export class Lexer {
       this.advance();
     }
     
-    // Optional style marker (a, i, A, I, 1)
-    let style = "";
-    const nextChar = this.peek();
-    if (nextChar === "1" || nextChar === "a" || nextChar === "A" || 
-        nextChar === "i" || nextChar === "I") {
-      style = this.advance();
-    }
+    // Parse numbering style - supports:
+    //   Decimal with sub-numbers (legal): 1, 1.1, 2.1.3
+    //   Roman numerals: i, ii, iii, I, II, III
+    //   Alpha: a, b, A, B
+    const style = this.parseNumberedStyle();
 
     // Validate: must be followed by whitespace/newline/EOF
     const terminator = this.peek();
     if (terminator !== " " && terminator !== "\t" && terminator !== "\n" && terminator !== "\0" && !this.isAtEnd()) {
       // Not a numbered item - treat as directive (e.g., @someone)
-      // Backtrack: we need to re-parse as directive
-      // For now, emit as directive with name being the @s
       this.tokens.push(token(TokenType.DIRECTIVE, "@".repeat(level - 1) + style, startLine, startCol, this.line, this.column));
       return;
     }
@@ -366,6 +366,53 @@ export class Lexer {
     const value = `${level}|${style}`;
     this.tokens.push(token(TokenType.NUMBERED_ITEM, value, startLine, startCol, this.line, this.column));
     this.skipSpaces();
+  }
+
+  /**
+   * Parse a numbering style marker after @@ symbols.
+   * Supports:
+   *   - Decimal with sub-numbers (legal numbering): 1, 2.1, 2.1.3
+   *   - Roman numerals: i, ii, iii, iv, I, II, III
+   *   - Alpha: a, b, c, A, B, C
+   *   - Empty (auto style)
+   */
+  private parseNumberedStyle(): string {
+    const startPos = this.pos;
+    const startCol = this.column;
+
+    // Decimal with possible sub-numbers: 1, 2.1, 2.1.3
+    if (this.isDigit(this.peek())) {
+      while (this.isDigit(this.peek()) || this.peek() === ".") {
+        // Don't consume trailing dot (e.g., "1." — dot followed by non-digit is end)
+        if (this.peek() === ".") {
+          if (!this.isDigit(this.peek(1))) break;
+        }
+        this.advance();
+      }
+      return this.input.slice(startPos, this.pos);
+    }
+
+    // Roman numerals: i, ii, iii, iv, v, vi, vii, viii, ix, x (or uppercase)
+    if (/[ivxIVX]/.test(this.peek())) {
+      while (/[ivxIVX]/.test(this.peek())) {
+        this.advance();
+      }
+      const roman = this.input.slice(startPos, this.pos);
+      if (/^[ivx]+$/i.test(roman)) {
+        return roman;
+      }
+      // Backtrack if not valid roman
+      this.pos = startPos;
+      this.column = startCol;
+    }
+
+    // Alpha: a, b, c or A, B, C (single letter)
+    if (this.isLetter(this.peek())) {
+      return this.advance();
+    }
+
+    // Auto (no explicit style)
+    return "";
   }
 
   private scanHeader(): void {
@@ -406,25 +453,6 @@ export class Lexer {
     }
     
     this.tokens.push(token(TokenType.BLANK, "_".repeat(count), startLine, startCol, this.line, this.column));
-  }
-
-  private tryNumberedItem(): boolean {
-    // Look ahead for pattern like "1." or "a."
-    let i = 0;
-    while (this.isDigit(this.peek(i)) || this.isLetter(this.peek(i))) {
-      i++;
-    }
-    if (this.peek(i) === "." && this.isWhitespace(this.peek(i + 1))) {
-      const startCol = this.column;
-      let marker = "";
-      for (let j = 0; j <= i; j++) {
-        marker += this.advance();
-      }
-      this.skipSpaces();
-      this.tokens.push(token(TokenType.NUMBERED, marker, this.line, startCol, this.line, this.column));
-      return true;
-    }
-    return false;
   }
 
   private scanVariable(): void {
@@ -708,25 +736,37 @@ export class Lexer {
     while (!this.isAtEnd()) {
       const char = this.peek();
 
-      // Stop at special characters
+      // Stop at special characters that are always special
       if (
         char === "\n" ||
         char === "@" ||
         char === "{" ||
         char === "*" ||
         char === "~" ||
-        char === "=" ||
         char === "`" ||
         char === "[" ||
         char === "!" ||
         char === "#" ||
         char === "(" ||
         char === ")" ||
-        char === "," ||
-        char === ":" ||
         char === '"' ||
         char === "'"
       ) {
+        break;
+      }
+      
+      // Equals is special for == highlight markers (check for double =)
+      if (char === "=" && this.peek(1) === "=") {
+        break;
+      }
+      
+      // Underscore is special for ___ blank markers (check for triple _)
+      if (char === "_" && this.peek(1) === "_" && this.peek(2) === "_") {
+        break;
+      }
+      
+      // Comma, colon, single equals are only stopchars inside parentheses (argument context)
+      if (this.parenDepth > 0 && (char === "," || char === ":" || char === "=")) {
         break;
       }
 

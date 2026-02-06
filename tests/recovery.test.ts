@@ -17,7 +17,6 @@ describe("ErrorRecovery", () => {
       expect(SYNC_TOKENS).toContain(TokenType.DIRECTIVE);
       expect(SYNC_TOKENS).toContain(TokenType.HEADER_MARKER);
       expect(SYNC_TOKENS).toContain(TokenType.BULLET);
-      expect(SYNC_TOKENS).toContain(TokenType.NUMBERED);
       expect(SYNC_TOKENS).toContain(TokenType.NUMBERED_ITEM);
       expect(SYNC_TOKENS).toContain(TokenType.FOOTNOTE_DEF);
     });

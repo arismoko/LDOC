@@ -122,6 +122,21 @@ function emitListItem(para: SemanticParagraph, ctx: EmissionContext): string[] {
 }
 
 /**
+ * Check if a styleId is a structural style that's handled elsewhere.
+ */
+function isStructuralStyle(styleId: string): boolean {
+  // Headings are handled by heading emission
+  if (/^Heading[1-6]$/i.test(styleId)) return true;
+  // Normal is the default, no need to emit
+  if (styleId === "Normal") return true;
+  // ListParagraph is handled by list emission
+  if (styleId === "ListParagraph") return true;
+  // TOC styles are usually auto-generated
+  if (/^toc[1-9]$/i.test(styleId)) return true;
+  return false;
+}
+
+/**
  * Emit a normal (non-heading, non-list, non-empty) paragraph.
  */
 function emitNormalParagraph(para: SemanticParagraph, ctx: EmissionContext): string[] {
@@ -132,15 +147,29 @@ function emitNormalParagraph(para: SemanticParagraph, ctx: EmissionContext): str
 
   const content = emitInlineContent(para.extracted.content, ctx);
 
+  // Check for named style that needs to be preserved
+  const styleId = para.extracted.styleId;
+  const needsStyleName = styleId && !isStructuralStyle(styleId);
+
+  // Collect all style attributes (including named style if needed)
+  const styleAttrs: Record<string, string> = { ...(para.styleAttrs ?? {}) };
+  if (needsStyleName) {
+    styleAttrs.style = styleId;
+  }
+  if (para.alignment) {
+    styleAttrs.align = para.alignment;
+  }
+  const hasStyleAttrs = Object.keys(styleAttrs).length > 0;
+
   // Handle single indented paragraph when emitIndent is enabled
   if (ctx.emitIndent && para.indentLeftTwips > 0) {
     const len = formatTwipsAsPt(para.indentLeftTwips);
     
-    // Check if we need nested alignment
-    if (para.alignment) {
+    // Check if we need nested style attrs
+    if (hasStyleAttrs) {
       lines.push(`${ctx.indent}@indent(length: ${len})`);
       const childCtx = indentContext(ctx);
-      lines.push(`${childCtx.indent}@style(align: ${para.alignment})`);
+      lines.push(`${childCtx.indent}@style(${formatStyleAttrs(styleAttrs)})`);
       const innerCtx = indentContext(childCtx);
       for (const line of content.split("\n")) {
         lines.push(`${innerCtx.indent}${line}`);
@@ -153,20 +182,9 @@ function emitNormalParagraph(para: SemanticParagraph, ctx: EmissionContext): str
     return lines;
   }
 
-  // Handle alignment for single paragraphs (not in alignment group)
-  if (para.alignment && !para.isEmpty) {
-    lines.push(`${ctx.indent}@style(align: ${para.alignment})`);
-    const childCtx = indentContext(ctx);
-    for (const line of content.split("\n")) {
-      lines.push(`${childCtx.indent}${line}`);
-    }
-    return lines;
-  }
-
-  // Handle style attributes
-  if (para.styleAttrs && Object.keys(para.styleAttrs).length > 0) {
-    const attrStr = formatStyleAttrs(para.styleAttrs);
-    lines.push(`${ctx.indent}@style(${attrStr})`);
+  // Handle style attributes (including alignment and named style)
+  if (hasStyleAttrs && !para.isEmpty) {
+    lines.push(`${ctx.indent}@style(${formatStyleAttrs(styleAttrs)})`);
     const childCtx = indentContext(ctx);
     for (const line of content.split("\n")) {
       lines.push(`${childCtx.indent}${line}`);

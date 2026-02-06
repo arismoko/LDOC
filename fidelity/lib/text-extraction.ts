@@ -1,10 +1,26 @@
 /**
  * Text extraction utilities for pipeline stage comparison.
- * Extracts normalized plain text from DOCX, LDOC, and AST.
+ * Extracts normalized plain text from DOCX, LDOC, CST, and Document IR.
  */
 
 import JSZip from "jszip";
-import type { DocumentNode, Node } from "../../src/parser/ast";
+import type {
+  CSTDocument,
+  CSTNode,
+  CSTInline,
+  CSTListItem,
+  CSTTableRow,
+  CSTTableCell,
+} from "../../src/types/cst";
+import type {
+  Document,
+  Block,
+  Inline,
+  ListItem,
+  TableRow,
+  TableCell,
+} from "../../src/types/document-ir";
+import type { StyledDocument } from "../../src/types/styled";
 
 export interface ExtractedText {
   /** Raw text content */
@@ -102,13 +118,13 @@ export function extractTextFromLdoc(ldocSource: string): ExtractedText {
       continue;
     }
     
-    // List items - strip prefix
+    // List items - keep prefix for consistent comparison with DOCX
     if (/^[-*]\s/.test(trimmed) || /^\d+\.\s/.test(trimmed)) {
       if (currentPara) {
         paragraphs.push(currentPara);
         currentPara = "";
       }
-      paragraphs.push(trimmed.replace(/^[-*]\s*/, "").replace(/^\d+\.\s*/, ""));
+      paragraphs.push(trimmed);
       continue;
     }
     
@@ -127,68 +143,103 @@ export function extractTextFromLdoc(ldocSource: string): ExtractedText {
 }
 
 /**
- * Extract plain text from parsed AST.
+ * Extract plain text from CST.
  */
-export function extractTextFromAst(ast: DocumentNode): ExtractedText {
+export function extractTextFromCst(cst: CSTDocument): ExtractedText {
   const paragraphs: string[] = [];
-  
-  function extractFromNode(node: Node): void {
+
+  function extractInline(inline: CSTInline): string {
+    switch (inline.type) {
+      case "Text":
+        return inline.value;
+      case "Variable":
+        return inline.expression;
+      case "CrossRef":
+        return inline.target;
+      case "FootnoteRef":
+        return inline.label;
+      case "Emphasis":
+        return inline.content.map(extractInline).join("");
+      case "Link":
+        return inline.text.map(extractInline).join("");
+      case "DefinedTerm":
+        return inline.term;
+      case "InlineDirective":
+        return inline.content.map(extractInline).join("");
+      case "Image":
+        return inline.alt;
+      case "Blank":
+      case "HardBreak":
+      case "Tab":
+      case "Error":
+        return "";
+      default:
+        return "";
+    }
+  }
+
+  function extractFromNode(node: CSTNode | CSTListItem | CSTTableRow | CSTTableCell): void {
     switch (node.type) {
-      case "paragraph":
-      case "header": {
-        const text = extractInlineText(node);
+      case "Paragraph":
+      case "Header": {
+        const text = node.content.map(extractInline).join("");
         if (text) paragraphs.push(text);
         break;
       }
-      case "empty_paragraph":
-        // Skip empty paragraphs in text extraction
-        break;
-      case "numbered_item":
-      case "bullet_item": {
-        const text = extractInlineText(node);
-        if (text) paragraphs.push(text);
-        // Process children
-        if ("children" in node && Array.isArray(node.children)) {
-          for (const child of node.children) {
-            extractFromNode(child);
-          }
+      case "ListItem": {
+        const listItem = node as CSTListItem;
+        const marker = listItem.marker ? listItem.marker + " " : "";
+        const text = marker + node.content.map(extractInline).join("");
+        if (text.trim()) paragraphs.push(text);
+        for (const child of node.children) {
+          extractFromNode(child);
         }
         break;
       }
-      case "table":
-        if ("rows" in node && Array.isArray(node.rows)) {
-          for (const row of node.rows) {
-            if ("cells" in row && Array.isArray(row.cells)) {
-              for (const cell of row.cells) {
-                if ("content" in cell && Array.isArray(cell.content)) {
-                  for (const child of cell.content) {
-                    extractFromNode(child as Node);
-                  }
-                }
-              }
-            }
-          }
+      case "List":
+        for (const item of node.items) {
+          extractFromNode(item);
         }
         break;
-      case "blockquote":
-      case "columns_region":
-      case "modifier":
-      case "footnote_def":
-      case "doc_header":
-      case "doc_footer":
-        if ("content" in node && Array.isArray(node.content)) {
-          for (const child of node.content) {
-            extractFromNode(child as Node);
-          }
+      case "Blockquote":
+        for (const child of node.content) {
+          extractFromNode(child);
         }
+        break;
+      case "Table":
+        for (const row of node.rows) {
+          extractFromNode(row);
+        }
+        break;
+      case "TableRow":
+        for (const cell of node.cells) {
+          extractFromNode(cell);
+        }
+        break;
+      case "TableCell":
+        for (const child of node.content) {
+          extractFromNode(child);
+        }
+        break;
+      case "FootnoteDef":
+        for (const child of node.content) {
+          extractFromNode(child);
+        }
+        break;
+      case "Directive":
+        for (const child of node.body ?? []) {
+          extractFromNode(child);
+        }
+        break;
+      default:
         break;
     }
   }
-  
-  for (const node of ast.body) {
+
+  for (const node of cst.children) {
     extractFromNode(node);
   }
-  
+
   const text = paragraphs.join("\n");
   const hash = computeHash(normalizeText(text));
   
@@ -196,27 +247,113 @@ export function extractTextFromAst(ast: DocumentNode): ExtractedText {
 }
 
 /**
- * Extract text from inline content (runs, text nodes).
+ * Extract plain text from Document IR.
  */
-function extractInlineText(node: unknown): string {
-  if (!node || typeof node !== "object") return "";
-  
-  const n = node as Record<string, unknown>;
-  
-  // Direct text content
-  if (typeof n.text === "string") return n.text;
-  
-  // Content array (paragraphs, headers)
-  if (Array.isArray(n.content)) {
-    return n.content.map(extractInlineText).join("");
+export function extractTextFromDocument(document: Document): ExtractedText {
+  const paragraphs: string[] = [];
+
+  function extractInline(inline: Inline): string {
+    switch (inline.type) {
+      case "Text":
+        return inline.value;
+      case "Code":
+        return inline.value;
+      case "CrossRef":
+        return inline.text ?? inline.target;
+      case "FootnoteRef":
+        return inline.label;
+      case "Link":
+        return inline.content.map(extractInline).join("");
+      case "Styled":
+      case "Bold":
+      case "Italic":
+      case "Underline":
+      case "Strikethrough":
+      case "Highlight":
+        return inline.content.map(extractInline).join("");
+      case "Image":
+        return inline.alt ?? "";
+      case "Bookmark":
+      case "HardBreak":
+      case "Tab":
+      case "Field":
+        return "";
+      default:
+        return "";
+    }
   }
-  
-  // Runs array
-  if (Array.isArray(n.runs)) {
-    return n.runs.map(extractInlineText).join("");
+
+  function extractBlocks(blocks: Block[]): void {
+    for (const block of blocks) {
+      switch (block.type) {
+        case "Paragraph":
+        case "Heading": {
+          const text = block.content.map(extractInline).join("");
+          if (text) paragraphs.push(text);
+          break;
+        }
+        case "List":
+          for (let idx = 0; idx < block.items.length; idx++) {
+            const item = block.items[idx]!;
+            const marker = block.ordered
+              ? `${(block.start ?? 1) + idx}.`
+              : "-";
+            extractListItem(item, marker);
+          }
+          break;
+        case "Blockquote":
+          extractBlocks(block.content);
+          break;
+        case "Table":
+          for (const row of block.rows) {
+            extractTableRow(row);
+          }
+          break;
+        case "Section":
+          extractBlocks(block.content);
+          break;
+        case "Footnote":
+          extractBlocks(block.content);
+          break;
+        case "PageBreak":
+        case "ColumnBreak":
+        case "HorizontalRule":
+          break;
+      }
+    }
   }
-  
-  return "";
+
+  function extractListItem(item: ListItem, marker: string): void {
+    const inlineText = item.content.map(extractInline).join("");
+    const text = marker + " " + inlineText;
+    if (text.trim()) paragraphs.push(text);
+    extractBlocks(item.children);
+  }
+
+  function extractTableRow(row: TableRow): void {
+    for (const cell of row.cells) {
+      extractTableCell(cell);
+    }
+  }
+
+  function extractTableCell(cell: TableCell): void {
+    extractBlocks(cell.content);
+  }
+
+  extractBlocks(document.blocks);
+
+  const text = paragraphs.join("\n");
+  const hash = computeHash(normalizeText(text));
+
+  return { text, paragraphs, hash };
+}
+
+/**
+ * Extract plain text from StyledDocument.
+ * StyledDocument wraps a Document IR, so we delegate to extractTextFromDocument.
+ */
+export function extractTextFromStyledDocument(styledDocument: StyledDocument): ExtractedText {
+  return extractTextFromDocument(styledDocument.document);
 }
 
 /**

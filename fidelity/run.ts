@@ -193,6 +193,32 @@ console.log(`Total:    ${result.summary.total}`);
 console.log(`Passed:   ${result.summary.passed}`);
 console.log(`Failed:   ${result.summary.failed}`);
 
+// Count by verdict
+const verdictCounts = {
+  pass: result.documents.filter(d => d.verdict === "pass" || (d.passed && !d.verdict)).length,
+  content_diff: result.documents.filter(d => d.verdict === "content_diff").length,
+  structural: result.documents.filter(d => d.verdict === "structural").length,
+  parse_error: result.documents.filter(d => d.verdict === "parse_error").length,
+  bind_error: result.documents.filter(d => d.verdict === "bind_error").length,
+  eval_error: result.documents.filter(d => d.verdict === "eval_error").length,
+  emit_error: result.documents.filter(d => d.verdict === "emit_error").length,
+  decompile_error: result.documents.filter(d => d.verdict === "decompile_error").length,
+};
+
+const hasVerdicts = result.documents.some(d => d.verdict);
+if (hasVerdicts) {
+  console.log();
+  console.log("By Verdict:");
+  if (verdictCounts.pass > 0) console.log(`  ✓ pass: ${verdictCounts.pass}`);
+  if (verdictCounts.content_diff > 0) console.log(`  ≠ content_diff: ${verdictCounts.content_diff}`);
+  if (verdictCounts.structural > 0) console.log(`  ⚠ structural: ${verdictCounts.structural}`);
+  if (verdictCounts.parse_error > 0) console.log(`  ✗ parse_error: ${verdictCounts.parse_error}`);
+  if (verdictCounts.bind_error > 0) console.log(`  ✗ bind_error: ${verdictCounts.bind_error}`);
+  if (verdictCounts.eval_error > 0) console.log(`  ✗ eval_error: ${verdictCounts.eval_error}`);
+  if (verdictCounts.emit_error > 0) console.log(`  ✗ emit_error: ${verdictCounts.emit_error}`);
+  if (verdictCounts.decompile_error > 0) console.log(`  ✗ decompile_error: ${verdictCounts.decompile_error}`);
+}
+
 // Count failures by severity
 const failedChecks = result.documents.flatMap((d) =>
   d.checks.filter((c) => !c.passed)
@@ -203,11 +229,14 @@ const severityCounts = {
   minor: failedChecks.filter((c) => c.severity === "minor").length,
 };
 if (failedChecks.length > 0) {
+  console.log();
+  console.log("By Severity:");
   console.log(`  ${severityEmoji.critical} Critical: ${severityCounts.critical}`);
   console.log(`  ${severityEmoji.major} Major: ${severityCounts.major}`);
   console.log(`  ${severityEmoji.minor} Minor: ${severityCounts.minor}`);
 }
 
+console.log();
 console.log(`Duration: ${(result.summary.duration / 1000).toFixed(2)}s`);
 
 // Print failures
@@ -235,7 +264,8 @@ if (failures.length > 0) {
     const topSeverity = failedDocChecks[0]?.severity ?? "minor";
     const emoji = severityEmoji[topSeverity];
     
-    console.log(`\n${emoji} ${doc.id}: ${failedDocChecks.map((c) => c.name).join(", ")}`);
+    const verdictLabel = doc.verdict ? ` [${doc.verdict}]` : "";
+    console.log(`\n${emoji} ${doc.id}${verdictLabel}: ${failedDocChecks.map((c) => c.name).join(", ")}`);
     if (doc.error) {
       console.log(`  ERROR: ${doc.error}`);
     } else {
@@ -290,8 +320,8 @@ if (values.investigate && result.documents.length === 1) {
     // Get paragraph counts from diagnosis, or use defaults
     const paragraphCounts = doc.diagnosis?.paragraph_counts ?? {
       original: 0,
-      ldoc: 0,
-      ast: 0,
+      cst: 0,
+      document: 0,
       recompiled: 0,
     };
 

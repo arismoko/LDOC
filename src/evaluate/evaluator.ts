@@ -34,6 +34,9 @@ import type {
   Heading,
   List,
   ListItem,
+  Table,
+  TableRow,
+  TableCell,
   Blockquote,
   HorizontalRule,
   Footnote,
@@ -59,6 +62,25 @@ import { DiagnosticCode, error, warning } from "../types/diagnostics.ts";
 import { resolveInterpolation } from "./interpolation.ts";
 import { processIf, processForeach, processRepeat } from "./control-flow.ts";
 import { processUse, processSlot, processSet } from "./expander.ts";
+import { parseDocumentConfig, configToPageLayout } from "./document-config.ts";
+
+/**
+ * Parse a length string (e.g., "2.5in", "72pt") to twips.
+ */
+function parseLength(value: string): number {
+  const match = value.match(/^([\d.]+)(in|pt|cm|mm|twip)?$/);
+  if (!match) return 0;
+  const num = parseFloat(match[1] ?? "0");
+  const unit = match[2] ?? "pt";
+  switch (unit) {
+    case "in": return num * 1440;
+    case "pt": return num * 20;
+    case "cm": return num * 567;
+    case "mm": return num * 56.7;
+    case "twip": return num;
+    default: return num * 20;
+  }
+}
 
 /**
  * Evaluation context passed through the transform.
@@ -211,7 +233,11 @@ export class Evaluator {
         return [];
 
       case "style":
-        // Style definitions are collected in bind phase
+        // If @style has a body, it's a style application (modifier)
+        // If no body, it's a style definition (collected in bind phase)
+        if (directive.body && directive.body.length > 0) {
+          return this.transformStyleModifier(directive, ctx);
+        }
         return [];
 
       case "document":
@@ -226,11 +252,61 @@ export class Evaluator {
         // Anchors are collected in bind phase
         return [];
 
+      case "header":
+        this.processHeaderFooter(directive, ctx, "header");
+        return [];
+
+      case "footer":
+        this.processHeaderFooter(directive, ctx, "footer");
+        return [];
+
+      case "firstpage":
+        // @firstpage is a modifier, check if followed by @header/@footer
+        // For now, treat as a no-op (the @header/@footer after it handles it)
+        return [];
+
+      case "evenpage":
+        // @evenpage is a modifier, treat as no-op
+        return [];
+
       case "pagebreak":
         return [{ type: "PageBreak", loc: directive.loc }];
 
       case "columnbreak":
         return [{ type: "ColumnBreak", loc: directive.loc }];
+
+      case "h1":
+      case "h2":
+      case "h3":
+      case "h4":
+      case "h5":
+      case "h6":
+        return this.transformHeadingDirective(directive, ctx);
+
+      case "table":
+        return this.transformTableDirective(directive, ctx);
+
+      case "row":
+        // @row should only appear inside @table - if standalone, emit warning
+        ctx.diagnostics.push(
+          warning(
+            DiagnosticCode.EXPRESSION_ERROR,
+            "@row directive must be inside @table",
+            directive.loc
+          )
+        );
+        return [];
+
+      case "cell":
+        // @cell should only appear inside @row - if standalone, emit warning
+        ctx.diagnostics.push(
+          warning(
+            DiagnosticCode.EXPRESSION_ERROR,
+            "@cell directive must be inside @row",
+            directive.loc
+          )
+        );
+        return [];
 
       default:
         // Unknown directive - emit warning and process body
@@ -253,9 +329,181 @@ export class Evaluator {
   }
 
   /**
-   * Process @document directive - extract metadata.
+   * Transform @h1-@h6 directive to Heading IR.
+   */
+  private transformHeadingDirective(directive: CSTDirective, ctx: EvaluatorContext): Block[] {
+    // Extract level from directive name (h1 -> 1, h2 -> 2, etc.)
+    const levelStr = directive.name.slice(1);
+    const level = parseInt(levelStr, 10) as 1 | 2 | 3 | 4 | 5 | 6;
+    
+    // Collect inline content from body
+    const content: Inline[] = [];
+    
+    if (directive.body) {
+      for (const node of directive.body) {
+        if (node.type === "Paragraph") {
+          content.push(...this.transformInlines(node.content, ctx));
+        } else {
+          // For other block types, recursively transform
+          // This handles nested content
+          const blocks = this.transformNode(node, ctx);
+          // Extract text from blocks (simplified - just take paragraph content)
+          for (const block of blocks) {
+            if (block.type === "Paragraph") {
+              content.push(...block.content);
+            }
+          }
+        }
+      }
+    }
+    
+    const heading: Heading = {
+      type: "Heading",
+      level,
+      content,
+      loc: directive.loc,
+    };
+    
+    return [heading];
+  }
+
+  /**
+   * Transform @table directive to Table IR.
+   */
+  private transformTableDirective(directive: CSTDirective, ctx: EvaluatorContext): Block[] {
+    const rows: TableRow[] = [];
+    
+    // Extract column widths from arguments if present
+    let columnWidths: number[] | undefined;
+    for (const arg of directive.arguments) {
+      if (arg.type === "NamedArg" && arg.name === "widths") {
+        const value = this.extractValue(arg.value);
+        if (Array.isArray(value)) {
+          columnWidths = value.map((v: unknown) => {
+            if (typeof v === "string") {
+              return parseLength(v);
+            }
+            return typeof v === "number" ? v : 0;
+          });
+        }
+      }
+    }
+    
+    // Process body - collect @row directives
+    if (directive.body) {
+      for (const node of directive.body) {
+        if (node.type === "Directive" && node.name === "row") {
+          const row = this.transformRowDirective(node, ctx);
+          if (row) {
+            rows.push(row);
+          }
+        } else if (node.type === "Paragraph" || node.type === "BlankLine") {
+          // Skip blank lines and stray paragraphs in tables
+        } else {
+          // Unexpected content in table
+          ctx.diagnostics.push(
+            warning(
+              DiagnosticCode.EXPRESSION_ERROR,
+              `Unexpected ${node.type} inside @table`,
+              node.loc
+            )
+          );
+        }
+      }
+    }
+    
+    const table: Table = {
+      type: "Table",
+      rows,
+      loc: directive.loc,
+    };
+    
+    if (columnWidths) {
+      table.columnWidths = columnWidths;
+    }
+    
+    return [table];
+  }
+
+  /**
+   * Transform @row directive to TableRow IR.
+   */
+  private transformRowDirective(directive: CSTDirective, ctx: EvaluatorContext): TableRow | null {
+    const cells: TableCell[] = [];
+    
+    // Process body - collect @cell directives
+    if (directive.body) {
+      for (const node of directive.body) {
+        if (node.type === "Directive" && node.name === "cell") {
+          const cell = this.transformCellDirective(node, ctx);
+          if (cell) {
+            cells.push(cell);
+          }
+        } else if (node.type === "Paragraph" || node.type === "BlankLine") {
+          // Skip blank lines and stray paragraphs
+        } else {
+          // Unexpected content in row
+          ctx.diagnostics.push(
+            warning(
+              DiagnosticCode.EXPRESSION_ERROR,
+              `Unexpected ${node.type} inside @row`,
+              node.loc
+            )
+          );
+        }
+      }
+    }
+    
+    return {
+      type: "TableRow",
+      cells,
+      loc: directive.loc,
+    };
+  }
+
+  /**
+   * Transform @cell directive to TableCell IR.
+   */
+  private transformCellDirective(directive: CSTDirective, ctx: EvaluatorContext): TableCell | null {
+    const content: Block[] = [];
+    
+    // Check for inline content (e.g., @cell: content)
+    // This is indicated by having arguments with positional content
+    
+    // Process body
+    if (directive.body) {
+      for (const node of directive.body) {
+        content.push(...this.transformNode(node, ctx));
+      }
+    }
+    
+    // Handle inline cell content (@cell: text)
+    // The parser may put inline content as arguments
+    for (const arg of directive.arguments) {
+      if (arg.type === "PositionalArg") {
+        const value = this.extractValue(arg.value);
+        if (typeof value === "string" && value.trim()) {
+          content.push({
+            type: "Paragraph",
+            content: [{ type: "Text", value: String(value) }],
+            loc: directive.loc,
+          });
+        }
+      }
+    }
+    
+    return {
+      type: "TableCell",
+      content,
+      loc: directive.loc,
+    };
+  }
+
+  /**
+   * Process @document directive - extract metadata from arguments and opaque body.
    */
   private processDocument(directive: CSTDirective, ctx: EvaluatorContext): void {
+    // Process arguments (inline syntax)
     for (const arg of directive.arguments) {
       if (arg.type === "NamedArg") {
         const value = this.extractValue(arg.value);
@@ -274,6 +522,143 @@ export class Evaluator {
         }
       }
     }
+
+    // Process opaque body (YAML-like syntax from decompiler)
+    if (directive.opaqueBody) {
+      const config = parseDocumentConfig(directive.opaqueBody);
+      
+      // Extract title, author, date from config
+      if (config.title && !ctx.metadata.title) {
+        ctx.metadata.title = String(config.title);
+      }
+      if (config.author && !ctx.metadata.author) {
+        ctx.metadata.author = String(config.author);
+      }
+      if (config.date && !ctx.metadata.date) {
+        ctx.metadata.date = String(config.date);
+      }
+      
+      // Extract page layout
+      const layout = configToPageLayout(config);
+      if (layout) {
+        ctx.metadata.layout = layout;
+      }
+      
+      // Store remaining config in custom metadata
+      for (const [key, value] of Object.entries(config)) {
+        if (!["title", "author", "date", "margins", "orientation"].includes(key)) {
+          ctx.metadata.custom[key] = value;
+        }
+      }
+    }
+  }
+
+  /**
+   * Process @header/@footer directive - store in metadata.
+   */
+  private processHeaderFooter(
+    directive: CSTDirective, 
+    ctx: EvaluatorContext,
+    type: "header" | "footer"
+  ): void {
+    // Determine which variant (default, first, even)
+    let variant: "default" | "first" | "even" = "default";
+    
+    // Check for firstpage or evenpage in arguments
+    // Can be a named arg like firstpage=true or a positional identifier
+    for (const arg of directive.arguments) {
+      if (arg.type === "NamedArg") {
+        const value = this.extractValue(arg.value);
+        if ((arg.name === "firstpage" || arg.name === "first") && value === true) {
+          variant = "first";
+        } else if ((arg.name === "evenpage" || arg.name === "even") && value === true) {
+          variant = "even";
+        }
+      } else if (arg.type === "PositionalArg") {
+        // Check for identifier like "firstpage" or "evenpage"
+        if (arg.value.type === "Identifier") {
+          const name = (arg.value as { type: "Identifier"; name: string }).name;
+          if (name === "firstpage" || name === "first") {
+            variant = "first";
+          } else if (name === "evenpage" || name === "even") {
+            variant = "even";
+          }
+        }
+      }
+    }
+    
+    // Transform body content
+    const content: Block[] = [];
+    if (directive.body) {
+      for (const node of directive.body) {
+        content.push(...this.transformNode(node, ctx));
+      }
+    }
+    
+    // Create the HeaderFooter object
+    const headerFooter = {
+      type: "HeaderFooter" as const,
+      kind: type,
+      content,
+      loc: directive.loc,
+    };
+    
+    // Initialize the config object if needed and store
+    if (type === "header") {
+      if (!ctx.metadata.headers) {
+        ctx.metadata.headers = {};
+      }
+      ctx.metadata.headers[variant] = headerFooter;
+    } else {
+      if (!ctx.metadata.footers) {
+        ctx.metadata.footers = {};
+      }
+      ctx.metadata.footers[variant] = headerFooter;
+    }
+  }
+
+  /**
+   * Transform @style modifier (style application, not definition).
+   * Applies style properties to contained paragraphs/blocks.
+   */
+  private transformStyleModifier(directive: CSTDirective, ctx: EvaluatorContext): Block[] {
+    // Extract style properties from arguments
+    const styleProps = this.extractStyleProps(directive.arguments);
+    
+    // Check for named style reference (style: Header)
+    const styleName = styleProps.style as string | undefined;
+    
+    // Build the StyleRef
+    const styleRef: { name?: string; inline?: Record<string, unknown> } = {};
+    if (styleName) {
+      styleRef.name = styleName;
+      delete styleProps.style; // Don't include in inline props
+    }
+    if (Object.keys(styleProps).length > 0) {
+      styleRef.inline = styleProps;
+    }
+    
+    // Transform body content
+    const blocks: Block[] = [];
+    if (directive.body) {
+      for (const node of directive.body) {
+        const transformed = this.transformNode(node, ctx);
+        // Apply style to each block
+        for (const block of transformed) {
+          if (block.type === "Paragraph" || block.type === "Heading") {
+            // Merge styles: existing style + new style
+            const existingStyle = (block as any).style ?? {};
+            (block as any).style = {
+              name: styleRef.name ?? existingStyle.name,
+              inline: { ...existingStyle.inline, ...styleRef.inline },
+            };
+          }
+          blocks.push(block);
+        }
+      }
+    }
+    
+    return blocks;
   }
 
   /**

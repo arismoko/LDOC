@@ -18,7 +18,6 @@ export const SYNC_TOKENS: TokenType[] = [
   TokenType.DIRECTIVE,
   TokenType.HEADER_MARKER,
   TokenType.BULLET,
-  TokenType.NUMBERED,
   TokenType.NUMBERED_ITEM,
   TokenType.FOOTNOTE_DEF,
 ];
