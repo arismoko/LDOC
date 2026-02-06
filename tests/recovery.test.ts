@@ -8,7 +8,11 @@ import { TokenType, token } from "../src/types/tokens.ts";
 
 // Helper to create test tokens
 function makeTokens(...types: TokenType[]): ReturnType<typeof token>[] {
-  return types.map((type, i) => token(type, type, 1, i * 5));
+  return types.map((type, i) => {
+    // BLANK_LINE should have empty string value
+    const value = type === TokenType.BLANK_LINE ? "" : type;
+    return token(type, value, 1, i * 5);
+  });
 }
 
 describe("ErrorRecovery", () => {
@@ -28,7 +32,7 @@ describe("ErrorRecovery", () => {
 
   describe("BOUNDARY_TOKENS", () => {
     test("includes all boundary tokens", () => {
-      expect(BOUNDARY_TOKENS).toContain(TokenType.PARA_BREAK);
+      expect(BOUNDARY_TOKENS).toContain(TokenType.BLANK_LINE);
       expect(BOUNDARY_TOKENS).toContain(TokenType.DEDENT);
       expect(BOUNDARY_TOKENS).toContain(TokenType.EOF);
     });
@@ -58,8 +62,8 @@ describe("ErrorRecovery", () => {
   });
 
   describe("isBoundary", () => {
-    test("returns true for paragraph break", () => {
-      const tokens = makeTokens(TokenType.PARA_BREAK);
+    test("returns true for blank line", () => {
+      const tokens = makeTokens(TokenType.BLANK_LINE);
       const recovery = new ErrorRecovery(tokens, 0);
 
       expect(recovery.isBoundary(tokens[0]!)).toBe(true);
@@ -108,17 +112,17 @@ describe("ErrorRecovery", () => {
     test("stops at boundary and includes it in skipped", () => {
       const tokens = makeTokens(
         TokenType.TEXT,
-        TokenType.PARA_BREAK,  // Boundary
+        TokenType.BLANK_LINE,  // Boundary
         TokenType.TEXT,
       );
       const recovery = new ErrorRecovery(tokens, 0);
 
       const result = recovery.findNextSync(0);
 
-      expect(result.syncIndex).toBe(2);  // After PARA_BREAK
+      expect(result.syncIndex).toBe(2);  // After BLANK_LINE
       expect(result.skipped).toHaveLength(2);
       expect(result.skipped[0]!.type).toBe(TokenType.TEXT);
-      expect(result.skipped[1]!.type).toBe(TokenType.PARA_BREAK);
+      expect(result.skipped[1]!.type).toBe(TokenType.BLANK_LINE);
     });
 
     test("returns all remaining tokens if no sync point found", () => {
@@ -194,7 +198,7 @@ describe("ErrorRecovery", () => {
     test("stops at boundary when stopAtBoundary is true", () => {
       const tokens = makeTokens(
         TokenType.TEXT,
-        TokenType.PARA_BREAK,  // Boundary
+        TokenType.BLANK_LINE,  // Boundary
         TokenType.RPAREN,
       );
       const recovery = new ErrorRecovery(tokens, 0);
@@ -205,7 +209,7 @@ describe("ErrorRecovery", () => {
     test("crosses boundary when stopAtBoundary is false", () => {
       const tokens = makeTokens(
         TokenType.TEXT,
-        TokenType.PARA_BREAK,
+        TokenType.BLANK_LINE,
         TokenType.RPAREN,
       );
       const recovery = new ErrorRecovery(tokens, 0);
@@ -220,7 +224,7 @@ describe("ErrorRecovery", () => {
         TokenType.TEXT,
         TokenType.VARIABLE,
         TokenType.DIRECTIVE,
-        TokenType.PARA_BREAK,
+        TokenType.BLANK_LINE,
       );
       const recovery = new ErrorRecovery(tokens, 0);
 

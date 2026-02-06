@@ -174,8 +174,9 @@ export class Parser {
    * Catches exceptions and produces CSTError nodes instead of crashing.
    */
   private parseNodeSafe(): CSTNode | null {
-    this.skipBreaks();
-    if (this.isAtEnd()) return null;
+    // Blank lines are handled by callers (collectContent or direct while loops).
+    // Do NOT skip them here — that discards empty paragraphs.
+    if (this.isAtEnd() || this.check(TokenType.BLANK_LINE)) return null;
 
     const startToken = this.peek();
     const startPos = this.pos;
@@ -262,7 +263,6 @@ export class Parser {
   }
 
   private parseNode(): CSTNode | null {
-    this.skipBreaks();
     if (this.isAtEnd()) return null;
 
     const token = this.peek();
@@ -349,7 +349,7 @@ export class Parser {
     const { args, incomplete: argsIncomplete } = this.parseArgumentsWithRecovery();
     
     // Check for inline body: @directive: content (colon-space syntax)
-    // This must be checked BEFORE skipBreaks() since it's on the same line
+    // This must be checked BEFORE skipping blank lines since it's on the same line
     let body: CSTNode[] | null = null;
     let opaqueBody: string | undefined;
     let bodyIncomplete: IncompleteMarker | undefined;
@@ -428,8 +428,6 @@ export class Parser {
       }
     }
 
-    this.skipBreaks();
-    
     if (body === null && this.check(TokenType.INDENT)) {
       // Check if this is an opaque-body directive
       if (Parser.OPAQUE_BODY_DIRECTIVES.has(name)) {
@@ -520,7 +518,7 @@ export class Parser {
           // We've exited the opaque body
           break;
         }
-      } else if (tok.type === TokenType.PARA_BREAK || tok.type === TokenType.EMPTY_PARAGRAPH) {
+      } else if (tok.type === TokenType.BLANK_LINE) {
         // Save current line and add blank line(s)
         if (currentLine) {
           lines.push(currentLine);
@@ -768,7 +766,7 @@ export class Parser {
 
     while (!this.isAtEnd() && this.check(TokenType.BULLET)) {
       items.push(this.parseBulletItem());
-      this.skipBreaks();
+      while (this.check(TokenType.BLANK_LINE)) this.advance();
     }
 
     return {
@@ -790,17 +788,18 @@ export class Parser {
     const children: CSTNode[] = [];
 
     // Check for nested content
-    this.skipBreaks();
+    while (this.check(TokenType.BLANK_LINE)) this.advance();
     if (this.check(TokenType.INDENT)) {
       this.advance();
       
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+        this.collectContent(children);
+        if (this.isAtEnd() || this.check(TokenType.DEDENT)) break;
         // Use parseNodeSafe for error recovery in nested content
         const node = this.parseNodeSafe();
         if (node) {
           children.push(node);
         }
-        this.skipBreaks();
       }
       
       if (this.check(TokenType.DEDENT)) {
@@ -841,17 +840,18 @@ export class Parser {
       const children: CSTNode[] = [];
 
       // Check for nested content
-      this.skipBreaks();
+      while (this.check(TokenType.BLANK_LINE)) this.advance();
       if (this.check(TokenType.INDENT)) {
         this.advance();
         
         while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+          this.collectContent(children);
+          if (this.isAtEnd() || this.check(TokenType.DEDENT)) break;
           // Use parseNodeSafe for error recovery in nested content
           const node = this.parseNodeSafe();
           if (node) {
             children.push(node);
           }
-          this.skipBreaks();
         }
         
         if (this.check(TokenType.DEDENT)) {
@@ -874,7 +874,7 @@ export class Parser {
         ),
       });
       
-      this.skipBreaks();
+      while (this.check(TokenType.BLANK_LINE)) this.advance();
     }
 
     return {
@@ -904,17 +904,18 @@ export class Parser {
     }
     
     // Check for continued content (indented block)
-    this.skipBreaks();
+    while (this.check(TokenType.BLANK_LINE)) this.advance();
     if (this.check(TokenType.INDENT)) {
       this.advance();
       
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+        this.collectContent(content);
+        if (this.isAtEnd() || this.check(TokenType.DEDENT)) break;
         // Use parseNodeSafe for error recovery in footnote content
         const node = this.parseNodeSafe();
         if (node) {
           content.push(node);
         }
-        this.skipBreaks();
       }
       
       if (this.check(TokenType.DEDENT)) {
@@ -1275,28 +1276,23 @@ export class Parser {
   }
 
   /**
-   * Skip structural breaks (PARA_BREAK and EMPTY_PARAGRAPH).
-   * Used between constructs where blank lines are just formatting.
-   * For content blocks where blank lines are meaningful, use collectContent().
-   */
-  private skipBreaks(): void {
-    while (this.check(TokenType.PARA_BREAK) || this.check(TokenType.EMPTY_PARAGRAPH)) {
-      this.advance();
-    }
-  }
-
-  /**
-   * Consume PARA_BREAK and EMPTY_PARAGRAPH tokens, pushing CSTBlankLine nodes
-   * for any EMPTY_PARAGRAPH tokens. Used inside content blocks where
-   * extra blank lines represent empty paragraphs.
+   * Consume BLANK_LINE tokens. The first blank line is a paragraph separator
+   * (discarded). Each additional consecutive blank line becomes a BlankLine CST
+   * node (empty paragraph). Used inside content blocks where extra blank lines
+   * represent empty paragraphs.
    */
   private collectContent(nodes: CSTNode[]): void {
-    while (this.check(TokenType.PARA_BREAK) || this.check(TokenType.EMPTY_PARAGRAPH)) {
+    let first = true;
+    while (this.check(TokenType.BLANK_LINE)) {
       const tok = this.advance();
-      if (tok.type === TokenType.EMPTY_PARAGRAPH) {
+      if (first) {
+        // First blank line is a paragraph separator — skip it
+        first = false;
+      } else {
+        // Additional blank lines are empty paragraphs
         nodes.push({
           type: "BlankLine",
-          loc: loc(tok.line, tok.column, tok.endLine, tok.endColumn),
+          loc: loc(tok.line, tok.column),
         } as CSTBlankLine);
       }
     }
@@ -1313,8 +1309,7 @@ export class Parser {
   private isBlockEnd(): boolean {
     const type = this.peek().type;
     return (
-      type === TokenType.PARA_BREAK ||
-      type === TokenType.EMPTY_PARAGRAPH ||
+      type === TokenType.BLANK_LINE ||
       type === TokenType.EOF ||
       type === TokenType.DEDENT ||
       type === TokenType.INDENT ||

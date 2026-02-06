@@ -202,6 +202,10 @@ function emitNormalParagraph(para: SemanticParagraph, ctx: EmissionContext): str
 
 /**
  * Emit an empty paragraph.
+ * 
+ * Empty paragraphs are represented as a single blank line.
+ * The separator between nodes (PARA_BREAK) is handled by emitNodes;
+ * this blank line represents the empty paragraph itself (EMPTY_PARAGRAPH token).
  */
 function emitEmptyParagraph(para: SemanticParagraph, ctx: EmissionContext): string[] {
   const lines: string[] = [];
@@ -209,9 +213,11 @@ function emitEmptyParagraph(para: SemanticParagraph, ctx: EmissionContext): stri
   // Emit anchors first
   lines.push(...emitAnchors(para.anchors, ctx));
 
-  // Empty paragraphs need blank lines to trigger EmptyParagraphNode in parser
+  // Empty paragraph = one blank line
+  // When following non-empty content, emitNodes adds a separator first,
+  // making this the EMPTY_PARAGRAPH. When following another empty,
+  // no separator is added, so this blank IS the empty paragraph.
   lines.push("");
-  lines.push(`${ctx.indent}`);
 
   return lines;
 }
@@ -260,9 +266,7 @@ function emitSpacingGroup(group: SemanticGroup, ctx: EmissionContext): string[] 
   lines.push(`${ctx.indent}@style(${styleStr})`);
 
   const childCtx = indentContext(ctx);
-  for (const child of group.children) {
-    lines.push(...emitNode(child, childCtx));
-  }
+  lines.push(...emitNodes(group.children, childCtx));
 
   return lines;
 }
@@ -277,20 +281,7 @@ function emitAlignmentGroup(group: SemanticGroup, ctx: EmissionContext): string[
   lines.push(`${ctx.indent}@style(align: ${attrs.alignment})`);
 
   const childCtx = indentContext(ctx);
-  for (let i = 0; i < group.children.length; i++) {
-    const child = group.children[i]!;
-    lines.push(...emitNode(child, childCtx));
-
-    // Add separator between non-empty items
-    if (isParagraph(child) && !child.isEmpty) {
-      const hasMore = group.children.slice(i + 1).some(
-        (c) => isParagraph(c) && !c.isEmpty
-      );
-      if (hasMore) {
-        lines.push(`${childCtx.indent}`);
-      }
-    }
-  }
+  lines.push(...emitNodes(group.children, childCtx));
 
   return lines;
 }
@@ -306,9 +297,7 @@ function emitIndentGroup(group: SemanticGroup, ctx: EmissionContext): string[] {
   lines.push(`${ctx.indent}@indent(length: ${len})`);
 
   const childCtx = indentContext(ctx);
-  for (const child of group.children) {
-    lines.push(...emitNode(child, childCtx));
-  }
+  lines.push(...emitNodes(group.children, childCtx));
 
   return lines;
 }
@@ -352,14 +341,29 @@ export function emitNode(node: SemanticNode, ctx: EmissionContext): string[] {
 
 /**
  * Emit an array of semantic nodes.
+ *
+ * Blank-line protocol: "N blank lines = separator + (N-1) empty paragraphs"
+ * - One blank line between non-empty nodes = paragraph separator (PARA_BREAK)
+ * - Each additional blank line = one empty paragraph (EMPTY_PARAGRAPH)
+ * - Empty paragraphs are self-separating (they ARE blank lines), so no
+ *   extra separator is added adjacent to them.
  */
 export function emitNodes(nodes: SemanticNode[], ctx: EmissionContext): string[] {
   const lines: string[] = [];
   for (let i = 0; i < nodes.length; i++) {
-    lines.push(...emitNode(nodes[i]!, ctx));
-    // Blank line between nodes (paragraph separator)
+    const node = nodes[i]!;
+    const nodeIsEmpty = isParagraph(node) && node.isEmpty;
+
+    lines.push(...emitNode(node, ctx));
+
+    // Add separator between nodes, but not adjacent to empty paragraphs
+    // (they're self-separating — they already contribute a blank line)
     if (i < nodes.length - 1) {
-      lines.push("");
+      const next = nodes[i + 1];
+      const nextIsEmpty = next && isParagraph(next) && next.isEmpty;
+      if (!nodeIsEmpty && !nextIsEmpty) {
+        lines.push("");
+      }
     }
   }
   return lines;
