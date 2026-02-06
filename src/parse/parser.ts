@@ -394,6 +394,40 @@ export class Parser {
       }
     }
 
+    // Check for bracket body: @directive(args)[content]
+    // TEXT "[" immediately after args means inline directive with bracket content
+    if (body === null && this.check(TokenType.TEXT) && this.peek().value === "[") {
+      this.advance(); // consume "["
+      const bracketLine = this.previous().line;
+      const content: CSTInline[] = [];
+
+      // Parse inline content until "]"
+      while (!this.isAtEnd() && !this.isBlockEnd()) {
+        const tok = this.peek();
+        if (tok.type === TokenType.TEXT && tok.value === "]") {
+          this.advance(); // consume "]"
+          break;
+        }
+        const inline = this.parseInline();
+        if (inline) {
+          content.push(inline);
+        }
+      }
+
+      if (content.length > 0) {
+        body = [{
+          type: "Paragraph",
+          content,
+          loc: span(
+            content[0]!.loc,
+            content[content.length - 1]!.loc,
+          ),
+        } as CSTParagraph];
+      } else {
+        body = [];
+      }
+    }
+
     this.skipBreaks();
     
     if (body === null && this.check(TokenType.INDENT)) {
