@@ -29,7 +29,3 @@ If blocked:
 
 Only when all commits in COMMITS.MD are completed and tests pass, output:
 <promise>COMPLETE</promise>
-
----
-
-# Notes
