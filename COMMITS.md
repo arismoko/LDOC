@@ -101,7 +101,7 @@ I’m assuming you want **one mainline v3** (not “v2 + v3 side-by-side”), bu
 
 So we fix this by committing a clean v3 CST + token model and then rewriting lexer/parser to match.
 
-### Commit 4 — `feat(v3): define v3 token model`
+### Commit 4 — `feat(v3): define v3 token model` ✅
 
 **Changes**
 
@@ -115,10 +115,13 @@ So we fix this by committing a clean v3 CST + token model and then rewriting lex
 **Files**
 
 - `src/types/tokens.ts`
+- `src/parse/lexer.ts`
 
 **Done when**
 
 - Token list matches the spec: directives, args, `{}`, `[]`, `$()`.
+
+**Status**: ✅ Complete
 
 ---
 
