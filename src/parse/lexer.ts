@@ -187,6 +187,14 @@ export class Lexer {
       return;
     }
 
+    // Closing bracket ] — always emitted as its own TEXT token
+    // so the parser can match it for inline directive content: @style(args)[content]
+    if (char === "]") {
+      this.tokens.push(token(TokenType.TEXT, "]", this.line, this.column, this.line, this.column + 1));
+      this.advance();
+      return;
+    }
+
     // Links and references
     if (char === "[") {
       this.scanBracket();
@@ -782,6 +790,7 @@ export class Lexer {
         char === "~" ||
         char === "`" ||
         char === "[" ||
+        char === "]" ||
         char === "!" ||
         char === "#" ||
         char === '"' ||
