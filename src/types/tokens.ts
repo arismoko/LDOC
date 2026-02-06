@@ -8,7 +8,8 @@
 export enum TokenType {
   // Structural
   EOF = "EOF",
-  NEWLINE = "NEWLINE",
+  PARA_BREAK = "PARA_BREAK",          // Blank line (paragraph separator)
+  EMPTY_PARAGRAPH = "EMPTY_PARAGRAPH", // Extra blank line (represents empty paragraph)
   INDENT = "INDENT",
   DEDENT = "DEDENT",
   

@@ -27,7 +27,7 @@ export const SYNC_TOKENS: TokenType[] = [
  * Safe to stop recovery at these.
  */
 export const BOUNDARY_TOKENS: TokenType[] = [
-  TokenType.NEWLINE,
+  TokenType.PARA_BREAK,
   TokenType.DEDENT,
   TokenType.EOF,
 ];

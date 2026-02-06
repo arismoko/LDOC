@@ -28,7 +28,7 @@ describe("ErrorRecovery", () => {
 
   describe("BOUNDARY_TOKENS", () => {
     test("includes all boundary tokens", () => {
-      expect(BOUNDARY_TOKENS).toContain(TokenType.NEWLINE);
+      expect(BOUNDARY_TOKENS).toContain(TokenType.PARA_BREAK);
       expect(BOUNDARY_TOKENS).toContain(TokenType.DEDENT);
       expect(BOUNDARY_TOKENS).toContain(TokenType.EOF);
     });
@@ -58,8 +58,8 @@ describe("ErrorRecovery", () => {
   });
 
   describe("isBoundary", () => {
-    test("returns true for newline", () => {
-      const tokens = makeTokens(TokenType.NEWLINE);
+    test("returns true for paragraph break", () => {
+      const tokens = makeTokens(TokenType.PARA_BREAK);
       const recovery = new ErrorRecovery(tokens, 0);
 
       expect(recovery.isBoundary(tokens[0]!)).toBe(true);
@@ -108,17 +108,17 @@ describe("ErrorRecovery", () => {
     test("stops at boundary and includes it in skipped", () => {
       const tokens = makeTokens(
         TokenType.TEXT,
-        TokenType.NEWLINE,  // Boundary
+        TokenType.PARA_BREAK,  // Boundary
         TokenType.TEXT,
       );
       const recovery = new ErrorRecovery(tokens, 0);
 
       const result = recovery.findNextSync(0);
 
-      expect(result.syncIndex).toBe(2);  // After NEWLINE
+      expect(result.syncIndex).toBe(2);  // After PARA_BREAK
       expect(result.skipped).toHaveLength(2);
       expect(result.skipped[0]!.type).toBe(TokenType.TEXT);
-      expect(result.skipped[1]!.type).toBe(TokenType.NEWLINE);
+      expect(result.skipped[1]!.type).toBe(TokenType.PARA_BREAK);
     });
 
     test("returns all remaining tokens if no sync point found", () => {
@@ -194,7 +194,7 @@ describe("ErrorRecovery", () => {
     test("stops at boundary when stopAtBoundary is true", () => {
       const tokens = makeTokens(
         TokenType.TEXT,
-        TokenType.NEWLINE,  // Boundary
+        TokenType.PARA_BREAK,  // Boundary
         TokenType.RPAREN,
       );
       const recovery = new ErrorRecovery(tokens, 0);
@@ -205,7 +205,7 @@ describe("ErrorRecovery", () => {
     test("crosses boundary when stopAtBoundary is false", () => {
       const tokens = makeTokens(
         TokenType.TEXT,
-        TokenType.NEWLINE,
+        TokenType.PARA_BREAK,
         TokenType.RPAREN,
       );
       const recovery = new ErrorRecovery(tokens, 0);
@@ -220,7 +220,7 @@ describe("ErrorRecovery", () => {
         TokenType.TEXT,
         TokenType.VARIABLE,
         TokenType.DIRECTIVE,
-        TokenType.NEWLINE,
+        TokenType.PARA_BREAK,
       );
       const recovery = new ErrorRecovery(tokens, 0);
 

@@ -69,13 +69,15 @@ export class Lexer {
 
     const char = this.peek();
 
-    // Newline
+    // Newline — consume and check for paragraph breaks
     if (char === "\n") {
-      this.emit(TokenType.NEWLINE, "\n");
       this.advance();
       this.line++;
       this.column = 0;
       this.atLineStart = true;
+      // Don't emit any token for a single newline (soft continuation).
+      // Paragraph breaks (PARA_BREAK) and empty paragraphs (EMPTY_PARAGRAPH)
+      // are detected by handleIndentation when it finds blank lines.
       return;
     }
 
@@ -280,8 +282,21 @@ export class Lexer {
       this.advance();
     }
 
-    // Skip blank lines
+    // Blank line detected (whitespace-only before newline/EOF).
+    // Emit PARA_BREAK for the first blank line (paragraph separator).
+    // Emit EMPTY_PARAGRAPH for each additional consecutive blank line.
     if (this.peek() === "\n" || this.isAtEnd()) {
+      const prev = this.tokens.length > 0 ? this.tokens[this.tokens.length - 1] : undefined;
+      if (prev && prev.type === TokenType.EMPTY_PARAGRAPH) {
+        // Already in a run of blank lines — this is another empty paragraph
+        this.tokens.push(token(TokenType.EMPTY_PARAGRAPH, "", this.line, startCol, this.line, this.column));
+      } else if (prev && prev.type === TokenType.PARA_BREAK) {
+        // Second blank line after a PARA_BREAK — first empty paragraph
+        this.tokens.push(token(TokenType.EMPTY_PARAGRAPH, "", this.line, startCol, this.line, this.column));
+      } else {
+        // First blank line — paragraph separator
+        this.tokens.push(token(TokenType.PARA_BREAK, "", this.line, startCol, this.line, this.column));
+      }
       return;
     }
 

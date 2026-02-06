@@ -248,12 +248,9 @@ Hello world.
 
 describe("@use Directive", () => {
   test("expands simple macro", () => {
-    const doc = fullEvaluate(`
-@define(greeting)
+    const doc = fullEvaluate(`@define(greeting)
     Hello, World!
-
-@use(greeting)
-`);
+@use(greeting)`);
     expect(doc.blocks.length).toBe(1);
     const para = doc.blocks[0] as Paragraph;
     expect((para.content[0] as Text).value).toContain("Hello");

@@ -196,8 +196,8 @@ export class Evaluator {
         // Footnotes are collected separately
         return [];
       case "BlankLine":
-        // Blank lines don't produce IR
-        return [];
+        // Blank lines represent empty paragraphs (spacing, signature areas, etc.)
+        return [{ type: "Paragraph", content: [], loc: node.loc } as Paragraph];
       default:
         // Inline nodes shouldn't appear at block level
         return [];

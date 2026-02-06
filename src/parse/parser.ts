@@ -148,6 +148,10 @@ export class Parser {
     const children: CSTNode[] = [];
 
     while (!this.isAtEnd()) {
+      // Collect blank lines as empty paragraph nodes in document content
+      this.collectContent(children);
+      if (this.isAtEnd()) break;
+
       const node = this.parseNodeSafe();
       if (node) {
         children.push(node);
@@ -170,7 +174,7 @@ export class Parser {
    * Catches exceptions and produces CSTError nodes instead of crashing.
    */
   private parseNodeSafe(): CSTNode | null {
-    this.skipNewlines();
+    this.skipBreaks();
     if (this.isAtEnd()) return null;
 
     const startToken = this.peek();
@@ -258,7 +262,7 @@ export class Parser {
   }
 
   private parseNode(): CSTNode | null {
-    this.skipNewlines();
+    this.skipBreaks();
     if (this.isAtEnd()) return null;
 
     const token = this.peek();
@@ -348,7 +352,7 @@ export class Parser {
     let body: CSTNode[] | null = null;
     let opaqueBody: string | undefined;
     let bodyIncomplete: IncompleteMarker | undefined;
-    this.skipNewlines();
+    this.skipBreaks();
     
     if (this.check(TokenType.INDENT)) {
       // Check if this is an opaque-body directive
@@ -359,12 +363,15 @@ export class Parser {
         body = [];
         
         while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+          // Collect blank lines as empty paragraph nodes in body
+          this.collectContent(body);
+          if (this.isAtEnd() || this.check(TokenType.DEDENT)) break;
+
           // Use parseNodeSafe for error recovery in body
           const node = this.parseNodeSafe();
           if (node) {
             body.push(node);
           }
-          this.skipNewlines();
         }
         
         if (this.check(TokenType.DEDENT)) {
@@ -437,18 +444,20 @@ export class Parser {
           // We've exited the opaque body
           break;
         }
-      } else if (tok.type === TokenType.NEWLINE) {
-        // Save current line and start new one
+      } else if (tok.type === TokenType.PARA_BREAK || tok.type === TokenType.EMPTY_PARAGRAPH) {
+        // Save current line and add blank line(s)
         if (currentLine) {
           lines.push(currentLine);
-        } else if (lines.length > 0) {
-          // Preserve blank lines within the body
-          lines.push("");
         }
+        lines.push(""); // blank line
         currentLine = "";
         this.advance();
       } else {
         // TEXT or other content - preserve with proper indentation
+        // Push the previous line before starting a new one
+        if (currentLine) {
+          lines.push(currentLine);
+        }
         // Calculate relative indent from base
         const relativeIndent = tok.column - baseIndent;
         const indent = relativeIndent > 0 ? "  ".repeat(Math.floor(relativeIndent / 2)) : "";
@@ -488,8 +497,10 @@ export class Parser {
         return { args };
       }
 
-      // Error case: hit boundary without closing paren
-      if (this.recovery.isBoundary(this.peek())) {
+      // Error case: hit boundary or sync point without closing paren
+      // Sync points (like DIRECTIVE) indicate a new construct started,
+      // meaning the paren was never closed.
+      if (this.recovery.isBoundary(this.peek()) || this.recovery.isSyncPoint(this.peek())) {
         this.diagnostics.push(
           error(
             DiagnosticCode.UNCLOSED_DELIMITER,
@@ -510,8 +521,8 @@ export class Parser {
       if (this.check(TokenType.COMMA)) {
         this.advance();
       } else if (!this.check(TokenType.RPAREN)) {
-        // Not a comma and not closing paren - check if it's a boundary
-        if (this.recovery.isBoundary(this.peek())) {
+        // Not a comma and not closing paren - check if it's a boundary or sync point
+        if (this.recovery.isBoundary(this.peek()) || this.recovery.isSyncPoint(this.peek())) {
           this.diagnostics.push(
             error(
               DiagnosticCode.UNCLOSED_DELIMITER,
@@ -674,7 +685,7 @@ export class Parser {
 
     while (!this.isAtEnd() && this.check(TokenType.BULLET)) {
       items.push(this.parseBulletItem());
-      this.skipNewlines();
+      this.skipBreaks();
     }
 
     return {
@@ -696,7 +707,7 @@ export class Parser {
     const children: CSTNode[] = [];
 
     // Check for nested content
-    this.skipNewlines();
+    this.skipBreaks();
     if (this.check(TokenType.INDENT)) {
       this.advance();
       
@@ -706,7 +717,7 @@ export class Parser {
         if (node) {
           children.push(node);
         }
-        this.skipNewlines();
+        this.skipBreaks();
       }
       
       if (this.check(TokenType.DEDENT)) {
@@ -747,7 +758,7 @@ export class Parser {
       const children: CSTNode[] = [];
 
       // Check for nested content
-      this.skipNewlines();
+      this.skipBreaks();
       if (this.check(TokenType.INDENT)) {
         this.advance();
         
@@ -757,7 +768,7 @@ export class Parser {
           if (node) {
             children.push(node);
           }
-          this.skipNewlines();
+          this.skipBreaks();
         }
         
         if (this.check(TokenType.DEDENT)) {
@@ -780,7 +791,7 @@ export class Parser {
         ),
       });
       
-      this.skipNewlines();
+      this.skipBreaks();
     }
 
     return {
@@ -810,7 +821,7 @@ export class Parser {
     }
     
     // Check for continued content (indented block)
-    this.skipNewlines();
+    this.skipBreaks();
     if (this.check(TokenType.INDENT)) {
       this.advance();
       
@@ -820,7 +831,7 @@ export class Parser {
         if (node) {
           content.push(node);
         }
-        this.skipNewlines();
+        this.skipBreaks();
       }
       
       if (this.check(TokenType.DEDENT)) {
@@ -1161,19 +1172,57 @@ export class Parser {
     return this.peek().type === type;
   }
 
-  private skipNewlines(): void {
-    while (this.check(TokenType.NEWLINE)) {
+  /**
+   * Skip structural breaks (PARA_BREAK and EMPTY_PARAGRAPH).
+   * Used between constructs where blank lines are just formatting.
+   * For content blocks where blank lines are meaningful, use collectContent().
+   */
+  private skipBreaks(): void {
+    while (this.check(TokenType.PARA_BREAK) || this.check(TokenType.EMPTY_PARAGRAPH)) {
       this.advance();
     }
   }
 
+  /**
+   * Consume PARA_BREAK and EMPTY_PARAGRAPH tokens, pushing CSTBlankLine nodes
+   * for any EMPTY_PARAGRAPH tokens. Used inside content blocks where
+   * extra blank lines represent empty paragraphs.
+   */
+  private collectContent(nodes: CSTNode[]): void {
+    while (this.check(TokenType.PARA_BREAK) || this.check(TokenType.EMPTY_PARAGRAPH)) {
+      const tok = this.advance();
+      if (tok.type === TokenType.EMPTY_PARAGRAPH) {
+        nodes.push({
+          type: "BlankLine",
+          loc: loc(tok.line, tok.column, tok.endLine, tok.endColumn),
+        } as CSTBlankLine);
+      }
+    }
+  }
+
+  /**
+   * Check if we've hit the end of inline content.
+   * Inline content ends at paragraph breaks, block boundaries, EOF,
+   * or block-starting tokens (which indicate a new block begins).
+   * 
+   * Note: DIRECTIVE is NOT included here because it can appear as an
+   * inline directive within paragraphs. It's handled in parseInline().
+   */
   private isBlockEnd(): boolean {
     const type = this.peek().type;
     return (
-      type === TokenType.NEWLINE ||
+      type === TokenType.PARA_BREAK ||
+      type === TokenType.EMPTY_PARAGRAPH ||
       type === TokenType.EOF ||
       type === TokenType.DEDENT ||
-      type === TokenType.INDENT
+      type === TokenType.INDENT ||
+      // Block-starting tokens that can ONLY appear at line start
+      type === TokenType.BULLET ||
+      type === TokenType.NUMBERED_ITEM ||
+      type === TokenType.HEADER_MARKER ||
+      type === TokenType.BLOCKQUOTE ||
+      type === TokenType.HORIZONTAL_RULE ||
+      type === TokenType.FOOTNOTE_DEF
     );
   }
 }

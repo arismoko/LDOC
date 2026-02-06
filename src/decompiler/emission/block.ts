@@ -355,8 +355,12 @@ export function emitNode(node: SemanticNode, ctx: EmissionContext): string[] {
  */
 export function emitNodes(nodes: SemanticNode[], ctx: EmissionContext): string[] {
   const lines: string[] = [];
-  for (const node of nodes) {
-    lines.push(...emitNode(node, ctx));
+  for (let i = 0; i < nodes.length; i++) {
+    lines.push(...emitNode(nodes[i]!, ctx));
+    // Blank line between nodes (paragraph separator)
+    if (i < nodes.length - 1) {
+      lines.push("");
+    }
   }
   return lines;
 }

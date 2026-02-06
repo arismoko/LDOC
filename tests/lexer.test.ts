@@ -20,10 +20,17 @@ describe("Lexer", () => {
       expect(result.tokens[0]!.value).toBe("Hello world");
     });
 
-    test("tokenizes newlines", () => {
+    test("tokenizes paragraph breaks", () => {
+      const result = tokenize("Line 1\n\nLine 2");
+      const types = result.tokens.map(t => t.type);
+      expect(types).toContain(TokenType.PARA_BREAK);
+    });
+
+    test("single newlines do not produce tokens", () => {
       const result = tokenize("Line 1\nLine 2");
       const types = result.tokens.map(t => t.type);
-      expect(types).toContain(TokenType.NEWLINE);
+      expect(types).not.toContain(TokenType.PARA_BREAK);
+      expect(types).not.toContain(TokenType.EMPTY_PARAGRAPH);
     });
 
     test("tokenizes directives", () => {
