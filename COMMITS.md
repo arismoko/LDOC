@@ -72,11 +72,11 @@ I’m assuming you want **one mainline v3** (not “v2 + v3 side-by-side”), bu
 
 ---
 
-### Commit 3 — `chore: delete markdown/control-flow surface from v3 build`
+### Commit 3 — `chore: delete markdown/control-flow surface from v3 build` ✅
 
 **Changes**
 
-- Mark as “legacy / unused in v3” (don’t delete yet if it helps reference):
+- Mark as "legacy / unused in v3" (don't delete yet if it helps reference):
   - `src/evaluate/control-flow.ts`
   - markdown tokens/nodes usage in evaluator
 
@@ -90,6 +90,8 @@ I’m assuming you want **one mainline v3** (not “v2 + v3 side-by-side”), bu
 **Done when**
 
 - No codepath calls `processIf/processForeach/processRepeat` etc.
+
+**Status**: ✅ Complete
 
 ---
 
