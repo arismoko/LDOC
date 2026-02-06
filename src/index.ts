@@ -35,6 +35,3 @@ export * from "./shared/index.ts";
 
 // Pipeline (high-level API)
 export * from "./pipeline/index.ts";
-
-// Decompiler (DOCX -> LDOC)
-export { docxToLdoc, decompile } from "./decompiler/index.ts";
