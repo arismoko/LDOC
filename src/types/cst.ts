@@ -1,369 +1,267 @@
 /**
- * Concrete Syntax Tree (CST) types.
- * 
- * The CST is a lossless representation of the source - it preserves enough
- * information to reconstruct the original text. This is what the parser produces.
- * 
- * Key design decisions:
- * 1. All nodes have source locations
- * 2. Directives are generic nodes with name + arguments + optional body
- * 3. Content is separate from control flow
- * 4. Inline content is nested within block nodes
+ * Concrete Syntax Tree — Uniform Node Architecture
+ *
+ * Inspired by Typst's parser: one node type, kind enum identifies semantics.
+ * No inline/block distinction at the CST level. Paragraph grouping happens
+ * as a post-parse transform.
+ *
+ * Design principles:
+ *   1. Every node is a `CSTNode` — uniform interface, kind discriminates.
+ *   2. `[...]` (ContentBlock) and indented bodies (Body) both produce child
+ *      sequences — same structure, different delimiters.
+ *   3. The parser does NOT create Paragraph nodes. A separate `groupParagraphs`
+ *      pass collects consecutive inline nodes between Parbreaks into Paragraphs.
+ *   4. Trivia (whitespace, comments, blank lines) are real nodes.
  */
 
 import type { SourceLocation } from "./source-location.ts";
-import type { Token } from "./tokens.ts";
+import type { Diagnostic } from "./diagnostics.ts";
 
 // =============================================================================
-// Base Types
+// Node Kind — flat enum, no hierarchy
 // =============================================================================
 
-interface CSTBase {
+export enum NodeKind {
+  // -- Document root --
+  Document = "Document",
+
+  // -- Directive system --
+  /** @name(...)[...] or @name with indented body */
+  Directive = "Directive",
+  /** (...) argument list */
+  Args = "Args",
+  /** name: value pair inside Args */
+  NamedArg = "NamedArg",
+  /** [...] bracketed content block — parsed recursively */
+  ContentBlock = "ContentBlock",
+  /** Indented body — children parsed recursively */
+  Body = "Body",
+  /** Raw YAML-like body (@document, @meta) — not parsed further */
+  OpaqueBody = "OpaqueBody",
+
+  // -- Block-level constructs (identified by leading token) --
+  /** # Heading */
+  Heading = "Heading",
+  /** - item or * item */
+  ListItem = "ListItem",
+  /** 1. item or a. item or @@item */
+  EnumItem = "EnumItem",
+  /** > blockquote */
+  Blockquote = "Blockquote",
+  /** --- horizontal rule */
+  Rule = "Rule",
+  /** | cell | cell | table row */
+  TableRow = "TableRow",
+  /** Cell content within a table row */
+  TableCell = "TableCell",
+  /** [^label]: footnote definition */
+  FootnoteDef = "FootnoteDef",
+
+  // -- Paragraph (created by groupParagraphs, NOT the parser) --
+  Paragraph = "Paragraph",
+
+  // -- Inline constructs --
+  /** Plain text leaf */
+  Text = "Text",
+  /** **bold** */
+  Strong = "Strong",
+  /** *italic* */
+  Emph = "Emph",
+  /** ~~strike~~ */
+  Strike = "Strike",
+  /** ==highlight== */
+  Highlight = "Highlight",
+  /** `code` */
+  Code = "Code",
+  /** {{expression}} */
+  Interpolation = "Interpolation",
+  /** [text](url) */
+  Link = "Link",
+  /** ![alt](src) */
+  Image = "Image",
+  /** [^ref] */
+  FootnoteRef = "FootnoteRef",
+  /** [[target]] */
+  CrossRef = "CrossRef",
+  /** "defined term" (string token in inline context) */
+  DefinedTerm = "DefinedTerm",
+  /** ___ fill-in blank */
+  Blank = "Blank",
+  /** @br or trailing double-space */
+  Linebreak = "Linebreak",
+  /** @tab */
+  Tab = "Tab",
+
+  // -- Trivia --
+  /** Blank line — paragraph boundary */
+  Parbreak = "Parbreak",
+  /** // comment */
+  Comment = "Comment",
+
+  // -- Literals (inside Args) --
+  Ident = "Ident",
+  Str = "Str",
+  Num = "Num",
+  Len = "Len",
+  Bool = "Bool",
+  Expr = "Expr",
+
+  // -- Error recovery --
+  Error = "Error",
+}
+
+// =============================================================================
+// The Node
+// =============================================================================
+
+/**
+ * Every element in the tree is a CSTNode.
+ *
+ * Inner nodes have children. Leaf nodes have text.
+ * The `kind` field tells you what it is.
+ */
+export interface CSTNode {
+  kind: NodeKind;
   loc: SourceLocation;
-}
-
-// =============================================================================
-// Error Recovery Types
-// =============================================================================
-
-/**
- * Context where an error occurred - used for diagnostics and recovery hints.
- */
-export type ErrorContext =
-  | "directive"
-  | "directive_args"
-  | "directive_body"
-  | "interpolation"
-  | "inline"
-  | "block"
-  | "unknown";
-
-/**
- * Describes what element is missing from an incomplete node.
- */
-export type MissingElement =
-  | { kind: "token"; expected: string }      // e.g., ")"
-  | { kind: "body"; directive: string }      // e.g., "@if needs body"
-  | { kind: "expression" };                  // e.g., "{{" needs expression
-
-/**
- * Marker for incomplete nodes - usable by LSP for smart completions.
- * Nodes with this flag are structurally valid but semantically incomplete.
- */
-export interface IncompleteMarker {
-  incomplete: true;
-  missing: MissingElement[];
-}
-
-/**
- * Error node - contains tokens that couldn't be parsed.
- * Used for unrecoverable regions; preserves source for diagnostics.
- */
-export interface CSTError extends CSTBase {
-  type: "Error";
-  message: string;
-  context: ErrorContext;
-  tokens: Token[];           // Raw tokens in error region
-  partialNode?: CSTNode;     // If we partially parsed something
-}
-
-// =============================================================================
-// Document Root
-// =============================================================================
-
-export interface CSTDocument extends CSTBase {
-  type: "Document";
   children: CSTNode[];
+  /** Leaf content (Text, Ident, Str, Num, Len, Bool, OpaqueBody, Error) */
+  text?: string;
+  /** Error message (kind === Error only) */
+  error?: string;
 }
-
-// =============================================================================
-// Directives (@ prefixed)
-// =============================================================================
-
-/**
- * Generic directive node: @name(args) or @name with body
- * 
- * Examples:
- *   @document(title: "My Doc")
- *   @define(myMacro, param1, param2)
- *   @if(condition)
- *   @style(bold: true)
- */
-export interface CSTDirective extends CSTBase {
-  type: "Directive";
-  name: string;
-  arguments: CSTArgument[];
-  body: CSTNode[] | null;
-  /**
-   * Raw YAML-like content for configuration directives (@document, @meta).
-   * 
-   * When present, `body` will be null. The opaque body is not parsed by
-   * the main parser - it's passed to specialized parsers in the evaluator.
-   * 
-   * @see Parser.OPAQUE_BODY_DIRECTIVES - Controls which directives use this
-   * @see src/evaluate/document-config.ts - Parser for @document opaque bodies
-   */
-  opaqueBody?: string;
-  incomplete?: IncompleteMarker;  // For partial directives (unclosed parens, missing body)
-}
-
-/**
- * Directive argument - can be positional or named
- */
-export type CSTArgument =
-  | CSTPositionalArg
-  | CSTNamedArg;
-
-export interface CSTPositionalArg extends CSTBase {
-  type: "PositionalArg";
-  value: CSTValue;
-}
-
-export interface CSTNamedArg extends CSTBase {
-  type: "NamedArg";
-  name: string;
-  value: CSTValue;
-}
-
-/**
- * Argument values
- */
-export type CSTValue =
-  | CSTStringLiteral
-  | CSTNumberLiteral
-  | CSTLengthLiteral
-  | CSTBooleanLiteral
-  | CSTIdentifier
-  | CSTExpression;
-
-export interface CSTStringLiteral extends CSTBase {
-  type: "StringLiteral";
-  value: string;
-  raw: string; // includes quotes
-}
-
-export interface CSTNumberLiteral extends CSTBase {
-  type: "NumberLiteral";
-  value: number;
-  raw: string;
-}
-
-export interface CSTLengthLiteral extends CSTBase {
-  type: "LengthLiteral";
-  value: number;
-  unit: "in" | "cm" | "mm" | "pt" | "px" | "twip";
-  raw: string;
-}
-
-export interface CSTBooleanLiteral extends CSTBase {
-  type: "BooleanLiteral";
-  value: boolean;
-}
-
-export interface CSTIdentifier extends CSTBase {
-  type: "Identifier";
-  name: string;
-}
-
-export interface CSTExpression extends CSTBase {
-  type: "Expression";
-  raw: string; // The full expression text
-}
-
-// =============================================================================
-// Block Nodes
-// =============================================================================
-
-export interface CSTParagraph extends CSTBase {
-  type: "Paragraph";
-  content: CSTInline[];
-}
-
-export interface CSTHeader extends CSTBase {
-  type: "Header";
-  level: 1 | 2 | 3 | 4 | 5 | 6;
-  content: CSTInline[];
-}
-
-export interface CSTList extends CSTBase {
-  type: "List";
-  ordered: boolean;
-  items: CSTListItem[];
-}
-
-export interface CSTListItem extends CSTBase {
-  type: "ListItem";
-  marker: string; // "-", "1.", "a.", etc.
-  content: CSTInline[];
-  children: CSTNode[]; // Nested content
-}
-
-export interface CSTTable extends CSTBase {
-  type: "Table";
-  rows: CSTTableRow[];
-}
-
-export interface CSTTableRow extends CSTBase {
-  type: "TableRow";
-  cells: CSTTableCell[];
-}
-
-export interface CSTTableCell extends CSTBase {
-  type: "TableCell";
-  content: CSTNode[];
-}
-
-export interface CSTBlockquote extends CSTBase {
-  type: "Blockquote";
-  content: CSTNode[];
-}
-
-export interface CSTHorizontalRule extends CSTBase {
-  type: "HorizontalRule";
-}
-
-// CSTBlankLine removed: blank lines are always separators (never content).
-// Empty paragraphs are represented by @empty directives.
-
-// =============================================================================
-// Inline Nodes
-// =============================================================================
-
-export interface CSTText extends CSTBase {
-  type: "Text";
-  value: string;
-}
-
-export interface CSTVariable extends CSTBase {
-  type: "Variable";
-  expression: string;
-  incomplete?: IncompleteMarker;  // For unclosed {{ }}
-}
-
-export interface CSTEmphasis extends CSTBase {
-  type: "Emphasis";
-  kind: "bold" | "italic" | "strikethrough" | "highlight" | "code";
-  content: CSTInline[];
-  incomplete?: IncompleteMarker;  // For unclosed **, *, ~~, etc.
-}
-
-export interface CSTLink extends CSTBase {
-  type: "Link";
-  text: CSTInline[];
-  url: string;
-  title?: string;
-  incomplete?: IncompleteMarker;  // For unclosed [text](url)
-}
-
-export interface CSTImage extends CSTBase {
-  type: "Image";
-  alt: string;
-  src: string;
-  title?: string;
-}
-
-export interface CSTFootnoteRef extends CSTBase {
-  type: "FootnoteRef";
-  label: string;
-  incomplete?: IncompleteMarker;  // For unclosed [^...]
-}
-
-export interface CSTCrossRef extends CSTBase {
-  type: "CrossRef";
-  target: string;
-}
-
-export interface CSTHardBreak extends CSTBase {
-  type: "HardBreak";
-}
-
-export interface CSTTab extends CSTBase {
-  type: "Tab";
-}
-
-export interface CSTDefinedTerm extends CSTBase {
-  type: "DefinedTerm";
-  term: string;
-}
-
-export interface CSTBlank extends CSTBase {
-  type: "Blank";
-  width: number; // Number of underscores
-}
-
-export interface CSTFootnoteDef extends CSTBase {
-  type: "FootnoteDef";
-  label: string;
-  content: CSTNode[];
-}
-
-export interface CSTInlineDirective extends CSTBase {
-  type: "InlineDirective";
-  name: string;
-  arguments: CSTArgument[];
-  content: CSTInline[];
-}
-
-// =============================================================================
-// Union Types
-// =============================================================================
-
-export type CSTInline =
-  | CSTText
-  | CSTVariable
-  | CSTEmphasis
-  | CSTLink
-  | CSTImage
-  | CSTFootnoteRef
-  | CSTCrossRef
-  | CSTHardBreak
-  | CSTTab
-  | CSTDefinedTerm
-  | CSTBlank
-  | CSTInlineDirective
-  | CSTError;  // Error nodes can appear at inline level
-
-export type CSTBlock =
-  | CSTParagraph
-  | CSTHeader
-  | CSTList
-  | CSTTable
-  | CSTBlockquote
-  | CSTHorizontalRule
-  | CSTFootnoteDef;
-
-export type CSTNode =
-  | CSTDirective
-  | CSTBlock
-  | CSTInline
-  | CSTError;  // Error nodes can appear at block level
 
 // =============================================================================
 // Parse Result
 // =============================================================================
 
-import type { Diagnostic } from "./diagnostics.ts";
-
 export interface ParseResult {
-  cst: CSTDocument;
+  cst: CSTNode; // kind === Document
   diagnostics: Diagnostic[];
+}
+
+// =============================================================================
+// Constructors
+// =============================================================================
+
+export function inner(kind: NodeKind, loc: SourceLocation, children: CSTNode[]): CSTNode {
+  return { kind, loc, children };
+}
+
+export function leaf(kind: NodeKind, loc: SourceLocation, text: string): CSTNode {
+  return { kind, loc, children: [], text };
+}
+
+export function errorNode(loc: SourceLocation, message: string, children: CSTNode[] = []): CSTNode {
+  return { kind: NodeKind.Error, loc, children, error: message };
+}
+
+// =============================================================================
+// Accessors — typed views over the uniform tree
+// =============================================================================
+
+/** Get the directive name (first Ident child). */
+export function directiveName(node: CSTNode): string | undefined {
+  if (node.kind !== NodeKind.Directive) return undefined;
+  return node.children.find(c => c.kind === NodeKind.Ident)?.text;
+}
+
+/** Get the Args child of a Directive. */
+export function directiveArgs(node: CSTNode): CSTNode | undefined {
+  return node.children.find(c => c.kind === NodeKind.Args);
+}
+
+/** Get the body of a Directive — ContentBlock, Body, or OpaqueBody. */
+export function directiveBody(node: CSTNode): CSTNode | undefined {
+  return node.children.find(
+    c => c.kind === NodeKind.ContentBlock || c.kind === NodeKind.Body || c.kind === NodeKind.OpaqueBody
+  );
+}
+
+/** Get body children (unwrap ContentBlock/Body wrapper). */
+export function bodyChildren(node: CSTNode): CSTNode[] {
+  const body = directiveBody(node);
+  if (!body) return [];
+  return body.children;
+}
+
+/** Get heading level from marker. */
+export function headingLevel(node: CSTNode): number {
+  if (node.kind !== NodeKind.Heading) return 0;
+  // First child is the marker text (e.g. "#", "##")
+  const marker = node.children[0];
+  return marker?.text?.length ?? 0;
+}
+
+/** Collect all text from a node tree (flattening). */
+export function collectText(node: CSTNode): string {
+  if (node.text !== undefined) return node.text;
+  return node.children.map(collectText).join("");
+}
+
+/** Get named arg value by name from an Args node. */
+export function namedArgValue(argsNode: CSTNode, name: string): CSTNode | undefined {
+  for (const child of argsNode.children) {
+    if (child.kind === NodeKind.NamedArg) {
+      const nameNode = child.children[0];
+      if (nameNode?.text === name) return child.children[1];
+    }
+  }
+  return undefined;
+}
+
+/** Get all positional arg values from an Args node. */
+export function positionalArgs(argsNode: CSTNode): CSTNode[] {
+  return argsNode.children.filter(c => c.kind !== NodeKind.NamedArg);
 }
 
 // =============================================================================
 // Type Guards
 // =============================================================================
 
-/**
- * Type guard for nodes with the incomplete marker.
- * Use this to check if a node is structurally valid but missing elements.
- */
-export function isIncomplete(node: CSTNode): node is CSTNode & { incomplete: IncompleteMarker } {
-  return "incomplete" in node && node.incomplete !== undefined;
+export function isTrivia(kind: NodeKind): boolean {
+  return kind === NodeKind.Parbreak || kind === NodeKind.Comment;
 }
 
-/**
- * Type guard for error nodes.
- */
-export function isError(node: CSTNode): node is CSTError {
-  return node.type === "Error";
+export function isBlockLevel(kind: NodeKind): boolean {
+  return (
+    kind === NodeKind.Directive ||
+    kind === NodeKind.Heading ||
+    kind === NodeKind.ListItem ||
+    kind === NodeKind.EnumItem ||
+    kind === NodeKind.Blockquote ||
+    kind === NodeKind.Rule ||
+    kind === NodeKind.TableRow ||
+    kind === NodeKind.FootnoteDef ||
+    kind === NodeKind.Paragraph
+  );
+}
+
+export function isInline(kind: NodeKind): boolean {
+  return (
+    kind === NodeKind.Text ||
+    kind === NodeKind.Strong ||
+    kind === NodeKind.Emph ||
+    kind === NodeKind.Strike ||
+    kind === NodeKind.Highlight ||
+    kind === NodeKind.Code ||
+    kind === NodeKind.Interpolation ||
+    kind === NodeKind.Link ||
+    kind === NodeKind.Image ||
+    kind === NodeKind.FootnoteRef ||
+    kind === NodeKind.CrossRef ||
+    kind === NodeKind.DefinedTerm ||
+    kind === NodeKind.Blank ||
+    kind === NodeKind.Linebreak ||
+    kind === NodeKind.Tab ||
+    kind === NodeKind.Directive // directives with ContentBlock are inline
+  );
+}
+
+export function isError(node: CSTNode): boolean {
+  return node.kind === NodeKind.Error;
+}
+
+export function hasError(node: CSTNode): boolean {
+  if (isError(node)) return true;
+  return node.children.some(hasError);
 }
