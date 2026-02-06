@@ -74,13 +74,6 @@ export function parseSource(tokens: Token[]): ParseResult {
 }
 
 /**
- * Legacy compatibility export.
- */
-export function parse(tokens: Token[]): ParseResult {
-  return parseSource(tokens);
-}
-
-/**
  * Get current token or return undefined at EOF.
  */
 function peekToken(ctx: ParseContext): Token | undefined {
@@ -180,8 +173,7 @@ function parseDirective(ctx: ParseContext): Directive | null {
   // Parse body if present and it's a structural opener
   const bodyToken = peekToken(ctx);
   if (bodyToken && bodyToken.type === TokenType.LBRACE) {
-    const parsed = parseStructuralBody(ctx);
-    if (parsed) body = parsed;
+    body = parseStructuralBody(ctx);
   }
 
   // If there's a paragraph block after (sugar form @name[...]), handle it
@@ -341,8 +333,7 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
   // Parse body if present and it's a structural opener
   const bodyToken = peekToken(ctx);
   if (bodyToken && bodyToken.type === TokenType.LBRACE) {
-    const parsed = parseStructuralBody(ctx);
-    if (parsed) body = parsed;
+    body = parseStructuralBody(ctx);
   }
 
   return {
@@ -366,28 +357,126 @@ function parseParagraphBlock(ctx: ParseContext): ParagraphBlock | null {
   ctx.pos++; // consume PARA_OPEN
   const inlines: any[] = [];
 
+  // Normalize newlines: single newline → soft space, blank line(s) → hard breaks
+  let consecutiveNewlines = 0;
+  let textBuffer = "";
+
   while (ctx.pos < ctx.tokens.length) {
     const token = peekToken(ctx);
     if (!token) break;
 
+    // Nested paragraph block
+    if (token.type === TokenType.PARA_OPEN) {
+      // Flush current text buffer
+      if (textBuffer) {
+        inlines.push({
+          kind: "InlineText",
+          loc: loc(token.line, token.column),
+          text: textBuffer,
+        });
+        textBuffer = "";
+      }
+
+      // Recursively parse nested paragraph
+      const nestedPara = parseParagraphBlock(ctx);
+      if (nestedPara) {
+        inlines.push(nestedPara);
+      }
+
+      consecutiveNewlines = 0;
+      continue;
+    }
+
     if (token.type === TokenType.PARA_CLOSE) {
       ctx.pos++; // consume PARA_CLOSE
+
+      // Flush text buffer
+      if (textBuffer) {
+        inlines.push({
+          kind: "InlineText",
+          loc: loc(token.line, token.column),
+          text: textBuffer,
+        });
+      }
+
+      // Add hard breaks for consecutive newlines
+      if (consecutiveNewlines >= 2) {
+        for (let i = 0; i < consecutiveNewlines - 1; i++) {
+          inlines.push({
+            kind: "InlineHardBreak",
+            loc: loc(token.line, token.column),
+          });
+        }
+      }
+
       break;
     }
 
-    // Parse inline content
+    // Handle text tokens
     if (token.type === TokenType.TEXT) {
-      inlines.push({
-        kind: "InlineText",
-        loc: loc(token.line, token.column),
-        text: token.value,
-      });
+      // Text after blank lines → add hard breaks
+      if (consecutiveNewlines >= 2) {
+        for (let i = 0; i < consecutiveNewlines - 1; i++) {
+          inlines.push({
+            kind: "InlineHardBreak",
+            loc: loc(token.line, token.column),
+          });
+        }
+        consecutiveNewlines = 0;
+      }
+
+      textBuffer += token.value;
+      ctx.pos++;
+      continue;
+    }
+
+    // Handle blank lines (newlines)
+    if (token.type === TokenType.BLANK_LINE) {
+      // End of current text
+      if (textBuffer) {
+        inlines.push({
+          kind: "InlineText",
+          loc: loc(token.line, token.column),
+          text: textBuffer,
+        });
+        textBuffer = "";
+      }
+
+      // Count consecutive blank lines
+      const nextToken = peekToken(ctx);
+      let blankCount = 1;
+      if (nextToken && nextToken.type === TokenType.BLANK_LINE) {
+        ctx.pos++;
+        blankCount++;
+      }
+
+      // Consecutive blank lines: >1 → hard break, 1 → treat as paragraph end (handled by whitespace)
+      if (blankCount >= 2) {
+        for (let i = 0; i < blankCount - 1; i++) {
+          inlines.push({
+            kind: "InlineHardBreak",
+            loc: loc(token.line, token.column),
+          });
+        }
+      }
+
       ctx.pos++;
       continue;
     }
 
     // Parse Lua expression
     if (token.type === TokenType.LUA_EXPR_OPEN) {
+      // Flush any buffered text
+      if (textBuffer) {
+        inlines.push({
+          kind: "InlineText",
+          loc: loc(token.line, token.column),
+          text: textBuffer,
+        });
+        textBuffer = "";
+      }
+      consecutiveNewlines = 0;
+
       const expr = parseLuaExpr(ctx);
       if (expr) inlines.push(expr);
       continue;
@@ -407,6 +496,25 @@ function parseParagraphBlock(ctx: ParseContext): ParagraphBlock | null {
         startLoc
       )
     );
+
+    // Flush remaining text
+    if (textBuffer) {
+      inlines.push({
+        kind: "InlineText",
+        loc: loc(startToken.line, startToken.column),
+        text: textBuffer,
+      });
+    }
+
+    // Add hard breaks for consecutive newlines
+    if (consecutiveNewlines >= 2) {
+      for (let i = 0; i < consecutiveNewlines - 1; i++) {
+        inlines.push({
+          kind: "InlineHardBreak",
+          loc: loc(startToken.line, startToken.column),
+        });
+      }
+    }
   }
 
   return {

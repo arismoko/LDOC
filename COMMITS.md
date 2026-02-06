@@ -177,7 +177,7 @@ So we fix this by committing a clean v3 CST + token model and then rewriting lex
 
 ---
 
-### Commit 7 — `feat(v3-parse): rewrite parser for directives + paragraph blocks`
+### Commit 7 — `feat(v3-parse): rewrite parser for directives + paragraph blocks` ✅
 
 **Changes**
 
@@ -196,11 +196,13 @@ So we fix this by committing a clean v3 CST + token model and then rewriting lex
 **Files**
 
 - `src/parse/parser.ts`
-- `src/parse/recovery.ts`
+- `src/parse/index.ts` (fix exports)
 
 **Done when**
 
-- `parseSource()` returns CST + diagnostics and doesn’t stop at first error.
+- `parseSource()` returns CST + diagnostics and doesn't stop at first error.
+
+**Status**: ✅ Complete
 
 ---
 
