@@ -47,20 +47,22 @@ export enum TokenType {
   LINK = "LINK",                   // [text](url) - value is "text|url"
   IMAGE = "IMAGE",                 // ![alt](src) - value is "alt|src"
   FOOTNOTE_REF = "FOOTNOTE_REF",   // [^name]
+  FOOTNOTE_DEF = "FOOTNOTE_DEF",   // [^name]: - footnote definition
   CROSS_REF = "CROSS_REF",         // [@ref]
   
   // Block markers
   HEADER_MARKER = "HEADER_MARKER", // #, ##, ###, etc.
   BULLET = "BULLET",               // -
-  NUMBERED = "NUMBERED",           // 1., 2., etc.
+  NUMBERED = "NUMBERED",           // 1., 2., a., etc.
+  NUMBERED_ITEM = "NUMBERED_ITEM", // @@, @@@, @@1, @@a - value encodes level|style
   BLOCKQUOTE = "BLOCKQUOTE",       // >
   HORIZONTAL_RULE = "HORIZONTAL_RULE", // ---
   
   // Special
-  HARD_BREAK = "HARD_BREAK",  // @br or two trailing spaces
-  TAB = "TAB",                // @tab
-  BLANK = "BLANK",            // @blank
-  COMMENT = "COMMENT",        // // comment
+  HARD_BREAK = "HARD_BREAK",    // @br or two trailing spaces
+  TAB = "TAB",                  // @tab
+  BLANK = "BLANK",              // ___ (3+ underscores) - fill-in line
+  COMMENT = "COMMENT",          // // comment
 }
 
 export interface Token {

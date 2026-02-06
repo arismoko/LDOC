@@ -4,7 +4,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { parseSource } from "../src/parse/index.ts";
-import type { CSTDirective, CSTHeader, CSTParagraph, CSTList, CSTLink, CSTImage } from "../src/types/cst.ts";
+import type { CSTDirective, CSTHeader, CSTParagraph, CSTList, CSTLink, CSTImage, CSTDefinedTerm, CSTBlank, CSTFootnoteDef } from "../src/types/cst.ts";
 
 describe("Parser", () => {
   describe("documents", () => {
@@ -167,6 +167,52 @@ describe("Parser", () => {
       const table = result.cst.children[0] as CSTDirective;
       expect(table.name).toBe("table");
       expect(table.arguments.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("numbered items (@@)", () => {
+    test("parses @@ as list", () => {
+      const result = parseSource("@@ First item\n@@ Second item");
+      const list = result.cst.children[0] as CSTList;
+      expect(list.type).toBe("List");
+      expect(list.ordered).toBe(true);
+      expect(list.items.length).toBe(2);
+    });
+
+    test("parses @@ with style marker", () => {
+      const result = parseSource("@@a Item one");
+      const list = result.cst.children[0] as CSTList;
+      expect(list.type).toBe("List");
+      expect(list.items[0]!.marker).toBe("2|a"); // level 2, alpha style
+    });
+  });
+
+  describe("defined terms", () => {
+    test('parses "Term" as defined term in text', () => {
+      const result = parseSource('This defines the "Contract".');
+      const para = result.cst.children[0] as CSTParagraph;
+      const term = para.content.find(c => c.type === "DefinedTerm") as CSTDefinedTerm;
+      expect(term).toBeDefined();
+      expect(term.term).toBe("Contract");
+    });
+  });
+
+  describe("blanks (fill-in)", () => {
+    test("parses ___ as blank", () => {
+      const result = parseSource("Name: ___");
+      const para = result.cst.children[0] as CSTParagraph;
+      const blank = para.content.find(c => c.type === "Blank") as CSTBlank;
+      expect(blank).toBeDefined();
+      expect(blank.width).toBe(3);
+    });
+  });
+
+  describe("footnote definitions", () => {
+    test("parses [^label]: as footnote definition", () => {
+      const result = parseSource("[^note]: This is the footnote content.");
+      const footnoteDef = result.cst.children[0] as CSTFootnoteDef;
+      expect(footnoteDef.type).toBe("FootnoteDef");
+      expect(footnoteDef.label).toBe("note");
     });
   });
 });

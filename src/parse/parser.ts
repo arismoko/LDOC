@@ -28,6 +28,9 @@ import type {
   CSTCrossRef,
   CSTLink,
   CSTImage,
+  CSTDefinedTerm,
+  CSTBlank,
+  CSTFootnoteDef,
   ParseResult,
   CSTPositionalArg,
   CSTNamedArg,
@@ -89,6 +92,9 @@ export class Parser {
       case TokenType.NUMBERED:
         return this.parseList(true);
 
+      case TokenType.NUMBERED_ITEM:
+        return this.parseNumberedItemList();
+
       case TokenType.BLOCKQUOTE:
         return this.parseBlockquote();
 
@@ -108,6 +114,9 @@ export class Parser {
         // Skip comments
         this.advance();
         return null;
+
+      case TokenType.FOOTNOTE_DEF:
+        return this.parseFootnoteDef();
 
       default:
         return this.parseParagraph();
@@ -373,6 +382,113 @@ export class Parser {
     };
   }
 
+  /**
+   * Parse a numbered item list using @@ syntax.
+   * NUMBERED_ITEM tokens have value "level|style" (e.g., "2|a" for @@a)
+   */
+  private parseNumberedItemList(): CSTList {
+    const items: CSTListItem[] = [];
+    const firstToken = this.peek();
+    const startLoc = loc(firstToken.line, firstToken.column);
+
+    while (!this.isAtEnd() && this.check(TokenType.NUMBERED_ITEM)) {
+      const marker = this.advance();
+      const itemLoc = loc(marker.line, marker.column);
+      
+      const content = this.parseInlineContent();
+      const children: CSTNode[] = [];
+
+      // Check for nested content
+      this.skipNewlines();
+      if (this.check(TokenType.INDENT)) {
+        this.advance();
+        
+        while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+          const node = this.parseNode();
+          if (node) {
+            children.push(node);
+          }
+          this.skipNewlines();
+        }
+        
+        if (this.check(TokenType.DEDENT)) {
+          this.advance();
+        }
+      }
+
+      items.push({
+        type: "ListItem",
+        marker: marker.value, // "level|style" encoded
+        content,
+        children,
+        loc: span(
+          itemLoc,
+          children.length > 0 
+            ? children[children.length - 1]!.loc
+            : content.length > 0 
+              ? content[content.length - 1]!.loc 
+              : itemLoc
+        ),
+      });
+      
+      this.skipNewlines();
+    }
+
+    return {
+      type: "List",
+      ordered: true, // NUMBERED_ITEM is always ordered
+      items,
+      loc: span(
+        startLoc,
+        items.length > 0 ? items[items.length - 1]!.loc : startLoc
+      ),
+    };
+  }
+
+  /**
+   * Parse a footnote definition [^label]: content
+   */
+  private parseFootnoteDef(): CSTFootnoteDef {
+    const token = this.advance(); // FOOTNOTE_DEF
+    const startLoc = loc(token.line, token.column);
+    
+    const content: CSTNode[] = [];
+    
+    // Parse inline content on same line
+    const para = this.parseParagraph();
+    if (para && para.content.length > 0) {
+      content.push(para);
+    }
+    
+    // Check for continued content (indented block)
+    this.skipNewlines();
+    if (this.check(TokenType.INDENT)) {
+      this.advance();
+      
+      while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
+        const node = this.parseNode();
+        if (node) {
+          content.push(node);
+        }
+        this.skipNewlines();
+      }
+      
+      if (this.check(TokenType.DEDENT)) {
+        this.advance();
+      }
+    }
+
+    return {
+      type: "FootnoteDef",
+      label: token.value,
+      content,
+      loc: span(
+        startLoc,
+        content.length > 0 ? content[content.length - 1]!.loc : startLoc
+      ),
+    };
+  }
+
   private parseBlockquote(): CSTBlockquote {
     const token = this.advance(); // BLOCKQUOTE
     const startLoc = loc(token.line, token.column);
@@ -533,6 +649,23 @@ export class Parser {
       case TokenType.DIRECTIVE:
         // Inline directive
         return this.parseInlineDirective();
+
+      case TokenType.STRING:
+        // In inline context, STRING is a defined term
+        this.advance();
+        return {
+          type: "DefinedTerm",
+          term: token.value,
+          loc: loc(token.line, token.column),
+        } as CSTDefinedTerm;
+
+      case TokenType.BLANK:
+        this.advance();
+        return {
+          type: "Blank",
+          width: token.value.length,
+          loc: loc(token.line, token.column),
+        } as CSTBlank;
 
       default:
         // Skip unknown inline tokens

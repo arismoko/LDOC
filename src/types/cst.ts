@@ -221,6 +221,22 @@ export interface CSTTab extends CSTBase {
   type: "Tab";
 }
 
+export interface CSTDefinedTerm extends CSTBase {
+  type: "DefinedTerm";
+  term: string;
+}
+
+export interface CSTBlank extends CSTBase {
+  type: "Blank";
+  width: number; // Number of underscores
+}
+
+export interface CSTFootnoteDef extends CSTBase {
+  type: "FootnoteDef";
+  label: string;
+  content: CSTNode[];
+}
+
 export interface CSTInlineDirective extends CSTBase {
   type: "InlineDirective";
   name: string;
@@ -242,6 +258,8 @@ export type CSTInline =
   | CSTCrossRef
   | CSTHardBreak
   | CSTTab
+  | CSTDefinedTerm
+  | CSTBlank
   | CSTInlineDirective;
 
 export type CSTBlock =
@@ -251,7 +269,8 @@ export type CSTBlock =
   | CSTTable
   | CSTBlockquote
   | CSTHorizontalRule
-  | CSTBlankLine;
+  | CSTBlankLine
+  | CSTFootnoteDef;
 
 export type CSTNode =
   | CSTDirective

@@ -146,4 +146,58 @@ describe("Lexer", () => {
       expect(result.tokens[0]!.type).toBe(TokenType.TEXT);
     });
   });
+
+  describe("numbered items (@@)", () => {
+    test("tokenizes @@ as level 2", () => {
+      const result = tokenize("@@ Item");
+      expect(result.tokens[0]!.type).toBe(TokenType.NUMBERED_ITEM);
+      expect(result.tokens[0]!.value).toBe("2|"); // level 2, no style
+    });
+
+    test("tokenizes @@@ as level 3", () => {
+      const result = tokenize("@@@ Item");
+      expect(result.tokens[0]!.type).toBe(TokenType.NUMBERED_ITEM);
+      expect(result.tokens[0]!.value).toBe("3|"); // level 3, no style
+    });
+
+    test("tokenizes @@a with style", () => {
+      const result = tokenize("@@a Item");
+      expect(result.tokens[0]!.type).toBe(TokenType.NUMBERED_ITEM);
+      expect(result.tokens[0]!.value).toBe("2|a"); // level 2, alpha style
+    });
+
+    test("tokenizes @@1 with numeric style", () => {
+      const result = tokenize("@@1 Item");
+      expect(result.tokens[0]!.type).toBe(TokenType.NUMBERED_ITEM);
+      expect(result.tokens[0]!.value).toBe("2|1"); // level 2, decimal style
+    });
+  });
+
+  describe("footnote definitions", () => {
+    test("tokenizes footnote definition", () => {
+      const result = tokenize("[^note]: This is the footnote");
+      expect(result.tokens[0]!.type).toBe(TokenType.FOOTNOTE_DEF);
+      expect(result.tokens[0]!.value).toBe("note");
+    });
+
+    test("distinguishes from footnote reference", () => {
+      const result = tokenize("[^note]");
+      expect(result.tokens[0]!.type).toBe(TokenType.FOOTNOTE_REF);
+    });
+  });
+
+  describe("blanks (fill-in lines)", () => {
+    test("tokenizes blank with 3 underscores", () => {
+      const result = tokenize("Name: ___");
+      const blankToken = result.tokens.find(t => t.type === TokenType.BLANK);
+      expect(blankToken).toBeDefined();
+      expect(blankToken!.value).toBe("___");
+    });
+
+    test("tokenizes blank with many underscores", () => {
+      const result = tokenize("__________");
+      expect(result.tokens[0]!.type).toBe(TokenType.BLANK);
+      expect(result.tokens[0]!.value.length).toBe(10);
+    });
+  });
 });

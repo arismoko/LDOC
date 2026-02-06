@@ -159,6 +159,37 @@ Track architectural decisions and open questions.
 
 ---
 
+### 2026-02-05 - Phase 1 Completion: Missing Features
+
+**Oracle identified 4 critical missing features. All completed:**
+
+1. **NUMBERED_ITEM for `@@`/`@@@` syntax:**
+   - Token value encodes `level|style` (e.g., `"2|a"` for `@@a`)
+   - Parser creates `CSTList` with `ordered: true`
+   - Level is syntactic (counting `@`s), numbering state is semantic (Phase 3)
+
+2. **FOOTNOTE_DEF for `[^label]:` syntax:**
+   - Lexer distinguishes `[^label]:` (definition) from `[^label]` (reference)
+   - Parser creates `CSTFootnoteDef` node with label and content
+
+3. **BLANK for `___` (3+ underscores):**
+   - Lexer emits `BLANK` token with value being the underscore string
+   - Parser creates `CSTBlank` node with `width` property
+
+4. **Defined terms `"Term"` in text context:**
+   - Oracle confirmed: lexer stays dumb, emits `STRING` for all `"..."`
+   - Parser distinguishes context: `STRING` in inline → `CSTDefinedTerm`
+   - This is correct SOC (same pattern as C identifiers, Rust lifetimes)
+
+**New CST types added:**
+- `CSTDefinedTerm` - inline defined term
+- `CSTBlank` - fill-in line
+- `CSTFootnoteDef` - footnote definition (block-level)
+
+**Tests: 55 passing** (up from 42)
+
+---
+
 ## Oracle Review: Phase 1 (2026-02-05)
 
 **Overall Verdict:** Solid work. Architecture is correct. Issues are refinements, not fundamental problems.

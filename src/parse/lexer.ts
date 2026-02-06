@@ -98,6 +98,12 @@ export class Lexer {
       return;
     }
 
+    // Blank (fill-in line) - 3+ underscores
+    if (char === "_" && this.peek(1) === "_" && this.peek(2) === "_") {
+      this.scanBlank();
+      return;
+    }
+
     // Horizontal rule
     if (char === "-" && this.peek(1) === "-" && this.peek(2) === "-") {
       this.scanHorizontalRule();
@@ -311,7 +317,7 @@ export class Lexer {
   }
 
   private scanNumberedDirective(startLine: number, startCol: number): void {
-    let level = 1;
+    let level = 1; // We already consumed first @, now count additional @s
     while (this.peek() === "@") {
       level++;
       this.advance();
@@ -319,12 +325,26 @@ export class Lexer {
     
     // Optional style marker (a, i, A, I, 1)
     let style = "";
-    if (this.isAlphaNumeric(this.peek())) {
+    const nextChar = this.peek();
+    if (nextChar === "1" || nextChar === "a" || nextChar === "A" || 
+        nextChar === "i" || nextChar === "I") {
       style = this.advance();
     }
 
-    const value = "@".repeat(level) + style;
-    this.tokens.push(token(TokenType.NUMBERED, value, startLine, startCol, this.line, this.column));
+    // Validate: must be followed by whitespace/newline/EOF
+    const terminator = this.peek();
+    if (terminator !== " " && terminator !== "\t" && terminator !== "\n" && terminator !== "\0" && !this.isAtEnd()) {
+      // Not a numbered item - treat as directive (e.g., @someone)
+      // Backtrack: we need to re-parse as directive
+      // For now, emit as directive with name being the @s
+      this.tokens.push(token(TokenType.DIRECTIVE, "@".repeat(level - 1) + style, startLine, startCol, this.line, this.column));
+      return;
+    }
+
+    // Emit NUMBERED_ITEM with value encoding "level|style"
+    const value = `${level}|${style}`;
+    this.tokens.push(token(TokenType.NUMBERED_ITEM, value, startLine, startCol, this.line, this.column));
+    this.skipSpaces();
   }
 
   private scanHeader(): void {
@@ -352,6 +372,19 @@ export class Lexer {
     }
 
     this.tokens.push(token(TokenType.HORIZONTAL_RULE, "---", startLine, startCol, this.line, this.column));
+  }
+
+  private scanBlank(): void {
+    const startLine = this.line;
+    const startCol = this.column;
+    let count = 0;
+    
+    while (this.peek() === "_") {
+      count++;
+      this.advance();
+    }
+    
+    this.tokens.push(token(TokenType.BLANK, "_".repeat(count), startLine, startCol, this.line, this.column));
   }
 
   private tryNumberedItem(): boolean {
@@ -443,7 +476,15 @@ export class Lexer {
         label += this.advance();
       }
       if (this.peek() === "]") this.advance();
-      this.tokens.push(token(TokenType.FOOTNOTE_REF, label, startLine, startCol, this.line, this.column));
+      
+      // Check for footnote definition [^label]:
+      if (this.peek() === ":") {
+        this.advance(); // :
+        this.skipSpaces();
+        this.tokens.push(token(TokenType.FOOTNOTE_DEF, label, startLine, startCol, this.line, this.column));
+      } else {
+        this.tokens.push(token(TokenType.FOOTNOTE_REF, label, startLine, startCol, this.line, this.column));
+      }
       return;
     }
 
