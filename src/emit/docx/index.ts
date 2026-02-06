@@ -186,9 +186,12 @@ function compileSections(
   documentStyles: StyledDocument["documentStyles"],
   ctx: EmitContext
 ): ISectionOptions[] {
-  // Find header/footer sections first
-  const headerConfig = findFirstHeaderFooter(docIR.blocks, "header");
-  const footerConfig = findFirstHeaderFooter(docIR.blocks, "footer");
+  // Find header/footer from metadata (set by @header/@footer directives),
+  // falling back to Section blocks in the document body.
+  const headerConfig = docIR.metadata?.headers?.default
+    ?? findFirstHeaderFooter(docIR.blocks, "header");
+  const footerConfig = docIR.metadata?.footers?.default
+    ?? findFirstHeaderFooter(docIR.blocks, "footer");
   
   // Build headers/footers
   const headers = headerConfig ? {
