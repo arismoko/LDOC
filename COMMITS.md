@@ -206,7 +206,7 @@ So we fix this by committing a clean v3 CST + token model and then rewriting lex
 
 ---
 
-### Commit 8 — `feat(v3): implement newline normalization inside paragraph blocks`
+### Commit 8 — `feat(v3): implement newline normalization inside paragraph blocks` ✅
 
 **Changes**
 
@@ -219,17 +219,18 @@ So we fix this by committing a clean v3 CST + token model and then rewriting lex
 **Files**
 
 - `src/parse/parser.ts`
-- `src/types/cst.ts` (hard break inline node)
 
 **Done when**
 
 - Your earlier bracket paragraph behavior is correctly represented in CST.
 
+**Status**: ✅ Complete
+
 ---
 
 # Phase C — desugar + directive contracts
 
-### Commit 9 — `feat(v3-desugar): desugar @name[...] into @name{[...]}`
+### Commit 9 — `feat(v3-desugar): desugar @name[...] into @name{[...]}` ✅
 
 **Changes**
 
@@ -244,6 +245,8 @@ So we fix this by committing a clean v3 CST + token model and then rewriting lex
 **Done when**
 
 - Downstream phases only need to handle structural bodies + paragraph blocks.
+
+**Status**: ✅ Complete (handled in commit 7)
 
 ---
 
