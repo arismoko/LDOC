@@ -98,7 +98,9 @@
 
 # Phase D — binding (`@def`) + symbols
 
-### Commit 11 — `feat(v3-symbols): replace macro symbols with def symbols`
+### Commit 11 — `feat(v3-symbols): replace macro symbols with def symbols` ✅
+
+**Status**: ✅ Complete
 
 **Changes**
 

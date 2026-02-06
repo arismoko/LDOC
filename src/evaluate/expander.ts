@@ -1,5 +1,5 @@
 /**
- * Macro expansion: @use, @slot, @set
+ * Expansion: legacy @use, @slot, @set (all removed in v3)
  *
  * STUBBED for v3 migration (commit 9.1).
  * Will be rewritten when evaluator is rewritten (commit 15).
@@ -10,9 +10,9 @@ import type { Block } from "../types/document-ir.ts";
 import type { EvaluatorContext, TransformFunction } from "./evaluator.ts";
 
 /**
- * Process @use directive - expand macro.
+ * Process @use directive (removed in v3).
  *
- * STUBBED — throws error. Macros replaced by @def in v3.
+ * STUBBED — throws error. Use @def instead.
  */
 export function processUse(
   _directive: CSTDirective,

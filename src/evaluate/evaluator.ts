@@ -42,9 +42,9 @@ export type TransformFunction = (node: CSTNode, ctx: EvaluatorContext) => Block[
 export interface EvaluateOptions {
   /** Initial variables */
   variables?: Record<string, unknown>;
-  /** Maximum macro expansion depth */
+  /** Maximum evaluation depth */
   maxDepth?: number;
-  /** Maximum iterations for @foreach/@repeat */
+  /** Maximum iterations for loops */
   maxIterations?: number;
 }
 

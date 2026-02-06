@@ -2,9 +2,9 @@
  * Symbol Table and Bound AST types.
  * 
  * Output of the BIND phase:
- * - Symbol table with all @define macros indexed
+ * - Symbol table with all @def bindings indexed
  * - Style table with all @style definitions indexed
- * - Bound AST where @use references are linked to their definitions
+ * - Bound AST where references are linked to their definitions
  */
 
 import type { SourceLocation } from "./source-location.ts";
@@ -16,36 +16,26 @@ import type { Diagnostic } from "./diagnostics.ts";
 // =============================================================================
 
 export interface SymbolTable {
-  /** All macro definitions */
-  macros: Map<string, MacroSymbol>;
+  /** All @def bindings (Spec §9) */
+  defs: Map<string, DefSymbol>;
   /** All style definitions */
   styles: Map<string, StyleSymbol>;
-  /** All footnote definitions */
-  footnotes: Map<string, FootnoteSymbol>;
   /** All anchor definitions (for cross-references) */
   anchors: Map<string, AnchorSymbol>;
-  /** Variables from @document or @set */
-  variables: Map<string, VariableSymbol>;
 }
 
-export interface MacroSymbol {
+/**
+ * A @def binding (Spec §9).
+ * Keys are identifiers, values are JSON5 values or evaluated $() expressions.
+ */
+export interface DefSymbol {
   name: string;
-  /** Parameter names */
-  parameters: ParameterDef[];
-  /** The macro body (CST nodes to expand) */
-  body: CSTNode[];
-  /** Where the macro was defined */
+  /** The value (JSON5 value or evaluated expression result) */
+  value: unknown;
+  /** Where the def was defined */
   definedAt: SourceLocation;
-  /** All locations where this macro is used (for unused detection) */
+  /** All locations where this def is referenced */
   usages: SourceLocation[];
-}
-
-export interface ParameterDef {
-  name: string;
-  /** Default value (if any) */
-  defaultValue?: unknown;
-  /** Is this a rest parameter? */
-  rest?: boolean;
 }
 
 export interface StyleSymbol {
@@ -59,23 +49,8 @@ export interface StyleSymbol {
   usages: SourceLocation[];
 }
 
-export interface FootnoteSymbol {
-  label: string;
-  /** The footnote content */
-  content: CSTNode[];
-  definedAt: SourceLocation;
-  usages: SourceLocation[];
-}
-
 export interface AnchorSymbol {
   name: string;
-  definedAt: SourceLocation;
-  usages: SourceLocation[];
-}
-
-export interface VariableSymbol {
-  name: string;
-  value: unknown;
   definedAt: SourceLocation;
   usages: SourceLocation[];
 }
@@ -83,25 +58,6 @@ export interface VariableSymbol {
 // =============================================================================
 // Bound AST Nodes
 // =============================================================================
-
-/**
- * A @use node with its symbol resolved.
- */
-export interface BoundUse {
-  type: "BoundUse";
-  /** The resolved macro symbol */
-  symbol: MacroSymbol;
-  /** The arguments passed to the macro */
-  arguments: BoundArgument[];
-  loc: SourceLocation;
-}
-
-export interface BoundArgument {
-  /** Parameter name (resolved from position or explicit name) */
-  parameterName: string;
-  /** The value CST node */
-  value: CSTArgument;
-}
 
 /**
  * A style reference with its symbol resolved.
@@ -124,16 +80,6 @@ export interface BoundCrossRef {
   loc: SourceLocation;
 }
 
-/**
- * A footnote reference with its definition resolved.
- */
-export interface BoundFootnoteRef {
-  type: "BoundFootnoteRef";
-  symbol: FootnoteSymbol | null;
-  label: string;
-  loc: SourceLocation;
-}
-
 // =============================================================================
 // Bind Result
 // =============================================================================
@@ -153,10 +99,8 @@ export interface BindResult {
 
 export function createSymbolTable(): SymbolTable {
   return {
-    macros: new Map(),
+    defs: new Map(),
     styles: new Map(),
-    footnotes: new Map(),
     anchors: new Map(),
-    variables: new Map(),
   };
 }

@@ -2,7 +2,7 @@
  * Document IR (Intermediate Representation)
  * 
  * This is the CRITICAL abstraction in the pipeline:
- * - Output of EVALUATE phase (after macro expansion and control flow)
+ * - Output of EVALUATE phase (after Lua evaluation and expansion)
  * - Input to STYLE phase
  * - NO DIRECTIVES remain - only pure document content
  * - Format-agnostic - same representation regardless of output format

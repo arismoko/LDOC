@@ -20,7 +20,7 @@ export function cloneNodes<T extends CSTNode>(nodes: T[]): T[] {
 
 /**
  * Apply a scope prefix to node identifiers.
- * Used to create unique IDs when expanding macros.
+ * Used to create unique IDs when expanding definitions.
  */
 export function applyScopePrefix(node: CSTNode, prefix: string): CSTNode {
   // For now, we just return the node as-is
