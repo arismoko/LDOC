@@ -115,23 +115,29 @@ export class Lexer {
       return;
     }
 
-    // Brace
+    // Braces
     if (char === "{") {
       this.emit(TokenType.LBRACE, "{");
       this.advance();
       return;
     }
 
-    // Paren
+    if (char === "}") {
+      this.emit(TokenType.RBRACE, "}");
+      this.advance();
+      return;
+    }
+
+    // Parens
     if (char === "(") {
       this.emit(TokenType.LPAREN, "(");
       this.advance();
       return;
     }
 
-    // Bracket for list markers
-    if (char === "@") {
-      this.scanListMarker();
+    if (char === ")") {
+      this.emit(TokenType.RPAREN, ")");
+      this.advance();
       return;
     }
 
@@ -190,9 +196,44 @@ export class Lexer {
     const startCol = this.column;
     this.advance(); // skip @
 
+    // Check for list markers: @- or @#
+    // Also handle nested list markers: @@-, @@@-, @@#, etc.
+    const nextChar = this.peek();
+    if (nextChar === "-") {
+      this.advance(); // consume -
+      this.emit(TokenType.LIST_BULLET, "@-", startLine, startCol, this.line, this.column);
+      return;
+    }
+    if (nextChar === "#") {
+      this.advance(); // consume #
+      this.emit(TokenType.LIST_ORDERED, "@#", startLine, startCol, this.line, this.column);
+      return;
+    }
+    if (nextChar === "@") {
+      // Nested list marker: @@-, @@@-, @@#, etc.
+      let depth = 1; // already consumed one @
+      while (this.peek() === "@") {
+        depth++;
+        this.advance();
+      }
+      if (this.peek() === "-") {
+        this.advance();
+        this.emit(TokenType.LIST_BULLET, "@".repeat(depth) + "-", startLine, startCol, this.line, this.column);
+        return;
+      }
+      if (this.peek() === "#") {
+        this.advance();
+        this.emit(TokenType.LIST_ORDERED, "@".repeat(depth) + "#", startLine, startCol, this.line, this.column);
+        return;
+      }
+      // Not a list marker, these @@ are text
+      this.tokens.push(token(TokenType.TEXT, "@".repeat(depth), startLine, startCol, this.line, this.column));
+      return;
+    }
+
     // Read directive name
     let name = "";
-    while (!this.isAtEnd() && (this.isAlphaNumeric(this.peek()) || this.peek() === "_")) {
+    while (!this.isAtEnd() && (this.isAlphaNumeric(this.peek()) || this.peek() === "_" || this.peek() === "-")) {
       name += this.advance();
     }
 
@@ -208,49 +249,7 @@ export class Lexer {
     }
 
     this.emit(TokenType.DIRECTIVE, name, startLine, startCol, this.line, this.column);
-
-    // If ( immediately follows the directive name, it's argument syntax
-    if (this.peek() === "(") {
-      this.advance();
-      this.emit(TokenType.LPAREN, "(");
-      this.advance();
-    }
-  }
-
-  private scanListMarker(): void {
-    const startLine = this.line;
-    const startCol = this.column;
-
-    // Count leading @ symbols
-    let depth = 0;
-    while (this.peek() === "@") {
-      depth++;
-      this.advance();
-    }
-
-    // Check for continuation (same line)
-    if (this.peek() === "-") {
-      this.emit(TokenType.LIST_CONTINUATION, "@-", startLine, startCol, this.line, this.column);
-      this.advance();
-      this.advance();
-      return;
-    }
-
-    if (this.peek() === "#") {
-      this.advance();
-      if (depth === 1) {
-        this.emit(TokenType.LIST_ORDERED, "@#", startLine, startCol, this.line, this.column);
-      } else {
-        // Multiple @ for nested ordered lists
-        this.emit(TokenType.LIST_ORDERED, "@".repeat(depth) + "#", startLine, startCol, this.line, this.column);
-      }
-      this.advance();
-      return;
-    }
-
-    // Unknown marker at line start - emit as text
-    this.tokens.push(token(TokenType.TEXT, "@", startLine, startCol, this.line, this.column + 1));
-    this.advance();
+    // The ( after a directive name will be handled by the main scanToken loop
   }
 
   private scanIdentifier(): void {
@@ -322,6 +321,7 @@ export class Lexer {
         char === "\n" ||
         char === "@" ||
         char === "{" ||
+        char === "}" ||
         char === "$" ||
         char === "[" ||
         char === "]" ||

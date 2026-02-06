@@ -47,7 +47,7 @@ const cache = new Map<string, DocumentCache>();
  */
 function hasImports(cst: CSTDocument): boolean {
   for (const node of cst.children) {
-    if (node.type === "Directive" && (node as CSTDirective).name === "import") {
+    if (node.kind === "Directive" && (node as CSTDirective).name === "import") {
       return true;
     }
   }

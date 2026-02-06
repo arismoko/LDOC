@@ -33,7 +33,7 @@ import type {
   ParseResult,
 } from "../types/cst.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
-import { error, DiagnosticCode } from "../types/diagnostics.ts";
+import { error, warning, DiagnosticCode } from "../types/diagnostics.ts";
 import { loc } from "../types/source-location.ts";
 
 /**
@@ -173,7 +173,7 @@ function parseDirective(ctx: ParseContext): Directive | null {
   // Parse body if present and it's a structural opener
   const bodyToken = peekToken(ctx);
   if (bodyToken && bodyToken.type === TokenType.LBRACE) {
-    body = parseStructuralBody(ctx);
+    body = parseStructuralBody(ctx) ?? undefined;
   }
 
   // If there's a paragraph block after (sugar form @name[...]), handle it
@@ -333,7 +333,7 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
   // Parse body if present and it's a structural opener
   const bodyToken = peekToken(ctx);
   if (bodyToken && bodyToken.type === TokenType.LBRACE) {
-    body = parseStructuralBody(ctx);
+    body = parseStructuralBody(ctx) ?? undefined;
   }
 
   return {
@@ -365,24 +365,18 @@ function parseParagraphBlock(ctx: ParseContext): ParagraphBlock | null {
     const token = peekToken(ctx);
     if (!token) break;
 
-    // Nested paragraph block
+    // Nested paragraph block — Spec §4.2: "Paragraph blocks MUST NOT be nested."
+    // Emit a diagnostic and treat `[` as literal text.
     if (token.type === TokenType.PARA_OPEN) {
-      // Flush current text buffer
-      if (textBuffer) {
-        inlines.push({
-          kind: "InlineText",
-          loc: loc(token.line, token.column),
-          text: textBuffer,
-        });
-        textBuffer = "";
-      }
-
-      // Recursively parse nested paragraph
-      const nestedPara = parseParagraphBlock(ctx);
-      if (nestedPara) {
-        inlines.push(nestedPara);
-      }
-
+      ctx.diagnostics.push(
+        warning(
+          DiagnosticCode.UNEXPECTED_TOKEN,
+          `Nested paragraph blocks are not allowed (Spec §4.2). Treating '[' as literal text.`,
+          loc(token.line, token.column)
+        )
+      );
+      textBuffer += "[";
+      ctx.pos++;
       consecutiveNewlines = 0;
       continue;
     }

@@ -1,18 +1,13 @@
 /**
  * Control flow handling: @if, @elseif, @else, @foreach, @repeat
  *
- * LEGACY / UNUSED IN V3 - This entire module is deprecated.
+ * LEGACY / UNUSED IN V3 — This entire module is deprecated.
  * Lua runtime will handle logic via @lua{}.
  *
  * Stub implementations that throw errors if called.
  */
 
-import type { CSTNode, CSTDirective } from "../types/cst.ts";
 import type { Block } from "../types/document-ir.ts";
-import type { Diagnostic } from "../types/diagnostics.ts";
-import { DiagnosticCode, error } from "../types/diagnostics.ts";
-import { evalCondition, truthy, resolveVariable } from "./expressions.ts";
-import { cloneNodes } from "./utils.ts";
 import type { EvaluatorContext, TransformFunction } from "./evaluator.ts";
 
 /**
@@ -29,11 +24,10 @@ export interface LoopVariables {
 /**
  * Process @if directive with optional @elseif/@else chain.
  *
- * LEGACY / UNUSED IN V3 - Stub that throws error.
- * Lua runtime will handle logic via @lua{}.
+ * LEGACY / UNUSED IN V3 — Stub that throws error.
  */
 export function processIf(
-  _directive: any,
+  _directive: unknown,
   _ctx: EvaluatorContext,
   _transform: TransformFunction
 ): Block[] {
@@ -43,11 +37,10 @@ export function processIf(
 /**
  * Process @foreach directive.
  *
- * LEGACY / UNUSED IN V3 - Stub that throws error.
- * Lua runtime will handle logic via @lua{}.
+ * LEGACY / UNUSED IN V3 — Stub that throws error.
  */
 export function processForeach(
-  _directive: any,
+  _directive: unknown,
   _ctx: EvaluatorContext,
   _transform: TransformFunction
 ): Block[] {
@@ -57,11 +50,10 @@ export function processForeach(
 /**
  * Process @repeat directive.
  *
- * LEGACY / UNUSED IN V3 - Stub that throws error.
- * Lua runtime will handle logic via @lua{}.
+ * LEGACY / UNUSED IN V3 — Stub that throws error.
  */
 export function processRepeat(
-  _directive: any,
+  _directive: unknown,
   _ctx: EvaluatorContext,
   _transform: TransformFunction
 ): Block[] {

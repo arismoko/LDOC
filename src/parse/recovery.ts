@@ -16,10 +16,9 @@ import { TokenType, type Token } from "../types/tokens.ts";
  */
 export const SYNC_TOKENS: TokenType[] = [
   TokenType.DIRECTIVE,
-  TokenType.HEADER_MARKER,
-  TokenType.BULLET,
-  TokenType.NUMBERED_ITEM,
-  TokenType.FOOTNOTE_DEF,
+  TokenType.LIST_BULLET,
+  TokenType.LIST_ORDERED,
+  TokenType.PARA_OPEN,
 ];
 
 /**
@@ -28,7 +27,6 @@ export const SYNC_TOKENS: TokenType[] = [
  */
 export const BOUNDARY_TOKENS: TokenType[] = [
   TokenType.BLANK_LINE,
-  TokenType.DEDENT,
   TokenType.EOF,
 ];
 
@@ -160,6 +158,6 @@ export class ErrorRecovery {
   shouldStopRecovery(position: number): boolean {
     const token = this.tokens[position];
     if (!token) return true;
-    return token.type === TokenType.EOF || token.type === TokenType.DEDENT;
+    return token.type === TokenType.EOF;
   }
 }

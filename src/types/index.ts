@@ -20,7 +20,20 @@ export * from "./diagnostics.ts";
 export * from "./tokens.ts";
 
 // CST types (parser output)
-export * from "./cst.ts";
+// NOTE: CST and Document IR share some type names (Document, Block, Table, etc.)
+// We re-export CST under its own namespace, plus backward-compat aliases.
+export * as CST from "./cst.ts";
+// Also re-export the backward-compatible aliases at top level for migration
+export type {
+  CSTDocument,
+  CSTNode,
+  CSTDirective,
+  CSTParagraph,
+  CSTInline,
+  CSTText,
+  CSTArgument,
+  ParseResult,
+} from "./cst.ts";
 
 // Symbol table and binding (bind phase output)
 export * from "./symbols.ts";

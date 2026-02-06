@@ -8,7 +8,7 @@
  */
 
 import type { SourceLocation } from "./source-location.ts";
-import type { CSTDocument, CSTNode, CSTArgument } from "./cst.ts";
+import type { CSTDocument, CSTNode, CSTArgument, Document, Block } from "./cst.ts";
 import type { Diagnostic } from "./diagnostics.ts";
 
 // =============================================================================
