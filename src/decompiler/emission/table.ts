@@ -133,30 +133,31 @@ function emitCell(
   lines.push(`${ctx.indent}@cell${attrs}`);
   const childCtx = indentContext(ctx);
 
-  // Check for leading empty paragraphs
-  let leadEmpty = 0;
-  for (const para of cell.paragraphs) {
+  // Emit each paragraph, with blank lines between them (paragraph separators)
+  for (let i = 0; i < cell.paragraphs.length; i++) {
+    const para = cell.paragraphs[i]!;
     const isEmpty =
       para.content.length === 0 ||
       para.content.every(
         (c) => "text" in c && c.text.trim() === "" && !c.hardBreak && !c.tab
       );
+
     if (isEmpty) {
-      leadEmpty++;
+      // Empty paragraph — emit blank line for paragraph separator
+      // plus an indented empty line (creates EMPTY_PARAGRAPH token)
+      if (i > 0) {
+        lines.push("");
+      }
+      lines.push(`${childCtx.indent}`);
     } else {
-      break;
-    }
-  }
-
-  if (leadEmpty > 0) {
-    lines.push(""); // Extra blank for parser
-  }
-
-  // Emit each paragraph
-  for (const para of cell.paragraphs) {
-    const paraContent = emitInlineContent(para.content, ctx);
-    for (const line of paraContent.split("\n")) {
-      lines.push(`${childCtx.indent}${line}`);
+      // Non-empty paragraph — separate from previous with blank line
+      if (i > 0) {
+        lines.push("");
+      }
+      const paraContent = emitInlineContent(para.content, ctx);
+      for (const line of paraContent.split("\n")) {
+        lines.push(`${childCtx.indent}${line}`);
+      }
     }
   }
 
