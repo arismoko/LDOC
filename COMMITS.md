@@ -53,7 +53,7 @@ I’m assuming you want **one mainline v3** (not “v2 + v3 side-by-side”), bu
 
 ---
 
-### Commit 2 — `chore(cli): remove decompile command + update help text`
+### Commit 2 — `chore(cli): remove decompile command + update help text` ✅
 
 **Changes**
 
@@ -67,6 +67,8 @@ I’m assuming you want **one mainline v3** (not “v2 + v3 side-by-side”), bu
 **Done when**
 
 - CLI only supports `compile`, `parse`, `validate`, `init` (or `init-v3`).
+
+**Status**: ✅ Complete
 
 ---
 
