@@ -348,13 +348,55 @@ export class Parser {
     const name = token.value;
     const { args, incomplete: argsIncomplete } = this.parseArgumentsWithRecovery();
     
-    // Check for body (indented block)
+    // Check for inline body: @directive: content (colon-space syntax)
+    // This must be checked BEFORE skipBreaks() since it's on the same line
     let body: CSTNode[] | null = null;
     let opaqueBody: string | undefined;
     let bodyIncomplete: IncompleteMarker | undefined;
+
+    if (this.check(TokenType.TEXT) && (this.peek().value.startsWith(": ") || this.peek().value === ":")) {
+      // Consume the ": " prefix token — inline body syntax: @directive: content
+      const colonToken = this.advance();
+      const colonLine = colonToken.line;
+      const remainder = colonToken.value.startsWith(": ") ? colonToken.value.slice(2) : colonToken.value.slice(1);
+
+      // Parse inline content from the remaining tokens on this SAME LINE as body
+      const content: CSTInline[] = [];
+
+      // If there was text after ": " in the same token, create a synthetic text node
+      if (remainder) {
+        content.push({
+          type: "Text",
+          value: remainder,
+          loc: loc(colonToken.line, colonToken.column + 2, colonToken.endLine, colonToken.endColumn),
+        } as CSTText);
+      }
+
+      // Continue parsing inline content on the same line only
+      while (!this.isAtEnd() && !this.isBlockEnd() && this.peek().line === colonLine) {
+        const inline = this.parseInline();
+        if (inline) {
+          content.push(inline);
+        }
+      }
+
+      if (content.length > 0) {
+        body = [{
+          type: "Paragraph",
+          content,
+          loc: span(
+            content[0]!.loc,
+            content[content.length - 1]!.loc,
+          ),
+        } as CSTParagraph];
+      } else {
+        body = []; // Empty inline body: @cell:
+      }
+    }
+
     this.skipBreaks();
     
-    if (this.check(TokenType.INDENT)) {
+    if (body === null && this.check(TokenType.INDENT)) {
       // Check if this is an opaque-body directive
       if (Parser.OPAQUE_BODY_DIRECTIVES.has(name)) {
         opaqueBody = this.parseOpaqueBody();
@@ -378,7 +420,7 @@ export class Parser {
           this.advance();
         }
       }
-    } else if (directiveRequiresBody(name)) {
+    } else if (body === null && directiveRequiresBody(name)) {
       // No body present but directive requires one
       bodyIncomplete = missingBody(name);
     }
