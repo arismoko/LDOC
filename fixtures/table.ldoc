@@ -1,0 +1,19 @@
+@document(
+  title: "Test Table",
+  author: "Test Author",
+)
+
+[This document demonstrates LDOC v3 table syntax.]
+
+@table{
+  @row(cells: ["Header 1", "Header 2", "Header 3"])
+  @row(cells: ["Row 1", "Cell 2", "Cell 3"])
+  @row(cells: ["Row 2", "Cell 2", "Cell 3"])
+}
+
+[Table with merged cells:]
+@table{
+  @row(cells: ["Header 1", ">", "Header 3"])
+  @row(cells: ["Row 1", "Cell 2", "Cell 3"])
+  @row(cells: ["Row 2", "^", "Cell 3"])
+}

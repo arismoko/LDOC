@@ -10,6 +10,7 @@
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target node",
     "test": "bun test",
+    "smoke": "bun run src/cli/dev-smoke.ts",
     "pack": "bunx repomix",
     "ldoc": "bun run src/cli/index.ts"
   },

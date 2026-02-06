@@ -1,0 +1,15 @@
+@document(
+  title: "Test List",
+  author: "Test Author",
+)
+
+[This document demonstrates LDOC v3 list syntax.]
+[Lists use markers at the start of lines:]
+@[First bullet point.]
+@[Second bullet point.]
+@[Third bullet point.]
+
+[This is a numbered list:]
+@[Item one.]
+@[Item two.]
+@[Item three.]
