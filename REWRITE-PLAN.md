@@ -3,10 +3,98 @@
 ## Mission Statement
 
 Build a **professional-grade language toolchain** with:
+
 - **Precision**: Each phase has one job, does it perfectly
 - **Elegance**: Clean types, clear data flow, no tangled concerns
 - **SOC**: Separation of concerns at every level
 - **Debuggability**: Inspectable IR at every phase boundary
+
+---
+
+## Oracle Review Template
+
+Use this prompt when asking @oracle to review phase completion:
+
+```markdown
+## Review Request: Phase N (NAME) Completion
+
+You are reviewing Phase N of the LDOC compiler rewrite. Your job is to **APPROVE or DENY** completion.
+
+### Files to Review
+
+**Plan & Context:**
+- `/home/ari/Work/tries/2026-02-02-mdsldocx/REWRITE-PLAN.md` - The architecture plan (Phase N section)
+- `/home/ari/Work/tries/2026-02-02-mdsldocx/DEFERRED-JOURNAL.md` - Deferred items and decisions
+
+**Old Implementation (for comparison):**
+- [list relevant src.bak/ files]
+
+**New Implementation (to review):**
+- [list new src/ files]
+
+**Tests:**
+- [list test files]
+
+### Review Criteria
+
+**1. Plan Compliance**
+- Does the implementation match REWRITE-PLAN.md Phase N spec?
+- Are all stated deliverables present?
+
+**2. DRY Violations**
+- Is there duplicated code?
+- Are there repeated patterns that should be extracted?
+
+**3. YAGNI Violations**
+- Is there code that isn't needed yet?
+- Are there over-engineered abstractions?
+- Features that should be deferred to later phases?
+
+**4. KISS Violations**
+- Is the code unnecessarily complex?
+- Could simpler approaches achieve the same result?
+- Are there convoluted patterns that could be straightened?
+
+**5. Test Coverage**
+- Are critical paths tested?
+- Are edge cases covered?
+- Any obvious gaps?
+
+**6. Type Safety**
+- Proper use of TypeScript strict mode?
+- Any unsafe type assertions that could be avoided?
+
+### Output Format
+
+Respond with:
+
+## VERDICT: [APPROVE / DENY]
+
+### Summary
+[1-2 sentence summary]
+
+### DRY Issues
+[List any violations, or "None found"]
+
+### YAGNI Issues  
+[List any violations, or "None found"]
+
+### KISS Issues
+[List any violations, or "None found"]
+
+### Other Issues
+[Any other concerns]
+
+### Required Changes (if DENY)
+[Numbered list of must-fix items]
+
+### Recommendations (if APPROVE)
+[Optional improvements for later]
+
+Be strict. Deny if there are significant violations.
+```
+
+---
 
 ## Architecture: The 5-Phase Pipeline
 
@@ -78,7 +166,7 @@ src/
 ├── index.ts                 # Public API exports
 ├── types/                   # Shared type definitions
 │   ├── cst.ts              # Concrete Syntax Tree types
-│   ├── ast.ts              # Bound AST types  
+│   ├── ast.ts              # Bound AST types
 │   ├── symbols.ts          # Symbol table types
 │   ├── document-ir.ts      # Document IR types (the key abstraction)
 │   ├── styled.ts           # Styled document types
@@ -134,20 +222,23 @@ src/
 
 **Goal**: Define all IR types and implement the parser.
 
-**Reference**: 
+**Reference**:
+
 - `src.bak/parser/` - existing lexer/parser logic
 - `tests.bak/parser.test.ts` - existing parser tests
 
 **Deliverables**:
+
 1. `src/types/*.ts` - All type definitions (CST, AST, DocumentIR, etc.)
 2. `src/parse/` - Lexer and parser producing CST
 3. `tests/parse.test.ts` - Parser tests (port from tests.bak)
 
 **Regression Check**:
-- [ ] All parser tests from `tests.bak/parser.test.ts` pass
+
 - [ ] CST can represent all LDOC syntax
 
-**Deferred**: 
+**Deferred**:
+
 - LSP integration (Phase 6)
 - Formatter (Phase 6)
 
@@ -160,14 +251,17 @@ src/
 **Goal**: Implement name resolution and symbol table construction.
 
 **Reference**:
+
 - `src.bak/compiler/expansion/expander.ts` - macro resolution logic
 - `src.bak/import/resolver.ts` - import handling
 
 **Deliverables**:
+
 1. `src/bind/` - Binder producing Symbol Table
 2. `tests/bind.test.ts` - Binding tests
 
 **Regression Check**:
+
 - [ ] @define macros are indexed
 - [ ] @use references are linked
 - [ ] @import files are loaded and bound
@@ -175,6 +269,7 @@ src/
 - [ ] Cycle detection works
 
 **Deferred**:
+
 - Style binding (moved to Phase 4 prep)
 
 **Journal**: Update `DEFERRED-JOURNAL.md` with any deferred items, regressions, or decisions.
@@ -186,15 +281,18 @@ src/
 **Goal**: Expand macros and evaluate control flow, producing Document IR.
 
 **Reference**:
+
 - `src.bak/compiler/expansion/expander.ts` - expansion logic
 - `src.bak/compiler/expansion/control-flow.ts` - @if/@foreach
 - `src.bak/compiler/conditions.ts` - expression evaluation
 
 **Deliverables**:
+
 1. `src/evaluate/` - Evaluator producing Document IR
 2. `tests/evaluate.test.ts` - Evaluation tests
 
 **Regression Check**:
+
 - [ ] @use expands correctly with parameters
 - [ ] @if branches correctly based on conditions
 - [ ] @foreach iterates correctly
@@ -203,6 +301,7 @@ src/
 - [ ] Variables are substituted
 
 **Deferred**:
+
 - Complex expression features (filters, etc.) - document and implement incrementally
 
 **Journal**: Update `DEFERRED-JOURNAL.md` with any deferred items, regressions, or decisions.
@@ -214,20 +313,24 @@ src/
 **Goal**: Resolve style references to concrete values.
 
 **Reference**:
+
 - `src.bak/compiler/styles.ts` - style handling
 - `src.bak/shared/style-types.ts` - style type definitions
 
 **Deliverables**:
+
 1. `src/style/` - Style resolver
 2. `tests/style.test.ts` - Style tests
 
 **Regression Check**:
+
 - [ ] @style definitions are applied
 - [ ] Style inheritance works
 - [ ] Default styles are applied
 - [ ] All style properties resolve to concrete values
 
 **Deferred**:
+
 - Complex style features (document in journal)
 
 **Journal**: Update `DEFERRED-JOURNAL.md` with any deferred items, regressions, or decisions.
@@ -239,6 +342,7 @@ src/
 **Goal**: Transform Styled Document to DOCX.
 
 **Reference**:
+
 - `src.bak/compiler/visitors/docx-visitor.ts` - DOCX generation
 - `src.bak/compiler/visitors/inline-visitor.ts` - inline handling
 - `src.bak/compiler/table.ts` - table generation
@@ -246,11 +350,13 @@ src/
 - `src.bak/compiler/section-builder.ts` - sections
 
 **Deliverables**:
+
 1. `src/emit/docx/` - DOCX emitter
 2. `tests/emit.test.ts` - Emission tests
 3. Integration tests that compile full documents
 
 **Regression Check**:
+
 - [ ] Simple paragraphs render
 - [ ] Headings render with correct styles
 - [ ] Tables render correctly
@@ -261,6 +367,7 @@ src/
 - [ ] Footnotes work
 
 **Deferred**:
+
 - HTML emitter (future)
 - PDF emitter (future)
 
@@ -273,18 +380,21 @@ src/
 **Goal**: Wire everything together, port CLI, LSP, decompiler integration.
 
 **Reference**:
+
 - `src.bak/cli/index.ts` - CLI
 - `src.bak/lsp/` - LSP server
 - `src.bak/decompiler/` - Decompiler (mostly keep as-is)
 - `src.bak/formatter/` - Formatter
 
 **Deliverables**:
+
 1. `src/cli/` - CLI using new pipeline
 2. `src/lsp/` - LSP using new parser/binder
 3. Port decompiler to use new types where needed
 4. Formatter using new CST
 
 **Regression Check**:
+
 - [ ] `ldoc compile` works
 - [ ] `ldoc decompile` works
 - [ ] LSP provides completions
@@ -298,9 +408,9 @@ src/
 
 Track items deferred to later phases:
 
-| Item | Deferred From | Deferred To | Reason |
-|------|---------------|-------------|--------|
-| (to be filled during implementation) | | | |
+| Item                                 | Deferred From | Deferred To | Reason |
+| ------------------------------------ | ------------- | ----------- | ------ |
+| (to be filled during implementation) |               |             |        |
 
 ---
 
@@ -373,7 +483,7 @@ The rewrite is complete when:
 
 ```bash
 # Run tests
-bun test
+bun test tests/
 
 # Run specific phase tests
 bun test tests/parse.test.ts

@@ -7,8 +7,18 @@
  * - Ready for format-specific emission
  */
 
-import type { Document, Block, Inline, InlineStyleProps } from "./document-ir.ts";
+import type { Document, Block, Inline, InlineStyleProps, StyleRef } from "./document-ir.ts";
 import type { Diagnostic } from "./diagnostics.ts";
+
+// =============================================================================
+// Style Resolver Function
+// =============================================================================
+
+/**
+ * Function that resolves a StyleRef to a ComputedStyle.
+ * Passed to EMIT phase so it can resolve styles on-demand.
+ */
+export type StyleResolver = (styleRef: StyleRef) => ComputedStyle;
 
 // =============================================================================
 // Computed Style
@@ -138,6 +148,8 @@ export interface StyledDocument {
   styleDefinitions: StyleDefinition[];
   /** Numbering definitions for DOCX numbering.xml */
   numberingDefinitions: NumberingDefinition[];
+  /** Resolve any StyleRef to concrete ComputedStyle */
+  resolveStyle: StyleResolver;
 }
 
 export interface DocumentStyles {

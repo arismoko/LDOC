@@ -139,6 +139,13 @@ export class Lexer {
       return;
     }
 
+    // Single { - emit as text to prevent infinite loop
+    if (char === "{") {
+      this.tokens.push(token(TokenType.TEXT, "{", this.line, this.column, this.line, this.column + 1));
+      this.advance();
+      return;
+    }
+
     // Bold **
     if (char === "*" && this.peek(1) === "*") {
       this.scanEmphasis("**", TokenType.BOLD_MARKER);
@@ -154,6 +161,13 @@ export class Lexer {
     // Strikethrough ~~
     if (char === "~" && this.peek(1) === "~") {
       this.scanEmphasis("~~", TokenType.STRIKE_MARKER);
+      return;
+    }
+
+    // Single ~ - emit as text to prevent infinite loop
+    if (char === "~") {
+      this.tokens.push(token(TokenType.TEXT, "~", this.line, this.column, this.line, this.column + 1));
+      this.advance();
       return;
     }
 
@@ -178,6 +192,13 @@ export class Lexer {
     // Image
     if (char === "!" && this.peek(1) === "[") {
       this.scanImage();
+      return;
+    }
+    
+    // Lone ! (not image) - include in text
+    if (char === "!") {
+      this.tokens.push(token(TokenType.TEXT, "!", this.line, this.column, this.line, this.column + 1));
+      this.advance();
       return;
     }
 
@@ -413,26 +434,35 @@ export class Lexer {
     this.advance(); // {
 
     let expr = "";
+    let incomplete = false;
+    
     while (!this.isAtEnd() && !(this.peek() === "}" && this.peek(1) === "}")) {
       if (this.peek() === "\n") {
+        // Unclosed variable - emit diagnostic but still create token with incomplete flag
         this.diagnostics.push(
           error(
             DiagnosticCode.UNCLOSED_BLOCK,
-            "Unclosed variable expression",
+            "Unclosed variable expression - missing }}",
             loc(startLine, startCol)
           )
         );
-        return;
+        incomplete = true;
+        break;
       }
       expr += this.advance();
     }
 
-    if (!this.isAtEnd()) {
+    if (!incomplete && !this.isAtEnd()) {
       this.advance(); // }
       this.advance(); // }
     }
 
-    this.tokens.push(token(TokenType.VARIABLE, expr.trim(), startLine, startCol, this.line, this.column));
+    // Always emit a token, with incomplete flag if needed
+    const tok = token(TokenType.VARIABLE, expr.trim(), startLine, startCol, this.line, this.column);
+    if (incomplete) {
+      tok.incomplete = true;
+    }
+    this.tokens.push(tok);
   }
 
   private scanEmphasis(marker: string, type: TokenType): void {
@@ -472,38 +502,72 @@ export class Lexer {
       this.advance(); // [
       this.advance(); // ^
       let label = "";
-      while (!this.isAtEnd() && this.peek() !== "]") {
+      let incomplete = false;
+      
+      while (!this.isAtEnd() && this.peek() !== "]" && this.peek() !== "\n") {
         label += this.advance();
       }
-      if (this.peek() === "]") this.advance();
+      
+      if (this.peek() === "]") {
+        this.advance();
+      } else {
+        // Unclosed footnote reference - missing ]
+        incomplete = true;
+        this.diagnostics.push(
+          error(
+            DiagnosticCode.UNCLOSED_DELIMITER,
+            "Unclosed footnote reference - missing ]",
+            loc(startLine, startCol)
+          )
+        );
+      }
       
       // Check for footnote definition [^label]:
-      if (this.peek() === ":") {
+      if (!incomplete && this.peek() === ":") {
         this.advance(); // :
         this.skipSpaces();
         this.tokens.push(token(TokenType.FOOTNOTE_DEF, label, startLine, startCol, this.line, this.column));
       } else {
-        this.tokens.push(token(TokenType.FOOTNOTE_REF, label, startLine, startCol, this.line, this.column));
+        const tok = token(TokenType.FOOTNOTE_REF, label, startLine, startCol, this.line, this.column);
+        if (incomplete) {
+          tok.incomplete = true;
+        }
+        this.tokens.push(tok);
       }
       return;
     }
 
-    // Check for cross-ref [@...]
-    if (this.peek(1) === "@") {
+    // Check for cross-ref [[...]]
+    if (this.peek(1) === "[") {
       this.advance(); // [
-      this.advance(); // @
+      this.advance(); // [
       let target = "";
+      let incomplete = false;
       while (!this.isAtEnd() && this.peek() !== "]") {
         target += this.advance();
       }
-      if (this.peek() === "]") this.advance();
-      this.tokens.push(token(TokenType.CROSS_REF, target, startLine, startCol, this.line, this.column));
+      if (this.peek() === "]") {
+        this.advance(); // first ]
+        if (this.peek() === "]") {
+          this.advance(); // second ]
+        } else {
+          incomplete = true;
+        }
+      } else {
+        incomplete = true;
+      }
+      const tok = token(TokenType.CROSS_REF, target, startLine, startCol, this.line, this.column);
+      if (incomplete) {
+        tok.incomplete = true;
+      }
+      this.tokens.push(tok);
       return;
     }
 
     // Check for link [text](url) - lookahead for ](
-    if (this.lookaheadIsLink()) {
-      this.scanLink();
+    const linkCheck = this.lookaheadIsLink();
+    if (linkCheck.isLink) {
+      this.scanLink(linkCheck.mightBeIncomplete);
       return;
     }
 
@@ -513,26 +577,39 @@ export class Lexer {
   }
 
   /**
-   * Look ahead to see if this is a link [text](url)
+   * Look ahead to see if this is a link [text](url) or partial link [text](url
+   * Returns object indicating if it's a link and if it might be incomplete
    */
-  private lookaheadIsLink(): boolean {
+  private lookaheadIsLink(): { isLink: boolean; mightBeIncomplete: boolean } {
     let i = this.pos + 1;
     // Scan for ]
     while (i < this.input.length && this.input[i] !== "]") {
-      if (this.input[i] === "\n") return false; // Links can't span lines
+      if (this.input[i] === "\n") return { isLink: false, mightBeIncomplete: false }; // Links can't span lines
       i++;
     }
     
-    if (i >= this.input.length) return false; // No closing ]
+    if (i >= this.input.length) return { isLink: false, mightBeIncomplete: false }; // No closing ]
     
     // Check for ( after ]
-    return this.input[i + 1] === "(";
+    if (this.input[i + 1] === "(") {
+      // Now check if there's a closing ) before newline/EOF
+      let j = i + 2;
+      while (j < this.input.length && this.input[j] !== ")" && this.input[j] !== "\n") {
+        j++;
+      }
+      // If we hit newline or EOF without ), it's an incomplete link
+      const mightBeIncomplete = j >= this.input.length || this.input[j] === "\n";
+      return { isLink: true, mightBeIncomplete };
+    }
+    
+    return { isLink: false, mightBeIncomplete: false };
   }
 
   /**
    * Scan a link [text](url)
+   * @param mightBeIncomplete - hint from lookahead that closing ) may be missing
    */
-  private scanLink(): void {
+  private scanLink(mightBeIncomplete = false): void {
     const startLine = this.line;
     const startCol = this.column;
     this.advance(); // [
@@ -546,15 +623,33 @@ export class Lexer {
 
     // Read URL from (...)
     let url = "";
+    let incomplete = false;
+    
     if (this.peek() === "(") {
       this.advance(); // (
-      while (!this.isAtEnd() && this.peek() !== ")") {
+      while (!this.isAtEnd() && this.peek() !== ")" && this.peek() !== "\n") {
         url += this.advance();
       }
-      this.advance(); // )
+      if (this.peek() === ")") {
+        this.advance(); // )
+      } else {
+        // Missing closing )
+        incomplete = true;
+        this.diagnostics.push(
+          error(
+            DiagnosticCode.UNCLOSED_DELIMITER,
+            "Unclosed link - missing )",
+            loc(startLine, startCol)
+          )
+        );
+      }
     }
 
-    this.tokens.push(token(TokenType.LINK, `${text}|${url}`, startLine, startCol, this.line, this.column));
+    const tok = token(TokenType.LINK, `${text}|${url}`, startLine, startCol, this.line, this.column);
+    if (incomplete) {
+      tok.incomplete = true;
+    }
+    this.tokens.push(tok);
   }
 
   private scanImage(): void {

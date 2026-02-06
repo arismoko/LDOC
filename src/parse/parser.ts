@@ -38,25 +38,105 @@ import type {
   CSTNumberLiteral,
   CSTIdentifier,
   CSTExpression,
+  CSTError,
+  ErrorContext,
+  IncompleteMarker,
 } from "../types/cst.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { error, DiagnosticCode } from "../types/diagnostics.ts";
 import { loc, span } from "../types/source-location.ts";
+import { ErrorRecovery } from "./recovery.ts";
+
+/**
+ * Create an IncompleteMarker for a missing delimiter.
+ * DRY helper to avoid repeating the same structure.
+ * 
+ * @param expected - The delimiter that was expected (e.g., ")", "}}", "]")
+ */
+function missingDelimiter(expected: string): IncompleteMarker {
+  return {
+    incomplete: true,
+    missing: [{ kind: "token", expected }],
+  };
+}
+
+/**
+ * Create an IncompleteMarker for a missing directive body.
+ * DRY helper for Phase 4 body recovery.
+ * 
+ * @param directive - The directive name that requires a body (e.g., "if", "foreach")
+ */
+function missingBody(directive: string): IncompleteMarker {
+  return {
+    incomplete: true,
+    missing: [{ kind: "body", directive }],
+  };
+}
+
+/**
+ * Mapping from emphasis kind to expected closing delimiter.
+ * Used for error messages in inline recovery.
+ */
+const EMPHASIS_DELIMITERS: Record<string, string> = {
+  bold: "**",
+  italic: "*",
+  strikethrough: "~~",
+  highlight: "==",
+  code: "`",
+};
+
+/**
+ * Create an IncompleteMarker for an unclosed inline formatter.
+ * DRY helper for Phase 5 inline recovery.
+ * 
+ * @param kind - The emphasis kind (bold, italic, etc.)
+ */
+function missingFormatter(kind: string): IncompleteMarker {
+  const delimiter = EMPHASIS_DELIMITERS[kind] ?? kind;
+  return {
+    incomplete: true,
+    missing: [{ kind: "token", expected: delimiter }],
+  };
+}
+
+/**
+ * Directives that require a body (indented block).
+ * Used for error recovery to detect missing bodies.
+ */
+const DIRECTIVES_REQUIRING_BODY = new Set([
+  "if",
+  "elseif",
+  "else",
+  "foreach",
+  "repeat",
+  "define",
+  "style",
+]);
+
+/**
+ * Check if a directive requires a body.
+ * Used to emit incomplete markers when body is missing.
+ */
+function directiveRequiresBody(name: string): boolean {
+  return DIRECTIVES_REQUIRING_BODY.has(name);
+}
 
 export class Parser {
   private tokens: Token[];
   private pos = 0;
   private diagnostics: Diagnostic[] = [];
+  private recovery: ErrorRecovery;
 
   constructor(tokens: Token[]) {
     this.tokens = tokens;
+    this.recovery = new ErrorRecovery(tokens, 0);
   }
 
   parse(): ParseResult {
     const children: CSTNode[] = [];
 
     while (!this.isAtEnd()) {
-      const node = this.parseNode();
+      const node = this.parseNodeSafe();
       if (node) {
         children.push(node);
       }
@@ -71,6 +151,99 @@ export class Parser {
     };
 
     return { cst, diagnostics: this.diagnostics };
+  }
+
+  /**
+   * Parse a node with error recovery.
+   * Catches exceptions and produces CSTError nodes instead of crashing.
+   */
+  private parseNodeSafe(): CSTNode | null {
+    this.skipNewlines();
+    if (this.isAtEnd()) return null;
+
+    const startToken = this.peek();
+    const startPos = this.pos;
+
+    try {
+      return this.parseNode();
+    } catch (e) {
+      // Create error diagnostic
+      const message = e instanceof Error ? e.message : "Unexpected error";
+      this.diagnostics.push(
+        error(DiagnosticCode.PARSE_ERROR, message, this.currentLoc())
+      );
+
+      // Synchronize and wrap skipped tokens in error node
+      const skipped = this.synchronize();
+
+      if (skipped.length === 0) {
+        // If we didn't move, advance at least one token to avoid infinite loop
+        if (this.pos === startPos && !this.isAtEnd()) {
+          this.advance();
+        }
+        return null;
+      }
+
+      const lastToken = skipped[skipped.length - 1]!;
+      return {
+        type: "Error",
+        message,
+        context: this.inferErrorContext(startToken),
+        tokens: skipped,
+        loc: span(
+          loc(startToken.line, startToken.column),
+          loc(lastToken.line, lastToken.column, lastToken.endLine, lastToken.endColumn)
+        ),
+      } as CSTError;
+    }
+  }
+
+  /**
+   * Synchronize to next safe parse point.
+   * Called after encountering an error.
+   * Returns the tokens that were skipped.
+   */
+  private synchronize(): Token[] {
+    this.recovery.updatePosition(this.pos);
+    const { syncIndex, skipped } = this.recovery.findNextSync(this.pos);
+    this.pos = syncIndex;
+    return skipped;
+  }
+
+  /**
+   * Infer error context from starting token.
+   * Used for categorizing errors and potential recovery hints.
+   */
+  private inferErrorContext(token: Token): ErrorContext {
+    switch (token.type) {
+      case TokenType.DIRECTIVE:
+        return "directive";
+      case TokenType.VARIABLE:
+        return "interpolation";
+      case TokenType.HEADER_MARKER:
+      case TokenType.BULLET:
+      case TokenType.NUMBERED:
+      case TokenType.NUMBERED_ITEM:
+      case TokenType.BLOCKQUOTE:
+        return "block";
+      case TokenType.BOLD_MARKER:
+      case TokenType.ITALIC_MARKER:
+      case TokenType.STRIKE_MARKER:
+      case TokenType.HIGHLIGHT_MARKER:
+      case TokenType.CODE_MARKER:
+      case TokenType.TEXT:
+        return "inline";
+      default:
+        return "unknown";
+    }
+  }
+
+  /**
+   * Get the current location for diagnostics.
+   */
+  private currentLoc() {
+    const token = this.peek();
+    return loc(token.line, token.column, token.endLine, token.endColumn);
   }
 
   private parseNode(): CSTNode | null {
@@ -102,12 +275,13 @@ export class Parser {
         return this.parseHorizontalRule();
 
       case TokenType.INDENT:
-        // Skip stray indents
+        // Skip stray indents at top level
         this.advance();
         return null;
 
       case TokenType.DEDENT:
-        // Let parent handle dedent
+        // Skip stray dedents at top level (orphaned indentation)
+        this.advance();
         return null;
 
       case TokenType.COMMENT:
@@ -132,10 +306,11 @@ export class Parser {
     const startLoc = loc(token.line, token.column);
     
     const name = token.value;
-    const args = this.parseArguments();
+    const { args, incomplete: argsIncomplete } = this.parseArgumentsWithRecovery();
     
     // Check for body (indented block)
     let body: CSTNode[] | null = null;
+    let bodyIncomplete: IncompleteMarker | undefined;
     this.skipNewlines();
     
     if (this.check(TokenType.INDENT)) {
@@ -143,7 +318,8 @@ export class Parser {
       body = [];
       
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
-        const node = this.parseNode();
+        // Use parseNodeSafe for error recovery in body
+        const node = this.parseNodeSafe();
         if (node) {
           body.push(node);
         }
@@ -153,46 +329,110 @@ export class Parser {
       if (this.check(TokenType.DEDENT)) {
         this.advance();
       }
+    } else if (directiveRequiresBody(name)) {
+      // No body present but directive requires one
+      bodyIncomplete = missingBody(name);
     }
 
     const endLoc = this.previous();
     
-    return {
+    const directive: CSTDirective = {
       type: "Directive",
       name,
       arguments: args,
       body,
-      loc: span(startLoc, loc(endLoc.line, endLoc.column)),
+      loc: span(startLoc, loc(endLoc.line, endLoc.column, endLoc.endLine, endLoc.endColumn)),
     };
+
+    // Add incomplete marker if arguments were unclosed or body is missing
+    // Prefer argument incompleteness over body incompleteness
+    if (argsIncomplete) {
+      directive.incomplete = argsIncomplete;
+    } else if (bodyIncomplete) {
+      directive.incomplete = bodyIncomplete;
+    }
+
+    return directive;
   }
 
-  private parseArguments(): CSTArgument[] {
+  /**
+   * Parse directive arguments with error recovery.
+   * Returns partial args if closing paren is missing.
+   */
+  private parseArgumentsWithRecovery(): { 
+    args: CSTArgument[]; 
+    incomplete?: IncompleteMarker;
+  } {
     const args: CSTArgument[] = [];
 
     if (!this.check(TokenType.LPAREN)) {
-      return args;
+      return { args };
     }
 
-    this.advance(); // (
+    const openParen = this.advance(); // (
 
-    while (!this.isAtEnd() && !this.check(TokenType.RPAREN)) {
+    while (!this.isAtEnd()) {
+      // Success case: found closing paren
+      if (this.check(TokenType.RPAREN)) {
+        this.advance();
+        return { args };
+      }
+
+      // Error case: hit boundary without closing paren
+      if (this.recovery.isBoundary(this.peek())) {
+        this.diagnostics.push(
+          error(
+            DiagnosticCode.UNCLOSED_DELIMITER,
+            "Missing closing ')'",
+            loc(openParen.line, openParen.column)
+          )
+        );
+        return { args, incomplete: missingDelimiter(")") };
+      }
+
+      // Parse argument
       const arg = this.parseArgument();
       if (arg) {
         args.push(arg);
       }
 
+      // Consume comma or break
       if (this.check(TokenType.COMMA)) {
         this.advance();
-      } else {
-        break;
+      } else if (!this.check(TokenType.RPAREN)) {
+        // Not a comma and not closing paren - check if it's a boundary
+        if (this.recovery.isBoundary(this.peek())) {
+          this.diagnostics.push(
+            error(
+              DiagnosticCode.UNCLOSED_DELIMITER,
+              "Missing closing ')'",
+              loc(openParen.line, openParen.column)
+            )
+          );
+          return { args, incomplete: missingDelimiter(")") };
+        }
+        // Unexpected token - skip it to avoid infinite loop
+        this.advance();
       }
     }
 
-    if (this.check(TokenType.RPAREN)) {
-      this.advance();
-    }
+    // EOF without closing
+    this.diagnostics.push(
+      error(
+        DiagnosticCode.UNCLOSED_DELIMITER,
+        "Missing closing ')' - unexpected end of input",
+        loc(openParen.line, openParen.column)
+      )
+    );
+    return { args, incomplete: missingDelimiter(")") };
+  }
 
-    return args;
+  /**
+   * Original parseArguments - kept for backward compatibility.
+   * Delegates to parseArgumentsWithRecovery.
+   */
+  private parseArguments(): CSTArgument[] {
+    return this.parseArgumentsWithRecovery().args;
   }
 
   private parseArgument(): CSTArgument | null {
@@ -354,7 +594,8 @@ export class Parser {
       this.advance();
       
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
-        const node = this.parseNode();
+        // Use parseNodeSafe for error recovery in nested content
+        const node = this.parseNodeSafe();
         if (node) {
           children.push(node);
         }
@@ -404,7 +645,8 @@ export class Parser {
         this.advance();
         
         while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
-          const node = this.parseNode();
+          // Use parseNodeSafe for error recovery in nested content
+          const node = this.parseNodeSafe();
           if (node) {
             children.push(node);
           }
@@ -466,7 +708,8 @@ export class Parser {
       this.advance();
       
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
-        const node = this.parseNode();
+        // Use parseNodeSafe for error recovery in footnote content
+        const node = this.parseNodeSafe();
         if (node) {
           content.push(node);
         }
@@ -568,11 +811,16 @@ export class Parser {
 
       case TokenType.VARIABLE:
         this.advance();
-        return {
+        const variable: CSTVariable = {
           type: "Variable",
           expression: token.value,
-          loc: loc(token.line, token.column),
-        } as CSTVariable;
+          loc: loc(token.line, token.column, token.endLine, token.endColumn),
+        };
+        // Propagate incomplete marker from token
+        if (token.incomplete) {
+          variable.incomplete = missingDelimiter("}}");
+        }
+        return variable;
 
       case TokenType.BOLD_MARKER:
         return this.parseEmphasis("bold");
@@ -591,31 +839,36 @@ export class Parser {
         return {
           type: "Emphasis",
           kind: "code",
-          content: [{ type: "Text", value: token.value, loc: loc(token.line, token.column) } as CSTText],
-          loc: loc(token.line, token.column),
+          content: [{ type: "Text", value: token.value, loc: loc(token.line, token.column, token.endLine, token.endColumn) } as CSTText],
+          loc: loc(token.line, token.column, token.endLine, token.endColumn),
         } as CSTEmphasis;
 
       case TokenType.HARD_BREAK:
         this.advance();
         return {
           type: "HardBreak",
-          loc: loc(token.line, token.column),
+          loc: loc(token.line, token.column, token.endLine, token.endColumn),
         } as CSTHardBreak;
 
       case TokenType.FOOTNOTE_REF:
         this.advance();
-        return {
+        const footnoteRef: CSTFootnoteRef = {
           type: "FootnoteRef",
           label: token.value,
-          loc: loc(token.line, token.column),
-        } as CSTFootnoteRef;
+          loc: loc(token.line, token.column, token.endLine, token.endColumn),
+        };
+        // Propagate incomplete marker from token
+        if (token.incomplete) {
+          footnoteRef.incomplete = missingDelimiter("]");
+        }
+        return footnoteRef;
 
       case TokenType.CROSS_REF:
         this.advance();
         return {
           type: "CrossRef",
           target: token.value,
-          loc: loc(token.line, token.column),
+          loc: loc(token.line, token.column, token.endLine, token.endColumn),
         } as CSTCrossRef;
 
       case TokenType.LINK: {
@@ -624,12 +877,17 @@ export class Parser {
         const pipeIdx = token.value.indexOf("|");
         const text = pipeIdx >= 0 ? token.value.slice(0, pipeIdx) : token.value;
         const url = pipeIdx >= 0 ? token.value.slice(pipeIdx + 1) : "";
-        return {
+        const link: CSTLink = {
           type: "Link",
-          text: [{ type: "Text", value: text, loc: loc(token.line, token.column) } as CSTText],
+          text: [{ type: "Text", value: text, loc: loc(token.line, token.column, token.endLine, token.endColumn) } as CSTText],
           url,
-          loc: loc(token.line, token.column),
-        } as CSTLink;
+          loc: loc(token.line, token.column, token.endLine, token.endColumn),
+        };
+        // Propagate incomplete marker from token
+        if (token.incomplete) {
+          link.incomplete = missingDelimiter(")");
+        }
+        return link;
       }
 
       case TokenType.IMAGE: {
@@ -642,7 +900,7 @@ export class Parser {
           type: "Image",
           alt,
           src,
-          loc: loc(token.line, token.column),
+          loc: loc(token.line, token.column, token.endLine, token.endColumn),
         } as CSTImage;
       }
 
@@ -656,7 +914,7 @@ export class Parser {
         return {
           type: "DefinedTerm",
           term: token.value,
-          loc: loc(token.line, token.column),
+          loc: loc(token.line, token.column, token.endLine, token.endColumn),
         } as CSTDefinedTerm;
 
       case TokenType.BLANK:
@@ -664,7 +922,7 @@ export class Parser {
         return {
           type: "Blank",
           width: token.value.length,
-          loc: loc(token.line, token.column),
+          loc: loc(token.line, token.column, token.endLine, token.endColumn),
         } as CSTBlank;
 
       default:
@@ -678,6 +936,7 @@ export class Parser {
     const start = this.advance(); // opening marker
     const content: CSTInline[] = [];
     const startLoc = loc(start.line, start.column);
+    let foundClosing = false;
 
     // Parse until matching close or end of line
     while (!this.isAtEnd() && !this.isBlockEnd()) {
@@ -691,6 +950,7 @@ export class Parser {
         (kind === "highlight" && token.type === TokenType.HIGHLIGHT_MARKER)
       ) {
         this.advance(); // consume closing marker
+        foundClosing = true;
         break;
       }
 
@@ -700,12 +960,19 @@ export class Parser {
       }
     }
 
-    return {
+    const emphasis: CSTEmphasis = {
       type: "Emphasis",
       kind,
       content,
       loc: span(startLoc, content.length > 0 ? content[content.length - 1]!.loc : startLoc),
     };
+
+    // Mark as incomplete if closing marker was not found
+    if (!foundClosing) {
+      emphasis.incomplete = missingFormatter(kind);
+    }
+
+    return emphasis;
   }
 
   private parseInlineDirective(): CSTInline | null {

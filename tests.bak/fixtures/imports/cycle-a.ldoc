@@ -1,7 +1,0 @@
-@document
-  title: A
-
-@import("./cycle-b.ldoc")
-
-@define(A)
-  A

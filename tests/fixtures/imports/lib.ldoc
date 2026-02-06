@@ -1,0 +1,8 @@
+@define(sharedMacro, param)
+  Shared macro content: {{param}}
+
+@style(sharedStyle, bold: true)
+
+@set(sharedVar, "shared value")
+
+@anchor(sharedAnchor)

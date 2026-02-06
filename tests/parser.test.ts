@@ -107,7 +107,7 @@ describe("Parser", () => {
     });
 
     test("parses cross references", () => {
-      const result = parseSource("See [@section]");
+      const result = parseSource("See [[section]]");
       const para = result.cst.children[0] as CSTParagraph;
       const crossRef = para.content.find(c => c.type === "CrossRef");
       expect(crossRef).toBeDefined();

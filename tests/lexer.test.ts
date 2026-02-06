@@ -115,7 +115,7 @@ describe("Lexer", () => {
     });
 
     test("tokenizes cross reference", () => {
-      const result = tokenize("[@target]");
+      const result = tokenize("[[target]]");
       expect(result.tokens[0]!.type).toBe(TokenType.CROSS_REF);
       expect(result.tokens[0]!.value).toBe("target");
     });

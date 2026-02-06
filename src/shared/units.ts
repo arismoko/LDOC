@@ -22,6 +22,9 @@ export const TWIPS_PER_PT = 20;
 /** Line spacing unit (240 = single space in Word's lineRule="auto") */
 export const LINE_SPACING_SINGLE = 240;
 
+/** Alias for LINE_SPACING_SINGLE (used by decompiler) */
+export const TWIPS_PER_LINE_UNIT = LINE_SPACING_SINGLE;
+
 /** Half-points per point (DOCX w:sz uses half-points) */
 export const HALF_POINTS_PER_PT = 2;
 
@@ -133,6 +136,15 @@ export function twipsToLineMultiplier(twips: number): number {
 // =============================================================================
 // Formatting
 // =============================================================================
+
+/**
+ * Format a value in inches as a string for LDOC output.
+ * Rounds to 2 decimal places and removes trailing zeros.
+ */
+export function formatInches(inches: number): string {
+  const rounded = Math.round(inches * 100) / 100;
+  return rounded.toString();
+}
 
 /**
  * Format twips as an LDOC-friendly length string.

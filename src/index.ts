@@ -18,7 +18,23 @@ export * from "./types/index.ts";
 // Phase 1: Parse
 export * from "./parse/index.ts";
 
+// Phase 2: Bind
+export * from "./bind/index.ts";
+
+// Phase 3: Evaluate
+export * from "./evaluate/index.ts";
+
+// Phase 4: Style
+export * from "./style/index.ts";
+
+// Phase 5: Emit
+export * from "./emit/index.ts";
+
 // Shared utilities
 export * from "./shared/index.ts";
 
-// TODO: Phase 2-5 exports will be added as implemented
+// Pipeline (high-level API)
+export * from "./pipeline/index.ts";
+
+// Decompiler (DOCX -> LDOC)
+export { docxToLdoc, decompile } from "./decompiler/index.ts";

@@ -1,5 +1,5 @@
 {
-  "exclude": ["tree-sitter-ldoc/**", "src.bak/**", "tests.bak/**", "fidelity/**"],
+  "exclude": ["tree-sitter-ldoc/**", "src.bak/**", "tests.bak/**", "fidelity/**", "src/formatter/**", "src/decompiler/**", "src/diff/**"],
   "compilerOptions": {
     // Environment setup & latest features
     "lib": ["ESNext"],

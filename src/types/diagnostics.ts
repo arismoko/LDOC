@@ -42,6 +42,8 @@ export const DiagnosticCode = {
   INVALID_INDENT: "P003",
   UNCLOSED_BLOCK: "P004",
   INVALID_DIRECTIVE: "P005",
+  PARSE_ERROR: "P006",
+  UNCLOSED_DELIMITER: "P007",
   
   // Binding errors (B***)
   UNDEFINED_MACRO: "B001",
@@ -51,6 +53,12 @@ export const DiagnosticCode = {
   IMPORT_NOT_FOUND: "B005",
   IMPORT_CYCLE: "B006",
   ARITY_MISMATCH: "B007",
+  UNDEFINED_FOOTNOTE: "B008",
+  UNDEFINED_ANCHOR: "B009",
+  MACRO_CYCLE: "B010",
+  UNUSED_MACRO: "B011",
+  UNUSED_FOOTNOTE: "B012",
+  UNUSED_STYLE: "B013",
   
   // Evaluation errors (E***)
   CONDITION_ERROR: "E001",
@@ -60,6 +68,8 @@ export const DiagnosticCode = {
   // Style errors (S***)
   INVALID_STYLE_PROPERTY: "S001",
   INVALID_STYLE_VALUE: "S002",
+  STYLE_NOT_FOUND: "S003",
+  STYLE_CYCLE: "S004",
   
   // Emit errors (M***)
   EMIT_ERROR: "M001",

@@ -1,6 +1,0 @@
-@document
-  title: Lib
-
-@define(Notice)
-  @box
-    **NOTICE:** Imported clause.

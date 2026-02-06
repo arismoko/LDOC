@@ -29,4 +29,17 @@ export * from "./symbols.ts";
 export * from "./document-ir.ts";
 
 // Styled document (style phase output)
-export * from "./styled.ts";
+// Note: DEFAULT_STYLE is re-exported from style/defaults.ts to avoid conflicts
+export {
+  type StyleResolver,
+  type ComputedStyle,
+  type ComputedBorder,
+  type StyledBlock,
+  type StyledInline,
+  type StyleResult,
+  type StyledDocument,
+  type DocumentStyles,
+  type StyleDefinition,
+  type NumberingDefinition,
+  type NumberingLevel,
+} from "./styled.ts";

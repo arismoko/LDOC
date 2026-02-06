@@ -48,7 +48,7 @@ export enum TokenType {
   IMAGE = "IMAGE",                 // ![alt](src) - value is "alt|src"
   FOOTNOTE_REF = "FOOTNOTE_REF",   // [^name]
   FOOTNOTE_DEF = "FOOTNOTE_DEF",   // [^name]: - footnote definition
-  CROSS_REF = "CROSS_REF",         // [@ref]
+  CROSS_REF = "CROSS_REF",         // [[ref]]
   
   // Block markers
   HEADER_MARKER = "HEADER_MARKER", // #, ##, ###, etc.
@@ -72,6 +72,8 @@ export interface Token {
   column: number;
   endLine: number;
   endColumn: number;
+  /** Set by lexer when token is incomplete (e.g., unclosed {{ or [^ ) */
+  incomplete?: boolean;
 }
 
 /**

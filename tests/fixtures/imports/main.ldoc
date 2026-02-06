@@ -1,0 +1,7 @@
+@import("lib.ldoc")
+
+# Main Document
+
+@use(sharedMacro, "test")
+
+Variable: {{sharedVar}}

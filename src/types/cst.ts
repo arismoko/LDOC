@@ -12,6 +12,7 @@
  */
 
 import type { SourceLocation } from "./source-location.ts";
+import type { Token } from "./tokens.ts";
 
 // =============================================================================
 // Base Types
@@ -19,6 +20,51 @@ import type { SourceLocation } from "./source-location.ts";
 
 interface CSTBase {
   loc: SourceLocation;
+}
+
+// =============================================================================
+// Error Recovery Types
+// =============================================================================
+
+/**
+ * Context where an error occurred - used for diagnostics and recovery hints.
+ */
+export type ErrorContext =
+  | "directive"
+  | "directive_args"
+  | "directive_body"
+  | "interpolation"
+  | "inline"
+  | "block"
+  | "unknown";
+
+/**
+ * Describes what element is missing from an incomplete node.
+ */
+export type MissingElement =
+  | { kind: "token"; expected: string }      // e.g., ")"
+  | { kind: "body"; directive: string }      // e.g., "@if needs body"
+  | { kind: "expression" };                  // e.g., "{{" needs expression
+
+/**
+ * Marker for incomplete nodes - usable by LSP for smart completions.
+ * Nodes with this flag are structurally valid but semantically incomplete.
+ */
+export interface IncompleteMarker {
+  incomplete: true;
+  missing: MissingElement[];
+}
+
+/**
+ * Error node - contains tokens that couldn't be parsed.
+ * Used for unrecoverable regions; preserves source for diagnostics.
+ */
+export interface CSTError extends CSTBase {
+  type: "Error";
+  message: string;
+  context: ErrorContext;
+  tokens: Token[];           // Raw tokens in error region
+  partialNode?: CSTNode;     // If we partially parsed something
 }
 
 // =============================================================================
@@ -48,6 +94,7 @@ export interface CSTDirective extends CSTBase {
   name: string;
   arguments: CSTArgument[];
   body: CSTNode[] | null;
+  incomplete?: IncompleteMarker;  // For partial directives (unclosed parens, missing body)
 }
 
 /**
@@ -181,12 +228,14 @@ export interface CSTText extends CSTBase {
 export interface CSTVariable extends CSTBase {
   type: "Variable";
   expression: string;
+  incomplete?: IncompleteMarker;  // For unclosed {{ }}
 }
 
 export interface CSTEmphasis extends CSTBase {
   type: "Emphasis";
   kind: "bold" | "italic" | "strikethrough" | "highlight" | "code";
   content: CSTInline[];
+  incomplete?: IncompleteMarker;  // For unclosed **, *, ~~, etc.
 }
 
 export interface CSTLink extends CSTBase {
@@ -194,6 +243,7 @@ export interface CSTLink extends CSTBase {
   text: CSTInline[];
   url: string;
   title?: string;
+  incomplete?: IncompleteMarker;  // For unclosed [text](url)
 }
 
 export interface CSTImage extends CSTBase {
@@ -206,6 +256,7 @@ export interface CSTImage extends CSTBase {
 export interface CSTFootnoteRef extends CSTBase {
   type: "FootnoteRef";
   label: string;
+  incomplete?: IncompleteMarker;  // For unclosed [^...]
 }
 
 export interface CSTCrossRef extends CSTBase {
@@ -260,7 +311,8 @@ export type CSTInline =
   | CSTTab
   | CSTDefinedTerm
   | CSTBlank
-  | CSTInlineDirective;
+  | CSTInlineDirective
+  | CSTError;  // Error nodes can appear at inline level
 
 export type CSTBlock =
   | CSTParagraph
@@ -275,7 +327,8 @@ export type CSTBlock =
 export type CSTNode =
   | CSTDirective
   | CSTBlock
-  | CSTInline;
+  | CSTInline
+  | CSTError;  // Error nodes can appear at block level
 
 // =============================================================================
 // Parse Result
@@ -286,4 +339,23 @@ import type { Diagnostic } from "./diagnostics.ts";
 export interface ParseResult {
   cst: CSTDocument;
   diagnostics: Diagnostic[];
+}
+
+// =============================================================================
+// Type Guards
+// =============================================================================
+
+/**
+ * Type guard for nodes with the incomplete marker.
+ * Use this to check if a node is structurally valid but missing elements.
+ */
+export function isIncomplete(node: CSTNode): node is CSTNode & { incomplete: IncompleteMarker } {
+  return "incomplete" in node && node.incomplete !== undefined;
+}
+
+/**
+ * Type guard for error nodes.
+ */
+export function isError(node: CSTNode): node is CSTError {
+  return node.type === "Error";
 }

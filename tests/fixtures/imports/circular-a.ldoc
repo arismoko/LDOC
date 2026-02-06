@@ -1,0 +1,4 @@
+@import("circular-b.ldoc")
+
+@define(macroA)
+  From A

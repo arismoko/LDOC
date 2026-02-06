@@ -1,8 +1,0 @@
-@document
-  title: Main
-
-@import("./lib.ldoc")
-
-# Main
-
-@use(Notice)
