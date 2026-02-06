@@ -136,13 +136,15 @@ describe("STYLE Phase", () => {
       expect(result.fontFamily).toBe("Times New Roman"); // from default
     });
 
-    test("emits warning for undefined style", () => {
+    test("passes through unknown style name with warning", () => {
       const symbols = createSymbolTable();
       const diagnostics: any[] = [];
       const resolver = createStyleResolver(symbols, diagnostics);
 
       const result = resolver({ name: "NonExistent" });
-      expect(result).toEqual(DEFAULT_STYLE);
+      // Unknown styles use default formatting but preserve the style ID
+      expect(result.paragraphStyleId).toBe("NonExistent");
+      expect(result.fontFamily).toBe(DEFAULT_STYLE.fontFamily);
       expect(diagnostics).toHaveLength(1);
       expect(diagnostics[0].code).toBe(DiagnosticCode.STYLE_NOT_FOUND);
     });

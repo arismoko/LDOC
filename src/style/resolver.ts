@@ -90,6 +90,12 @@ export function createStyleResolver(
     // Resolve named style
     if (styleRef.name) {
       style = resolveByName(styleRef.name, new Set());
+      // Pass through unknown style names — they may exist in the DOCX template.
+      // Even if resolveByName fell back to DEFAULT_STYLE, preserve the style ID
+      // so the emitter can write it to the output paragraph.
+      if (!style.paragraphStyleId) {
+        style = { ...style, paragraphStyleId: styleRef.name };
+      }
     }
     
     // Apply inline overrides
