@@ -206,6 +206,60 @@ function emitRunText(run: ExtractedRun): string {
 }
 
 /**
+ * Compare two run styles for equality.
+ */
+function sameRunStyle(a: ExtractedRunStyle, b: ExtractedRunStyle): boolean {
+  return (
+    a.bold === b.bold &&
+    a.italic === b.italic &&
+    a.strike === b.strike &&
+    a.underline === b.underline &&
+    a.code === b.code &&
+    a.subscript === b.subscript &&
+    a.superscript === b.superscript &&
+    a.allCaps === b.allCaps &&
+    a.smallCaps === b.smallCaps &&
+    a.doubleStrike === b.doubleStrike &&
+    a.font === b.font &&
+    a.sizePt === b.sizePt &&
+    a.color === b.color &&
+    a.highlight === b.highlight &&
+    a.characterSpacing === b.characterSpacing &&
+    a.shadingFill === b.shadingFill
+  );
+}
+
+/**
+ * Merge adjacent text runs with identical styles.
+ * DOCX often splits runs at arbitrary points (e.g., edit boundaries);
+ * merging produces cleaner LDOC output like `**January 8**` instead of
+ * `**January** **8**`.
+ */
+function mergeAdjacentRuns(content: ExtractedParagraphContent[]): ExtractedParagraphContent[] {
+  const merged: ExtractedParagraphContent[] = [];
+
+  for (const item of content) {
+    const last = merged[merged.length - 1];
+    if (
+      isRun(item) &&
+      last !== undefined &&
+      isRun(last) &&
+      sameRunStyle(item.style, last.style) &&
+      !last.hardBreak &&
+      !last.tab &&
+      !item.tab
+    ) {
+      last.text += item.text;
+      if (item.hardBreak) last.hardBreak = true;
+    } else {
+      merged.push({ ...item } as ExtractedParagraphContent);
+    }
+  }
+
+  return merged;
+}
+
+/**
  * Emit paragraph content elements to LDOC inline text.
  * This is the main entry point for inline emission.
  */
@@ -214,6 +268,7 @@ export function emitInlineContent(
   ctx: EmissionContext,
 ): string {
   const parts: string[] = [];
+  content = mergeAdjacentRuns(content);
 
   for (const item of content) {
     if (isHyperlink(item)) {
