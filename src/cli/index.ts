@@ -5,21 +5,18 @@
  */
 
 import { compile, parseAndBind } from "../pipeline/index.ts";
-import { docxToLdoc, type DecompilerOptions } from "../decompiler/index.ts";
 
 const HELP = `
 ldoc - Legal Document DSL Compiler
 
 Usage:
   ldoc compile <input.ldoc> [-o output.docx]
-  ldoc decompile <input.docx> [-o output.ldoc] [--no-indent]
   ldoc parse <input.ldoc> [--json]
   ldoc validate <input.ldoc>
   ldoc init [dir]
 
 Commands:
   compile   Compile .ldoc to .docx
-  decompile Convert .docx to .ldoc (lossy)
   parse     Parse and output CST (for debugging)
   validate  Validate .ldoc syntax (outputs JSON)
   init      Initialize a new LDOC project
@@ -27,14 +24,11 @@ Commands:
 Options:
   -o, --output      Output file path
   --json            Output as JSON (parse command)
-  --no-indent       Suppress @indent/@outdent in decompile
   -h, --help        Show this help
 
 Examples:
   ldoc compile agreement.ldoc
   ldoc compile agreement.ldoc -o output/agreement.docx
-  ldoc decompile document.docx
-  ldoc decompile document.docx -o output.ldoc
   ldoc parse agreement.ldoc --json
   ldoc validate agreement.ldoc
 `;
@@ -54,10 +48,6 @@ async function main(): Promise<void> {
       await compileCommand(args.slice(1));
       break;
 
-    case "decompile":
-      await decompileCommand(args.slice(1));
-      break;
-
     case "parse":
       await parseCommand(args.slice(1));
       break;
@@ -70,17 +60,15 @@ async function main(): Promise<void> {
       await initCommand(args.slice(1));
       break;
 
-    default:
-      // Assume it's a file to compile/decompile
-      if (command.endsWith(".ldoc")) {
-        await compileCommand(args);
-      } else if (command.endsWith(".docx")) {
-        await decompileCommand(args);
-      } else {
-        console.error(`Unknown command: ${command}`);
-        console.log(HELP);
-        process.exit(1);
-      }
+     default:
+       // Assume it's a file to compile
+       if (command.endsWith(".ldoc")) {
+         await compileCommand(args);
+       } else {
+         console.error(`Unknown command: ${command}`);
+         console.log(HELP);
+         process.exit(1);
+       }
   }
 }
 
@@ -238,59 +226,6 @@ async function validateCommand(args: string[]): Promise<void> {
     }
 
     console.log(JSON.stringify(errObj));
-    process.exit(1);
-  }
-}
-
-async function decompileCommand(args: string[]): Promise<void> {
-  const inputFile = args.find((a) => a.endsWith(".docx"));
-  if (!inputFile) {
-    console.error("Error: No input .docx file specified");
-    process.exit(1);
-  }
-
-  const outputIndex = args.indexOf("-o") !== -1 ? args.indexOf("-o") : args.indexOf("--output");
-  const outputFile =
-    outputIndex !== -1 ? (args[outputIndex + 1] ?? "") : inputFile.replace(".docx", ".ldoc");
-  if (!outputFile) {
-    console.error("Error: Missing output path after -o/--output");
-    process.exit(1);
-  }
-
-  // Parse emitIndent option
-  const options: DecompilerOptions = {};
-  if (args.includes("--no-indent")) {
-    options.emitIndent = 'off';
-  } else if (args.includes("--emit-indent")) {
-    options.emitIndent = 'on';
-  }
-
-  console.log(`Decompiling ${inputFile} -> ${outputFile}`);
-
-  try {
-    const buf = await Bun.file(inputFile).arrayBuffer();
-    const result = await docxToLdoc(buf, options);
-    
-    // Write the LDOC source
-    await Bun.write(outputFile, result.source);
-    console.log(`✓ Written ${outputFile} (${result.source.length} chars)`);
-    
-    // Write any extracted assets (images)
-    if (result.assets.size > 0) {
-      const { dirname, join } = await import("node:path");
-      const { mkdir } = await import("node:fs/promises");
-      const baseDir = dirname(outputFile) || ".";
-      
-      for (const [assetPath, data] of result.assets) {
-        const fullPath = join(baseDir, assetPath);
-        // Ensure directory exists
-        await mkdir(dirname(fullPath), { recursive: true });
-        await Bun.write(fullPath, data);
-        console.log(`  ✓ Extracted ${assetPath} (${data.length} bytes)`);
-      }
-    }
-  } catch (error) {
-    console.error("Decompile error:", error);
     process.exit(1);
   }
 }
