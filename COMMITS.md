@@ -125,7 +125,7 @@ So we fix this by committing a clean v3 CST + token model and then rewriting lex
 
 ---
 
-### Commit 5 — `feat(v3): define v3 CST shapes`
+### Commit 5 — `feat(v3): define v3 CST shapes` ✅
 
 **Changes**
 
@@ -137,7 +137,7 @@ So we fix this by committing a clean v3 CST + token model and then rewriting lex
   - `ListItemMarker { ordered/bullet, depth, argsRaw?, body? }`
   - `InlineText`, `InlineDirective` (if needed), `LuaExpr`, etc.
 
-- Keep `ParseResult` and “incomplete marker” support for diagnostics/recovery.
+- Keep `ParseResult` and "incomplete marker" support for diagnostics/recovery.
 
 **Files**
 
@@ -145,11 +145,13 @@ So we fix this by committing a clean v3 CST + token model and then rewriting lex
 
 **Done when**
 
-- Parser can compile against this file without “missing types”.
+- Parser can compile against this file without "missing types".
+
+**Status**: ✅ Complete
 
 ---
 
-### Commit 6 — `feat(v3-lex): rewrite lexer for v3 delimiters + markers`
+### Commit 6 — `feat(v3-lex): rewrite lexer for v3 delimiters + markers` ✅
 
 **Changes**
 
@@ -169,7 +171,9 @@ So we fix this by committing a clean v3 CST + token model and then rewriting lex
 
 **Done when**
 
-- Token stream is stable and contains enough info for parsing without “smart lexer”.
+- Token stream is stable and contains enough info for parsing without "smart lexer".
+
+**Status**: ✅ Complete
 
 ---
 
