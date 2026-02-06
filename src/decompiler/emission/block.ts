@@ -343,10 +343,12 @@ export function emitNode(node: SemanticNode, ctx: EmissionContext): string[] {
  * Emit an array of semantic nodes.
  *
  * Blank-line protocol: "N blank lines = separator + (N-1) empty paragraphs"
- * - One blank line between non-empty nodes = paragraph separator (PARA_BREAK)
- * - Each additional blank line = one empty paragraph (EMPTY_PARAGRAPH)
- * - Empty paragraphs are self-separating (they ARE blank lines), so no
- *   extra separator is added adjacent to them.
+ * - One blank line between non-empty nodes = paragraph separator
+ * - Each additional blank line = one empty paragraph
+ * - Between two consecutive empty paragraphs, no separator is needed
+ *   (each empty paragraph IS a blank line, so they chain naturally)
+ * - Between non-empty and empty (in either direction), a separator IS needed
+ *   so the parser can distinguish "separator" from "empty paragraph content"
  */
 export function emitNodes(nodes: SemanticNode[], ctx: EmissionContext): string[] {
   const lines: string[] = [];
@@ -356,12 +358,12 @@ export function emitNodes(nodes: SemanticNode[], ctx: EmissionContext): string[]
 
     lines.push(...emitNode(node, ctx));
 
-    // Add separator between nodes, but not adjacent to empty paragraphs
-    // (they're self-separating — they already contribute a blank line)
+    // Add separator between nodes. Only skip between two consecutive
+    // empty paragraphs — they chain as consecutive blank lines naturally.
     if (i < nodes.length - 1) {
       const next = nodes[i + 1];
       const nextIsEmpty = next && isParagraph(next) && next.isEmpty;
-      if (!nodeIsEmpty && !nextIsEmpty) {
+      if (!(nodeIsEmpty && nextIsEmpty)) {
         lines.push("");
       }
     }
