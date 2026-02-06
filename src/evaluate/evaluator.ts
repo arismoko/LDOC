@@ -195,9 +195,6 @@ export class Evaluator {
       case "FootnoteDef":
         // Footnotes are collected separately
         return [];
-      case "BlankLine":
-        // Blank lines represent empty paragraphs (spacing, signature areas, etc.)
-        return [{ type: "Paragraph", content: [], loc: node.loc } as Paragraph];
       default:
         // Inline nodes shouldn't appear at block level
         return [];
@@ -268,6 +265,22 @@ export class Evaluator {
       case "evenpage":
         // @evenpage is a modifier, treat as no-op
         return [];
+
+      case "empty": {
+        // @empty or @empty(N) = explicit empty paragraph(s)
+        let count = 1;
+        if (directive.arguments.length > 0) {
+          const arg = directive.arguments[0];
+          const val = arg && this.extractValue(
+            arg.type === "PositionalArg" ? arg.value as { type: string } : undefined
+          );
+          const n = typeof val === "number" ? val : Number(val);
+          if (Number.isFinite(n) && n > 0) count = Math.min(n, 100);
+        }
+        return Array.from({ length: count }, () =>
+          ({ type: "Paragraph", content: [], loc: directive.loc }) as Paragraph
+        );
+      }
 
       case "pagebreak":
         return [{ type: "PageBreak", loc: directive.loc }];
@@ -397,8 +410,8 @@ export class Evaluator {
           if (row) {
             rows.push(row);
           }
-        } else if (node.type === "Paragraph" || node.type === "BlankLine") {
-          // Skip blank lines and stray paragraphs in tables
+        } else if (node.type === "Paragraph") {
+          // Skip stray paragraphs in tables
         } else {
           // Unexpected content in table
           ctx.diagnostics.push(
@@ -439,8 +452,8 @@ export class Evaluator {
           if (cell) {
             cells.push(cell);
           }
-        } else if (node.type === "Paragraph" || node.type === "BlankLine") {
-          // Skip blank lines and stray paragraphs
+        } else if (node.type === "Paragraph") {
+          // Skip stray paragraphs
         } else {
           // Unexpected content in row
           ctx.diagnostics.push(

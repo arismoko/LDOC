@@ -18,7 +18,6 @@ import type {
   CSTListItem,
   CSTBlockquote,
   CSTHorizontalRule,
-  CSTBlankLine,
   CSTInline,
   CSTText,
   CSTVariable,
@@ -149,7 +148,7 @@ export class Parser {
 
     while (!this.isAtEnd()) {
       // Collect blank lines as empty paragraph nodes in document content
-      this.collectContent(children);
+      this.skipBlankLines();
       if (this.isAtEnd()) break;
 
       const node = this.parseNodeSafe();
@@ -438,7 +437,7 @@ export class Parser {
         
         while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
           // Collect blank lines as empty paragraph nodes in body
-          this.collectContent(body);
+          this.skipBlankLines();
           if (this.isAtEnd() || this.check(TokenType.DEDENT)) break;
 
           // Use parseNodeSafe for error recovery in body
@@ -793,7 +792,7 @@ export class Parser {
       this.advance();
       
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
-        this.collectContent(children);
+        this.skipBlankLines();
         if (this.isAtEnd() || this.check(TokenType.DEDENT)) break;
         // Use parseNodeSafe for error recovery in nested content
         const node = this.parseNodeSafe();
@@ -845,7 +844,7 @@ export class Parser {
         this.advance();
         
         while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
-          this.collectContent(children);
+          this.skipBlankLines();
           if (this.isAtEnd() || this.check(TokenType.DEDENT)) break;
           // Use parseNodeSafe for error recovery in nested content
           const node = this.parseNodeSafe();
@@ -909,7 +908,7 @@ export class Parser {
       this.advance();
       
       while (!this.isAtEnd() && !this.check(TokenType.DEDENT)) {
-        this.collectContent(content);
+        this.skipBlankLines();
         if (this.isAtEnd() || this.check(TokenType.DEDENT)) break;
         // Use parseNodeSafe for error recovery in footnote content
         const node = this.parseNodeSafe();
@@ -987,9 +986,15 @@ export class Parser {
   // ===========================================================================
 
   private parseInlineContent(): CSTInline[] {
+    const startLine = this.peek().line;
     const inlines: CSTInline[] = [];
 
     while (!this.isAtEnd() && !this.isBlockEnd()) {
+      // A directive on a new line is block-level, not inline.
+      // Inline directives only appear on the same line as surrounding content.
+      if (this.check(TokenType.DIRECTIVE) && this.peek().line > startLine) {
+        break;
+      }
       const inline = this.parseInline();
       if (inline) {
         inlines.push(inline);
@@ -1276,25 +1281,13 @@ export class Parser {
   }
 
   /**
-   * Consume BLANK_LINE tokens. The first blank line is a paragraph separator
-   * (discarded). Each additional consecutive blank line becomes a BlankLine CST
-   * node (empty paragraph). Used inside content blocks where extra blank lines
-   * represent empty paragraphs.
+   * Skip blank lines between content nodes.
+   * Blank lines are always separators — never content.
+   * Empty paragraphs are represented by explicit @empty directives.
    */
-  private collectContent(nodes: CSTNode[]): void {
-    let first = true;
+  private skipBlankLines(): void {
     while (this.check(TokenType.BLANK_LINE)) {
-      const tok = this.advance();
-      if (first) {
-        // First blank line is a paragraph separator — skip it
-        first = false;
-      } else {
-        // Additional blank lines are empty paragraphs
-        nodes.push({
-          type: "BlankLine",
-          loc: loc(tok.line, tok.column),
-        } as CSTBlankLine);
-      }
+      this.advance();
     }
   }
 

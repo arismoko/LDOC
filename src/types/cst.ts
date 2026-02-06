@@ -222,9 +222,8 @@ export interface CSTHorizontalRule extends CSTBase {
   type: "HorizontalRule";
 }
 
-export interface CSTBlankLine extends CSTBase {
-  type: "BlankLine";
-}
+// CSTBlankLine removed: blank lines are always separators (never content).
+// Empty paragraphs are represented by @empty directives.
 
 // =============================================================================
 // Inline Nodes
@@ -331,7 +330,6 @@ export type CSTBlock =
   | CSTTable
   | CSTBlockquote
   | CSTHorizontalRule
-  | CSTBlankLine
   | CSTFootnoteDef;
 
 export type CSTNode =

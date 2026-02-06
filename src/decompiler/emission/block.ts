@@ -201,11 +201,8 @@ function emitNormalParagraph(para: SemanticParagraph, ctx: EmissionContext): str
 }
 
 /**
- * Emit an empty paragraph.
- * 
- * Empty paragraphs are represented as a single blank line.
- * The separator between nodes (PARA_BREAK) is handled by emitNodes;
- * this blank line represents the empty paragraph itself (EMPTY_PARAGRAPH token).
+ * Emit an empty paragraph as @empty directive.
+ * Explicit syntax — no blank-line counting protocol needed.
  */
 function emitEmptyParagraph(para: SemanticParagraph, ctx: EmissionContext): string[] {
   const lines: string[] = [];
@@ -213,11 +210,7 @@ function emitEmptyParagraph(para: SemanticParagraph, ctx: EmissionContext): stri
   // Emit anchors first
   lines.push(...emitAnchors(para.anchors, ctx));
 
-  // Empty paragraph = one blank line
-  // When following non-empty content, emitNodes adds a separator first,
-  // making this the EMPTY_PARAGRAPH. When following another empty,
-  // no separator is added, so this blank IS the empty paragraph.
-  lines.push("");
+  lines.push(`${ctx.indent}@empty`);
 
   return lines;
 }
@@ -340,32 +333,17 @@ export function emitNode(node: SemanticNode, ctx: EmissionContext): string[] {
 }
 
 /**
- * Emit an array of semantic nodes.
- *
- * Blank-line protocol: "N blank lines = separator + (N-1) empty paragraphs"
- * - One blank line between non-empty nodes = paragraph separator
- * - Each additional blank line = one empty paragraph
- * - Between two consecutive empty paragraphs, no separator is needed
- *   (each empty paragraph IS a blank line, so they chain naturally)
- * - Between non-empty and empty (in either direction), a separator IS needed
- *   so the parser can distinguish "separator" from "empty paragraph content"
+ * Emit an array of semantic nodes with blank-line separators for readability.
+ * Empty paragraphs are explicit @empty directives, so separators are simple.
  */
 export function emitNodes(nodes: SemanticNode[], ctx: EmissionContext): string[] {
   const lines: string[] = [];
   for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i]!;
-    const nodeIsEmpty = isParagraph(node) && node.isEmpty;
+    lines.push(...emitNode(nodes[i]!, ctx));
 
-    lines.push(...emitNode(node, ctx));
-
-    // Add separator between nodes. Only skip between two consecutive
-    // empty paragraphs — they chain as consecutive blank lines naturally.
+    // Blank line separator between nodes for readability
     if (i < nodes.length - 1) {
-      const next = nodes[i + 1];
-      const nextIsEmpty = next && isParagraph(next) && next.isEmpty;
-      if (!(nodeIsEmpty && nextIsEmpty)) {
-        lines.push("");
-      }
+      lines.push("");
     }
   }
   return lines;
