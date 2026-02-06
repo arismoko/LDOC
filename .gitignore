@@ -34,3 +34,4 @@ fidelity/.env
 # LibreOffice lock files
 ~$*
 .~lock.*#
+references/
