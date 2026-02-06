@@ -659,12 +659,20 @@ export class Evaluator {
         // Apply style to each block
         for (const block of transformed) {
           if (block.type === "Paragraph" || block.type === "Heading") {
-            // Merge styles: existing style + new style
             const existingStyle = (block as any).style ?? {};
             (block as any).style = {
               name: styleRef.name ?? existingStyle.name,
               inline: { ...existingStyle.inline, ...styleRef.inline },
             };
+          } else if (block.type === "List") {
+            // Propagate style to each list item
+            for (const item of (block as List).items) {
+              const existingStyle = item.style ?? {};
+              item.style = {
+                name: styleRef.name ?? existingStyle.name,
+                inline: { ...existingStyle.inline, ...styleRef.inline },
+              };
+            }
           }
           blocks.push(block);
         }
