@@ -311,17 +311,3 @@ That’s not bad — it means you learned fast — but now v3 should be:
 The new spec already reflects that maturity.
 
 ---
-
-If you want, next we can:
-
-👉 Make a **“LDOC v3 Rewrite Roadmap”**:
-
-- what to delete first
-- what to refactor second
-- what to keep untouched
-- milestone order (parser → Lua eval → emitter → LSP)
-
-That will save you weeks of thrashing.
-
-But big picture:
-**You’re absolutely right that much of the code goes in the bin — and that’s a good thing.**

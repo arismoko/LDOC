@@ -2,90 +2,63 @@
   "iterations": [
     {
       "iteration": 1,
-      "startedAt": "2026-02-06T21:47:47.243Z",
-      "endedAt": "2026-02-06T22:04:34.892Z",
-      "durationMs": 1007340,
+      "startedAt": "2026-02-06T23:23:38.457Z",
+      "endedAt": "2026-02-06T23:47:42.541Z",
+      "durationMs": 1443752,
       "toolsUsed": {
-        "Read": 23,
-        "Todo": 15,
-        "Bash": 25,
-        "Write": 4,
-        "Edit": 15
+        "Read": 157,
+        "task": 2,
+        "Bash": 20,
+        "Todo": 14,
+        "Grep": 2,
+        "Edit": 22,
+        "Write": 9
       },
       "filesModified": [
-        ".opencode/ralph-history.json",
-        ".opencode/ralph-loop.state.json",
+        ".opencode/ralph-context.md",
         "COMMITS.md",
-        "RALPH.md",
-        "fixtures/lists.ldoc",
-        "fixtures/minimal.ldoc",
-        "fixtures/table.ldoc",
-        "package.json",
-        "src/cli/dev-smoke.ts",
-        "src/cli/index.ts",
+        "src/bind/binder.ts",
+        "src/bind/resolver.ts",
+        "src/bind/validator.ts",
         "src/evaluate/control-flow.ts",
+        "src/evaluate/evaluator.ts",
+        "src/evaluate/expander.ts",
         "src/evaluate/index.ts",
-        "src/index.ts",
-        ".opencode/"
-      ],
-      "exitCode": 0,
-      "completionDetected": false,
-      "errors": [
-        "❌ Error: Parse failed: Missing closing ')'",
-        "❌ Error: Parse failed: Expected directive name after @",
-        "Failed: 3"
-      ]
-    },
-    {
-      "iteration": 2,
-      "startedAt": "2026-02-06T22:04:36.211Z",
-      "endedAt": "2026-02-06T22:35:16.601Z",
-      "durationMs": 1840062,
-      "toolsUsed": {
-        "Read": 28,
-        "Write": 18,
-        "Todo": 13,
-        "Bash": 36,
-        "Edit": 30
-      },
-      "filesModified": [
-        "COMMITS.md",
-        "src/parse/index.ts",
+        "src/lsp/completion.ts",
+        "src/lsp/navigation.ts",
+        "src/lsp/server.ts",
         "src/parse/lexer.ts",
         "src/parse/parser.ts",
+        "src/parse/recovery.ts",
         "src/types/cst.ts",
-        "src/types/tokens.ts"
+        "src/types/index.ts",
+        "src/types/symbols.ts"
       ],
       "exitCode": 0,
       "completionDetected": false,
       "errors": [
-        "error: ENOENT: no such file or directory, open 'test/attributes.test'",
-        "error: ENOENT: no such file or directory, open 'test/block_quote.test'",
-        "error: ENOENT: no such file or directory, open 'test/code_blocks.test'",
-        "error: No matching export in \"src/types/tokens.ts\" for import \"token\"",
-        "error: ENOENT: no such file or directory, open 'test/definition_lists.test'",
-        "error: ENOENT: no such file or directory, open 'test/symb.test'",
-        "error: ENOENT: no such file or directory, open 'test/emphasis.test'",
-        "error: Cannot find module './src/parse/lexer.ts' from '/tmp/test_tokens.ts'",
-        "error: No matching export in \"src/parse/parser.ts\" for import \"parse\""
+        "The smoke test IS running and completing. The errors are parse-level errors (TEXT tokens appearing where the parser doesn't expect them), which is a logic issue, not a compilation issue. The commit sp",
+        "But wait — the `parseAndBind` function throws on parse errors. The smoke test catches the thrown error and reports it. So the smoke test runs but reports failures. That meets the criteria: \"bun run sm",
+        "error: script \"smoke\" was terminated by signal SIGTERM (Polite quit request)",
+        "❌ Error: Parse failed: Nested paragraph blocks are not allowed (Spec §4.2). Treating '[' as literal text.",
+        "❌ Error: Parse failed: Expected directive name after @",
+        "❌ Error: Parse failed: Unexpected token: EOF",
+        "Failed: 3",
+        "❌ Error: Parse failed: Unexpected token: TEXT"
       ]
     }
   ],
-  "totalDurationMs": 2847402,
+  "totalDurationMs": 1443752,
   "struggleIndicators": {
     "repeatedErrors": {
-      "❌ Error: Parse failed: Missing closing ')'": 1,
+      "The smoke test IS running and completing. The errors are parse-level errors (TEXT tokens appearing w": 1,
+      "But wait — the `parseAndBind` function throws on parse errors. The smoke test catches the thrown err": 1,
+      "error: script \"smoke\" was terminated by signal SIGTERM (Polite quit request)": 1,
+      "❌ Error: Parse failed: Nested paragraph blocks are not allowed (Spec §4.2). Treating '[' as literal ": 1,
       "❌ Error: Parse failed: Expected directive name after @": 1,
+      "❌ Error: Parse failed: Unexpected token: EOF": 1,
       "Failed: 3": 1,
-      "error: ENOENT: no such file or directory, open 'test/attributes.test'": 1,
-      "error: ENOENT: no such file or directory, open 'test/block_quote.test'": 1,
-      "error: ENOENT: no such file or directory, open 'test/code_blocks.test'": 1,
-      "error: No matching export in \"src/types/tokens.ts\" for import \"token\"": 1,
-      "error: ENOENT: no such file or directory, open 'test/definition_lists.test'": 1,
-      "error: ENOENT: no such file or directory, open 'test/symb.test'": 1,
-      "error: ENOENT: no such file or directory, open 'test/emphasis.test'": 1,
-      "error: Cannot find module './src/parse/lexer.ts' from '/tmp/test_tokens.ts'": 1,
-      "error: No matching export in \"src/parse/parser.ts\" for import \"parse\"": 1
+      "❌ Error: Parse failed: Unexpected token: TEXT": 1
     },
     "noProgressIterations": 0,
     "shortIterations": 0
