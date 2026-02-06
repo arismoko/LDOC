@@ -414,3 +414,74 @@ describe("Context Variables", () => {
     expect(doc.blocks.length).toBe(1);
   });
 });
+
+// =============================================================================
+// Empty Paragraph Roundtrip
+// =============================================================================
+
+describe("Empty Paragraph Roundtrip", () => {
+  function countParas(doc: Document) {
+    const paras = doc.blocks.filter((b): b is Paragraph => b.type === "Paragraph");
+    return {
+      total: paras.length,
+      empty: paras.filter(p => p.content.length === 0).length,
+      nonEmpty: paras.filter(p => p.content.length > 0).length,
+    };
+  }
+
+  test("1 blank line = separator only (no empty paragraphs)", () => {
+    const doc = fullEvaluate("hello\n\nworld");
+    const { total, empty } = countParas(doc);
+    expect(total).toBe(2);
+    expect(empty).toBe(0);
+  });
+
+  test("2 blank lines = separator + 1 empty paragraph", () => {
+    const doc = fullEvaluate("hello\n\n\nworld");
+    const { total, empty } = countParas(doc);
+    expect(total).toBe(3);
+    expect(empty).toBe(1);
+  });
+
+  test("3 blank lines = separator + 2 empty paragraphs", () => {
+    const doc = fullEvaluate("hello\n\n\n\nworld");
+    const { total, empty } = countParas(doc);
+    expect(total).toBe(4);
+    expect(empty).toBe(2);
+  });
+
+  test("5 blank lines = separator + 4 empty paragraphs", () => {
+    const doc = fullEvaluate("hello\n\n\n\n\n\nworld");
+    const { total, empty } = countParas(doc);
+    expect(total).toBe(6);
+    expect(empty).toBe(4);
+  });
+
+  test("leading blank lines become empty paragraphs", () => {
+    const doc = fullEvaluate("\n\nhello");
+    const { total, empty } = countParas(doc);
+    expect(total).toBe(2);
+    expect(empty).toBe(1);
+  });
+
+  test("trailing blank lines become empty paragraphs", () => {
+    const doc = fullEvaluate("hello\n\n\n");
+    const { total, empty } = countParas(doc);
+    expect(total).toBe(2);
+    expect(empty).toBe(1);
+  });
+
+  test("multiple groups of empty paragraphs", () => {
+    const doc = fullEvaluate("a\n\n\nb\n\n\nc");
+    const { total, empty } = countParas(doc);
+    expect(total).toBe(5);
+    expect(empty).toBe(2);
+  });
+
+  test("empty paragraphs inside directive body", () => {
+    const doc = fullEvaluate("@style(align: center)\n  a\n\n\n\n  b");
+    const { total, empty } = countParas(doc);
+    expect(total).toBe(4);
+    expect(empty).toBe(2);
+  });
+});
