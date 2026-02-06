@@ -143,16 +143,15 @@ export function parseRunStyle(runNode: XmlNode): ExtractedRunStyle {
 
 /**
  * Normalize whitespace in extracted text.
- * - Collapse multiple spaces to single space
  * - Convert \r\n to \n
- * - Preserve tabs as \t
+ * - Convert vertical tab / form feed to space
+ * - Preserve multiple spaces (they are intentional content in DOCX)
  *
  * Note: This is the ONLY place whitespace normalization happens in extraction.
  */
 function normalizeRunText(text: string): string {
   let result = text.replace(/\r\n/g, "\n");
   result = result.replace(/[\v\f]+/g, " ");
-  result = result.replace(/ +/g, " ");
   return result;
 }
 
