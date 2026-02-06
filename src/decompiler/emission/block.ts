@@ -217,7 +217,7 @@ function emitNormalParagraph(para: SemanticParagraph, ctx: EmissionContext): str
 
 /**
  * Emit an empty paragraph as @empty directive.
- * Explicit syntax — no blank-line counting protocol needed.
+ * If the empty paragraph has a named style, wraps in @style(style: X).
  */
 function emitEmptyParagraph(para: SemanticParagraph, ctx: EmissionContext): string[] {
   const lines: string[] = [];
@@ -225,7 +225,17 @@ function emitEmptyParagraph(para: SemanticParagraph, ctx: EmissionContext): stri
   // Emit anchors first
   lines.push(...emitAnchors(para.anchors, ctx));
 
-  lines.push(`${ctx.indent}@empty`);
+  // Check for named style that needs to be preserved
+  const styleId = para.extracted.styleId;
+  const needsStyleName = styleId && !isStructuralStyle(styleId);
+
+  if (needsStyleName) {
+    lines.push(`${ctx.indent}@style(style: ${styleId})`);
+    const childCtx = indentContext(ctx);
+    lines.push(`${childCtx.indent}@empty`);
+  } else {
+    lines.push(`${ctx.indent}@empty`);
+  }
 
   return lines;
 }
