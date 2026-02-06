@@ -1,133 +1,237 @@
 /**
- * Concrete Syntax Tree — Uniform Node Architecture
+ * Concrete Syntax Tree v3 — Structured shapes matching LDOC v3 spec
  *
- * Inspired by Typst's parser: one node type, kind enum identifies semantics.
- * No inline/block distinction at the CST level. Paragraph grouping happens
- * as a post-parse transform.
- *
- * Design principles:
- *   1. Every node is a `CSTNode` — uniform interface, kind discriminates.
- *   2. `[...]` (ContentBlock) and indented bodies (Body) both produce child
- *      sequences — same structure, different delimiters.
- *   3. The parser does NOT create Paragraph nodes. A separate `groupParagraphs`
- *      pass collects consecutive inline nodes between Parbreaks into Paragraphs.
- *   4. Trivia (whitespace, comments, blank lines) are real nodes.
+ * The v3 spec explicitly uses paragraph blocks [...]
+ * and structural bodies {...}. This CST reflects that.
  */
 
-import type { SourceLocation } from "./source-location.ts";
+import type { TokenType } from "./tokens.ts";
 import type { Diagnostic } from "./diagnostics.ts";
+import type { SourceLocation } from "./source-location.ts";
 
 // =============================================================================
-// Node Kind — flat enum, no hierarchy
+// Core Document Structure
 // =============================================================================
 
-export enum NodeKind {
-  // -- Document root --
-  Document = "Document",
-
-  // -- Directive system --
-  /** @name(...)[...] or @name with indented body */
-  Directive = "Directive",
-  /** (...) argument list */
-  Args = "Args",
-  /** name: value pair inside Args */
-  NamedArg = "NamedArg",
-  /** [...] bracketed content block — parsed recursively */
-  ContentBlock = "ContentBlock",
-  /** Indented body — children parsed recursively */
-  Body = "Body",
-  /** Raw YAML-like body (@document, @meta) — not parsed further */
-  OpaqueBody = "OpaqueBody",
-
-  // -- Block-level constructs (identified by leading token) --
-  /** # Heading */
-  Heading = "Heading",
-  /** - item or * item */
-  ListItem = "ListItem",
-  /** 1. item or a. item or @@item */
-  EnumItem = "EnumItem",
-  /** > blockquote */
-  Blockquote = "Blockquote",
-  /** --- horizontal rule */
-  Rule = "Rule",
-  /** | cell | cell | table row */
-  TableRow = "TableRow",
-  /** Cell content within a table row */
-  TableCell = "TableCell",
-  /** [^label]: footnote definition */
-  FootnoteDef = "FootnoteDef",
-
-  // -- Paragraph (created by groupParagraphs, NOT the parser) --
-  Paragraph = "Paragraph",
-
-  // -- Inline constructs --
-  /** Plain text leaf */
-  Text = "Text",
-  /** **bold** */
-  Strong = "Strong",
-  /** *italic* */
-  Emph = "Emph",
-  /** ~~strike~~ */
-  Strike = "Strike",
-  /** ==highlight== */
-  Highlight = "Highlight",
-  /** `code` */
-  Code = "Code",
-  /** {{expression}} */
-  Interpolation = "Interpolation",
-  /** [text](url) */
-  Link = "Link",
-  /** ![alt](src) */
-  Image = "Image",
-  /** [^ref] */
-  FootnoteRef = "FootnoteRef",
-  /** [[target]] */
-  CrossRef = "CrossRef",
-  /** "defined term" (string token in inline context) */
-  DefinedTerm = "DefinedTerm",
-  /** ___ fill-in blank */
-  Blank = "Blank",
-  /** @br or trailing double-space */
-  Linebreak = "Linebreak",
-  /** @tab */
-  Tab = "Tab",
-
-  // -- Trivia --
-  /** Blank line — paragraph boundary */
-  Parbreak = "Parbreak",
-  /** // comment */
-  Comment = "Comment",
-
-  // -- Literals (inside Args) --
-  Ident = "Ident",
-  Str = "Str",
-  Num = "Num",
-  Len = "Len",
-  Bool = "Bool",
-  Expr = "Expr",
-
-  // -- Error recovery --
-  Error = "Error",
+/** Root document node */
+export interface Document {
+  kind: "Document";
+  loc: SourceLocation;
+  children: Block[];
 }
 
 // =============================================================================
-// The Node
+// Block Types (structural context)
 // =============================================================================
 
-/**
- * Every element in the tree is a CSTNode.
- *
- * Inner nodes have children. Leaf nodes have text.
- * The `kind` field tells you what it is.
- */
-export interface CSTNode {
-  kind: NodeKind;
+/** Base block type */
+export type Block =
+  | ParagraphBlock
+  | Directive
+  | ListItemMarker
+  | StructuralBody
+  | Table
+  | LayoutDirective
+  | HeaderFooter
+  | Include;
+
+/** Paragraph block - exactly one paragraph enclosed in [...] */
+export interface ParagraphBlock {
+  kind: "ParagraphBlock";
   loc: SourceLocation;
-  children: CSTNode[];
-  /** Leaf content (Text, Ident, Str, Num, Len, Bool, OpaqueBody, Error) */
-  text?: string;
-  /** Error message (kind === Error only) */
-  error?: string;
+  inlines: Inline[];
+}
+
+/** Directive - @name or @name(args) or @name{ body } */
+export interface Directive {
+  kind: "Directive";
+  loc: SourceLocation;
+  name: string;
+  argsRaw?: string; // raw argument text or undefined
+  body?: StructuralBody; // optional structural body
+}
+
+/** List marker - @- or @# with optional body */
+export interface ListItemMarker {
+  kind: "ListItemMarker";
+  loc: SourceLocation;
+  ordered: boolean; // true for @#, false for @-
+  depth: number; // number of leading @ symbols
+  argsRaw?: string; // optional marker args like @#(start: 5)
+  body?: StructuralBody; // optional multi-paragraph body
+}
+
+/** Structural body - collection of blocks */
+export interface StructuralBody {
+  kind: "StructuralBody";
+  loc: SourceLocation;
+  children: Block[];
+}
+
+/** Table - @table{ rows } */
+export interface Table {
+  kind: "Table";
+  loc: SourceLocation;
+  rows: TableRow[];
+}
+
+/** Table row - @row(cells: [...]) */
+export interface TableRow {
+  kind: "TableRow";
+  loc: SourceLocation;
+  cells: string[]; // cell contents with merge tokens (">", "^")
+}
+
+// =============================================================================
+// Layout Directives (core)
+// =============================================================================
+
+export type LayoutDirective =
+  | Pagebreak
+  | Columns
+  | Box
+  | Align;
+
+/** Page break - @pagebreak */
+export interface Pagebreak {
+  kind: "Pagebreak";
+  loc: SourceLocation;
+}
+
+/** Columns - @columns(count: 2, gap: "0.5in", separator: true){ body } */
+export interface Columns {
+  kind: "Columns";
+  loc: SourceLocation;
+  count: number;
+  gap: string;
+  separator: boolean;
+  body: StructuralBody;
+}
+
+/** Box - @box{ content } */
+export interface Box {
+  kind: "Box";
+  loc: SourceLocation;
+  body: StructuralBody;
+}
+
+/** Alignment - @align(value: "center"){ content } */
+export interface Align {
+  kind: "Align";
+  loc: SourceLocation;
+  value: "left" | "center" | "right";
+  body: StructuralBody;
+}
+
+// =============================================================================
+// Header and Footer
+// =============================================================================
+
+export type HeaderFooter =
+  | Header
+  | Footer;
+
+/** Header - @header{ left | center | right } */
+export interface Header {
+  kind: "Header";
+  loc: SourceLocation;
+  left?: ParagraphBlock;
+  center?: ParagraphBlock;
+  right?: ParagraphBlock;
+}
+
+/** Footer - @footer{ left | center | right } */
+export interface Footer {
+  kind: "Footer";
+  loc: SourceLocation;
+  left?: ParagraphBlock;
+  center?: ParagraphBlock;
+  right?: ParagraphBlock;
+}
+
+// =============================================================================
+// Include Directive
+// =============================================================================
+
+/** File include - @include(path: "...", args: {...}) */
+export interface Include {
+  kind: "Include";
+  loc: SourceLocation;
+  path: string;
+  args: Record<string, any>; // evaluated later
+}
+
+// =============================================================================
+// Inline Types (paragraph context)
+// =============================================================================
+
+/** Base inline type */
+export type Inline =
+  | InlineText
+  | InlineDirective
+  | LuaExpr
+  | InlineHardBreak;
+
+/** Plain text content */
+export interface InlineText {
+  kind: "InlineText";
+  loc: SourceLocation;
+  text: string;
+}
+
+/** Inline directive - e.g., @style(r: { bold: true }){important} */
+export interface InlineDirective {
+  kind: "InlineDirective";
+  loc: SourceLocation;
+  name: string;
+  argsRaw?: string;
+  body?: Inline[]; // optional inline body inside directive
+}
+
+/** Lua expression - $(...) */
+export interface LuaExpr {
+  kind: "LuaExpr";
+  loc: SourceLocation;
+  expr: string; // content inside $(...)
+}
+
+/** Hard line break (from blank lines in paragraphs) */
+export interface InlineHardBreak {
+  kind: "InlineHardBreak";
+  loc: SourceLocation;
+}
+
+// =============================================================================
+// Other (reserved for future use)
+// =============================================================================
+
+/** Anchor - @anchor(id: "...") */
+export interface Anchor {
+  kind: "Anchor";
+  loc: SourceLocation;
+  id: string;
+}
+
+/** Def - @def(...) */
+export interface Def {
+  kind: "Def";
+  loc: SourceLocation;
+  bindings: Record<string, any>; // name -> value
+}
+
+/** Style application - @style(...) */
+export interface Style {
+  kind: "Style";
+  loc: SourceLocation;
+  channel: "p" | "r"; // p for paragraph, r for run
+  argsRaw?: string;
+}
+
+/** Document config - @document(...) */
+export interface DocumentConfig {
+  kind: "DocumentConfig";
+  loc: SourceLocation;
+  argsRaw?: string;
 }
 
 // =============================================================================
@@ -135,133 +239,100 @@ export interface CSTNode {
 // =============================================================================
 
 export interface ParseResult {
-  cst: CSTNode; // kind === Document
+  cst: Document;
   diagnostics: Diagnostic[];
+  /** Flag for incomplete marker (EOF-close recovery) */
+  incomplete?: boolean;
 }
 
 // =============================================================================
 // Constructors
 // =============================================================================
 
-export function inner(kind: NodeKind, loc: SourceLocation, children: CSTNode[]): CSTNode {
-  return { kind, loc, children };
+export function document(loc: SourceLocation, children: Block[]): Document {
+  return { kind: "Document", loc, children };
 }
 
-export function leaf(kind: NodeKind, loc: SourceLocation, text: string): CSTNode {
-  return { kind, loc, children: [], text };
+export function paragraphBlock(loc: SourceLocation, inlines: Inline[]): ParagraphBlock {
+  return { kind: "ParagraphBlock", loc, inlines };
 }
 
-export function errorNode(loc: SourceLocation, message: string, children: CSTNode[] = []): CSTNode {
-  return { kind: NodeKind.Error, loc, children, error: message };
+export function directive(loc: SourceLocation, name: string, argsRaw?: string, body?: StructuralBody): Directive {
+  return { kind: "Directive", loc, name, argsRaw, body };
 }
 
-// =============================================================================
-// Accessors — typed views over the uniform tree
-// =============================================================================
-
-/** Get the directive name (first Ident child). */
-export function directiveName(node: CSTNode): string | undefined {
-  if (node.kind !== NodeKind.Directive) return undefined;
-  return node.children.find(c => c.kind === NodeKind.Ident)?.text;
+export function listItemMarker(loc: SourceLocation, ordered: boolean, depth: number, argsRaw?: string, body?: StructuralBody): ListItemMarker {
+  return { kind: "ListItemMarker", loc, ordered, depth, argsRaw, body };
 }
 
-/** Get the Args child of a Directive. */
-export function directiveArgs(node: CSTNode): CSTNode | undefined {
-  return node.children.find(c => c.kind === NodeKind.Args);
+export function structuralBody(loc: SourceLocation, children: Block[]): StructuralBody {
+  return { kind: "StructuralBody", loc, children };
 }
 
-/** Get the body of a Directive — ContentBlock, Body, or OpaqueBody. */
-export function directiveBody(node: CSTNode): CSTNode | undefined {
-  return node.children.find(
-    c => c.kind === NodeKind.ContentBlock || c.kind === NodeKind.Body || c.kind === NodeKind.OpaqueBody
-  );
+export function table(loc: SourceLocation, rows: TableRow[]): Table {
+  return { kind: "Table", loc, rows };
 }
 
-/** Get body children (unwrap ContentBlock/Body wrapper). */
-export function bodyChildren(node: CSTNode): CSTNode[] {
-  const body = directiveBody(node);
-  if (!body) return [];
-  return body.children;
+export function tableRow(loc: SourceLocation, cells: string[]): TableRow {
+  return { kind: "TableRow", loc, cells };
 }
 
-/** Get heading level from marker. */
-export function headingLevel(node: CSTNode): number {
-  if (node.kind !== NodeKind.Heading) return 0;
-  // First child is the marker text (e.g. "#", "##")
-  const marker = node.children[0];
-  return marker?.text?.length ?? 0;
+export function pagebreak(loc: SourceLocation): Pagebreak {
+  return { kind: "Pagebreak", loc };
 }
 
-/** Collect all text from a node tree (flattening). */
-export function collectText(node: CSTNode): string {
-  if (node.text !== undefined) return node.text;
-  return node.children.map(collectText).join("");
+export function columns(loc: SourceLocation, count: number, gap: string, separator: boolean, body: StructuralBody): Columns {
+  return { kind: "Columns", loc, count, gap, separator, body };
 }
 
-/** Get named arg value by name from an Args node. */
-export function namedArgValue(argsNode: CSTNode, name: string): CSTNode | undefined {
-  for (const child of argsNode.children) {
-    if (child.kind === NodeKind.NamedArg) {
-      const nameNode = child.children[0];
-      if (nameNode?.text === name) return child.children[1];
-    }
-  }
-  return undefined;
+export function box(loc: SourceLocation, body: StructuralBody): Box {
+  return { kind: "Box", loc, body };
 }
 
-/** Get all positional arg values from an Args node. */
-export function positionalArgs(argsNode: CSTNode): CSTNode[] {
-  return argsNode.children.filter(c => c.kind !== NodeKind.NamedArg);
+export function align(loc: SourceLocation, value: "left" | "center" | "right", body: StructuralBody): Align {
+  return { kind: "Align", loc, value, body };
 }
 
-// =============================================================================
-// Type Guards
-// =============================================================================
-
-export function isTrivia(kind: NodeKind): boolean {
-  return kind === NodeKind.Parbreak || kind === NodeKind.Comment;
+export function header(loc: SourceLocation, left?: ParagraphBlock, center?: ParagraphBlock, right?: ParagraphBlock): Header {
+  return { kind: "Header", loc, left, center, right };
 }
 
-export function isBlockLevel(kind: NodeKind): boolean {
-  return (
-    kind === NodeKind.Directive ||
-    kind === NodeKind.Heading ||
-    kind === NodeKind.ListItem ||
-    kind === NodeKind.EnumItem ||
-    kind === NodeKind.Blockquote ||
-    kind === NodeKind.Rule ||
-    kind === NodeKind.TableRow ||
-    kind === NodeKind.FootnoteDef ||
-    kind === NodeKind.Paragraph
-  );
+export function footer(loc: SourceLocation, left?: ParagraphBlock, center?: ParagraphBlock, right?: ParagraphBlock): Footer {
+  return { kind: "Footer", loc, left, center, right };
 }
 
-export function isInline(kind: NodeKind): boolean {
-  return (
-    kind === NodeKind.Text ||
-    kind === NodeKind.Strong ||
-    kind === NodeKind.Emph ||
-    kind === NodeKind.Strike ||
-    kind === NodeKind.Highlight ||
-    kind === NodeKind.Code ||
-    kind === NodeKind.Interpolation ||
-    kind === NodeKind.Link ||
-    kind === NodeKind.Image ||
-    kind === NodeKind.FootnoteRef ||
-    kind === NodeKind.CrossRef ||
-    kind === NodeKind.DefinedTerm ||
-    kind === NodeKind.Blank ||
-    kind === NodeKind.Linebreak ||
-    kind === NodeKind.Tab ||
-    kind === NodeKind.Directive // directives with ContentBlock are inline
-  );
+export function include(loc: SourceLocation, path: string, args: Record<string, any>): Include {
+  return { kind: "Include", loc, path, args };
 }
 
-export function isError(node: CSTNode): boolean {
-  return node.kind === NodeKind.Error;
+export function inlineText(loc: SourceLocation, text: string): InlineText {
+  return { kind: "InlineText", loc, text };
 }
 
-export function hasError(node: CSTNode): boolean {
-  if (isError(node)) return true;
-  return node.children.some(hasError);
+export function inlineDirective(loc: SourceLocation, name: string, argsRaw?: string, body?: Inline[]): InlineDirective {
+  return { kind: "InlineDirective", loc, name, argsRaw, body };
+}
+
+export function luaExpr(loc: SourceLocation, expr: string): LuaExpr {
+  return { kind: "LuaExpr", loc, expr };
+}
+
+export function inlineHardBreak(loc: SourceLocation): InlineHardBreak {
+  return { kind: "InlineHardBreak", loc };
+}
+
+export function anchor(loc: SourceLocation, id: string): Anchor {
+  return { kind: "Anchor", loc, id };
+}
+
+export function def(loc: SourceLocation, bindings: Record<string, any>): Def {
+  return { kind: "Def", loc, bindings };
+}
+
+export function style(loc: SourceLocation, channel: "p" | "r", argsRaw?: string): Style {
+  return { kind: "Style", loc, channel, argsRaw };
+}
+
+export function documentConfig(loc: SourceLocation, argsRaw?: string): DocumentConfig {
+  return { kind: "DocumentConfig", loc, argsRaw };
 }
