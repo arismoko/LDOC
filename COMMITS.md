@@ -34,7 +34,7 @@ I’m assuming you want **one mainline v3** (not “v2 + v3 side-by-side”), bu
 
 # Phase A — cut legacy scope (YAGNI deletion)
 
-### Commit 1 — `chore: remove decompiler from public API`
+### Commit 1 — `chore: remove decompiler from public API` ✅
 
 **Changes**
 
@@ -48,6 +48,8 @@ I’m assuming you want **one mainline v3** (not “v2 + v3 side-by-side”), bu
 **Done when**
 
 - Nothing outside `src/decompiler/**` references decompiler.
+
+**Status**: ✅ Complete
 
 ---
 
