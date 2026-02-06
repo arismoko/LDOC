@@ -565,6 +565,7 @@ export class Parser {
     }
 
     const openParen = this.advance(); // (
+    this.skipArgWhitespace();
 
     while (!this.isAtEnd()) {
       // Success case: found closing paren
@@ -596,6 +597,7 @@ export class Parser {
       // Consume comma or break
       if (this.check(TokenType.COMMA)) {
         this.advance();
+        this.skipArgWhitespace();
       } else if (!this.check(TokenType.RPAREN)) {
         // Not a comma and not closing paren - check if it's a boundary or sync point
         if (this.recovery.isBoundary(this.peek()) || this.recovery.isSyncPoint(this.peek())) {
@@ -633,15 +635,19 @@ export class Parser {
   }
 
   private parseArgument(): CSTArgument | null {
+    this.skipArgWhitespace();
+
     const token = this.peek();
     const startLoc = loc(token.line, token.column);
 
     // Check for named argument: name: value or name = value
-    if (this.check(TokenType.IDENTIFIER) || this.check(TokenType.TEXT)) {
+    if (this.check(TokenType.IDENTIFIER) || (this.check(TokenType.TEXT) && token.value.trim() !== "")) {
       const nameToken = this.advance();
+      this.skipArgWhitespace();
       
       if (this.check(TokenType.COLON) || this.check(TokenType.EQUALS)) {
         this.advance(); // : or =
+        this.skipArgWhitespace();
         const value = this.parseValue();
         if (value) {
           return {
@@ -679,6 +685,7 @@ export class Parser {
   }
 
   private parseValue(): CSTValue | null {
+    this.skipArgWhitespace();
     const token = this.peek();
 
     if (this.check(TokenType.STRING)) {
@@ -719,7 +726,7 @@ export class Parser {
       } as CSTExpression;
     }
 
-    if (this.check(TokenType.IDENTIFIER) || this.check(TokenType.TEXT)) {
+    if (this.check(TokenType.IDENTIFIER) || (this.check(TokenType.TEXT) && token.value.trim() !== "")) {
       this.advance();
       return {
         type: "Identifier",
@@ -1246,6 +1253,25 @@ export class Parser {
 
   private check(type: TokenType): boolean {
     return this.peek().type === type;
+  }
+
+  /**
+   * Check if a token is insignificant whitespace in structural contexts.
+   * Whitespace-only TEXT tokens are meaningful in document content but
+   * insignificant within directive arguments, attribute lists, etc.
+   */
+  private isInsignificantWhitespace(t: Token): boolean {
+    return t.type === TokenType.TEXT && t.value.trim() === "";
+  }
+
+  /**
+   * Skip whitespace-only TEXT tokens that are insignificant in structural contexts.
+   * Used within directive arguments where spaces are formatting, not content.
+   */
+  private skipArgWhitespace(): void {
+    while (this.isInsignificantWhitespace(this.peek())) {
+      this.advance();
+    }
   }
 
   /**

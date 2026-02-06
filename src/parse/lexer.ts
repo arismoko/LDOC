@@ -85,9 +85,15 @@ export class Lexer {
       return;
     }
 
-    // Skip spaces (not at line start)
+    // Spaces and tabs: emit as TEXT tokens. The lexer doesn't discard information.
     if (char === " " || char === "\t") {
-      this.advance();
+      const wsStart = this.line;
+      const wsCol = this.column;
+      let ws = "";
+      while (!this.isAtEnd() && (this.peek() === " " || this.peek() === "\t")) {
+        ws += this.advance();
+      }
+      this.tokens.push(token(TokenType.TEXT, ws, wsStart, wsCol, this.line, this.column));
       return;
     }
 
