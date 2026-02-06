@@ -105,8 +105,8 @@ function parseDocument(ctx: ParseContext): Document {
 
     if (!token) break;
 
-    // Skip blank lines and comments (trivia)
-    if (token.type === TokenType.BLANK_LINE || token.type === TokenType.COMMENT) {
+    // Skip blank lines, comments, and whitespace (trivia)
+    if (token.type === TokenType.BLANK_LINE || token.type === TokenType.COMMENT || token.type === TokenType.TEXT) {
       ctx.pos++;
       continue;
     }
@@ -130,6 +130,11 @@ function parseDocument(ctx: ParseContext): Document {
       const para = parseParagraphBlock(ctx);
       if (para) children.push(para);
       continue;
+    }
+
+    // EOF — stop parsing
+    if (token.type === TokenType.EOF) {
+      break;
     }
 
     // Unknown token - emit error and continue
@@ -164,19 +169,20 @@ function parseDirective(ctx: ParseContext): Directive | null {
   let argsRaw: string | undefined;
   let body: StructuralBody | undefined;
 
-  // Parse args if present
+  // Parse args if present (no newline between directive name and args)
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
   }
 
-  // Parse body if present and it's a structural opener
+  // Parse body if present and it's a structural opener (no newline between)
   const bodyToken = peekToken(ctx);
   if (bodyToken && bodyToken.type === TokenType.LBRACE) {
     body = parseStructuralBody(ctx) ?? undefined;
   }
 
-  // If there's a paragraph block after (sugar form @name[...]), handle it
+  // Sugar form @name[...]: only consume if there's NO newline between
+  // the directive/args/body and the paragraph block
   const paraToken = peekToken(ctx);
   if (paraToken && paraToken.type === TokenType.PARA_OPEN) {
     const para = parseParagraphBlock(ctx);
@@ -268,7 +274,7 @@ function parseStructuralBody(ctx: ParseContext): StructuralBody | null {
     }
 
     // Skip trivia
-    if (token.type === TokenType.BLANK_LINE || token.type === TokenType.COMMENT) {
+    if (token.type === TokenType.BLANK_LINE || token.type === TokenType.COMMENT || token.type === TokenType.TEXT) {
       ctx.pos++;
       continue;
     }
@@ -285,6 +291,18 @@ function parseStructuralBody(ctx: ParseContext): StructuralBody | null {
       const item = parseListItemMarker(ctx);
       if (item) children.push(item);
       continue;
+    }
+
+    // Parse paragraph block
+    if (token.type === TokenType.PARA_OPEN) {
+      const para = parseParagraphBlock(ctx);
+      if (para) children.push(para);
+      continue;
+    }
+
+    // EOF in structural body — handled by unterminated check below
+    if (token.type === TokenType.EOF) {
+      break;
     }
 
     // Unknown - skip
@@ -336,6 +354,19 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
     body = parseStructuralBody(ctx) ?? undefined;
   }
 
+  // Sugar form: @#[...] or @-[...] (Spec §11.4)
+  const paraToken = peekToken(ctx);
+  if (paraToken && paraToken.type === TokenType.PARA_OPEN) {
+    const para = parseParagraphBlock(ctx);
+    if (para) {
+      body = {
+        kind: "StructuralBody",
+        loc: loc(startToken.line, startToken.column),
+        children: [para],
+      };
+    }
+  }
+
   return {
     kind: "ListItemMarker",
     loc: loc(startToken.line, startToken.column),
@@ -344,6 +375,49 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
     argsRaw,
     body,
   };
+}
+
+/**
+ * Check if a token type is "text-like" in paragraph context.
+ * In paragraph context, most tokens that aren't structural delimiters
+ * or special constructs should be treated as plain text content.
+ */
+function isTextLikeToken(type: TokenType): boolean {
+  switch (type) {
+    case TokenType.TEXT:
+    case TokenType.IDENTIFIER:
+    case TokenType.STRING:
+    case TokenType.NUMBER:
+    case TokenType.PERIOD:
+    case TokenType.COMMA:
+    case TokenType.COLON:
+    case TokenType.EQUALS:
+    case TokenType.COMMENT: // comments are literal text in paragraph context (Spec §3.2)
+    case TokenType.LPAREN:
+    case TokenType.RPAREN:
+    case TokenType.LBRACE:
+    case TokenType.RBRACE:
+    case TokenType.BOOLEAN:
+    case TokenType.LENGTH:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Get the original text representation of a token for use in paragraph context.
+ * Some tokens (like STRING) need their delimiters restored.
+ */
+function tokenTextValue(token: Token): string {
+  switch (token.type) {
+    case TokenType.STRING:
+      return `"${token.value}"`;
+    case TokenType.COMMENT:
+      return `//${token.value}`;
+    default:
+      return token.value;
+  }
 }
 
 /**
@@ -358,7 +432,6 @@ function parseParagraphBlock(ctx: ParseContext): ParagraphBlock | null {
   const inlines: any[] = [];
 
   // Normalize newlines: single newline → soft space, blank line(s) → hard breaks
-  let consecutiveNewlines = 0;
   let textBuffer = "";
 
   while (ctx.pos < ctx.tokens.length) {
@@ -377,7 +450,6 @@ function parseParagraphBlock(ctx: ParseContext): ParagraphBlock | null {
       );
       textBuffer += "[";
       ctx.pos++;
-      consecutiveNewlines = 0;
       continue;
     }
 
@@ -388,73 +460,58 @@ function parseParagraphBlock(ctx: ParseContext): ParagraphBlock | null {
       if (textBuffer) {
         inlines.push({
           kind: "InlineText",
-          loc: loc(token.line, token.column),
+          loc: startLoc,
           text: textBuffer,
         });
-      }
-
-      // Add hard breaks for consecutive newlines
-      if (consecutiveNewlines >= 2) {
-        for (let i = 0; i < consecutiveNewlines - 1; i++) {
-          inlines.push({
-            kind: "InlineHardBreak",
-            loc: loc(token.line, token.column),
-          });
-        }
       }
 
       break;
     }
 
-    // Handle text tokens
-    if (token.type === TokenType.TEXT) {
-      // Text after blank lines → add hard breaks
-      if (consecutiveNewlines >= 2) {
-        for (let i = 0; i < consecutiveNewlines - 1; i++) {
-          inlines.push({
-            kind: "InlineHardBreak",
-            loc: loc(token.line, token.column),
-          });
-        }
-        consecutiveNewlines = 0;
-      }
-
-      textBuffer += token.value;
-      ctx.pos++;
-      continue;
-    }
-
-    // Handle blank lines (newlines)
+    // Handle blank lines (newlines) — Spec §4.3
     if (token.type === TokenType.BLANK_LINE) {
-      // End of current text
-      if (textBuffer) {
-        inlines.push({
-          kind: "InlineText",
-          loc: loc(token.line, token.column),
-          text: textBuffer,
-        });
-        textBuffer = "";
-      }
-
       // Count consecutive blank lines
-      const nextToken = peekToken(ctx);
-      let blankCount = 1;
-      if (nextToken && nextToken.type === TokenType.BLANK_LINE) {
-        ctx.pos++;
+      let blankCount = 0;
+      while (ctx.pos < ctx.tokens.length && peekToken(ctx)?.type === TokenType.BLANK_LINE) {
         blankCount++;
+        ctx.pos++;
       }
 
-      // Consecutive blank lines: >1 → hard break, 1 → treat as paragraph end (handled by whitespace)
+      // Check if we hit PARA_CLOSE or EOF — trailing newlines are trimmed (Spec §4.3)
+      const nextToken = peekToken(ctx);
+      if (!nextToken || nextToken.type === TokenType.PARA_CLOSE) {
+        // Trailing newlines — trim them (don't add anything)
+        continue;
+      }
+
+      // Check if textBuffer is empty (leading newlines) — also trim
+      if (!textBuffer && inlines.length === 0) {
+        continue;
+      }
+
       if (blankCount >= 2) {
+        // N >= 2 consecutive newlines → N-1 hard breaks
+        // Flush text first
+        if (textBuffer) {
+          inlines.push({
+            kind: "InlineText",
+            loc: startLoc,
+            text: textBuffer,
+          });
+          textBuffer = "";
+        }
+
         for (let i = 0; i < blankCount - 1; i++) {
           inlines.push({
             kind: "InlineHardBreak",
             loc: loc(token.line, token.column),
           });
         }
+      } else {
+        // Single newline → soft wrap → space
+        textBuffer += " ";
       }
 
-      ctx.pos++;
       continue;
     }
 
@@ -464,19 +521,43 @@ function parseParagraphBlock(ctx: ParseContext): ParagraphBlock | null {
       if (textBuffer) {
         inlines.push({
           kind: "InlineText",
-          loc: loc(token.line, token.column),
+          loc: startLoc,
           text: textBuffer,
         });
         textBuffer = "";
       }
-      consecutiveNewlines = 0;
 
       const expr = parseLuaExpr(ctx);
       if (expr) inlines.push(expr);
       continue;
     }
 
-    // Unknown token - skip
+    // Handle inline directives (Spec §5.3 — in paragraph context, @name{...} is inline)
+    if (token.type === TokenType.DIRECTIVE) {
+      // Flush any buffered text
+      if (textBuffer) {
+        inlines.push({
+          kind: "InlineText",
+          loc: startLoc,
+          text: textBuffer,
+        });
+        textBuffer = "";
+      }
+
+      const inlineDir = parseInlineDirective(ctx);
+      if (inlineDir) inlines.push(inlineDir);
+      continue;
+    }
+
+    // All other tokens are text content in paragraph context
+    if (isTextLikeToken(token.type)) {
+      textBuffer += tokenTextValue(token);
+      ctx.pos++;
+      continue;
+    }
+
+    // Truly unknown token in paragraph — consume as text to avoid infinite loop
+    textBuffer += token.value;
     ctx.pos++;
   }
 
@@ -495,19 +576,9 @@ function parseParagraphBlock(ctx: ParseContext): ParagraphBlock | null {
     if (textBuffer) {
       inlines.push({
         kind: "InlineText",
-        loc: loc(startToken.line, startToken.column),
+        loc: startLoc,
         text: textBuffer,
       });
-    }
-
-    // Add hard breaks for consecutive newlines
-    if (consecutiveNewlines >= 2) {
-      for (let i = 0; i < consecutiveNewlines - 1; i++) {
-        inlines.push({
-          kind: "InlineHardBreak",
-          loc: loc(startToken.line, startToken.column),
-        });
-      }
     }
   }
 
@@ -519,6 +590,110 @@ function parseParagraphBlock(ctx: ParseContext): ParagraphBlock | null {
 }
 
 /**
+ * Parse an inline directive inside paragraph context.
+ * e.g. @style(r: { bold: true }){important text}
+ */
+function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
+  const startToken = peekToken(ctx);
+  if (!startToken || startToken.type !== TokenType.DIRECTIVE) return null;
+
+  const name = startToken.value;
+  const startLoc = loc(startToken.line, startToken.column);
+  ctx.pos++; // consume DIRECTIVE
+
+  let argsRaw: string | undefined;
+  let body: any[] | undefined;
+
+  // Parse args if present
+  const nextToken = peekToken(ctx);
+  if (nextToken && nextToken.type === TokenType.LPAREN) {
+    argsRaw = parseArgs(ctx);
+  }
+
+  // Parse inline body if present: { ... } in paragraph context → inline content
+  const bodyToken = peekToken(ctx);
+  if (bodyToken && bodyToken.type === TokenType.LBRACE) {
+    ctx.pos++; // consume LBRACE
+    body = [];
+    let textBuffer = "";
+
+    while (ctx.pos < ctx.tokens.length) {
+      const token = peekToken(ctx);
+      if (!token) break;
+
+      if (token.type === TokenType.RBRACE) {
+        // Flush text buffer
+        if (textBuffer) {
+          body.push({
+            kind: "InlineText",
+            loc: loc(token.line, token.column),
+            text: textBuffer,
+          });
+        }
+        ctx.pos++; // consume RBRACE
+        break;
+      }
+
+      if (token.type === TokenType.LUA_EXPR_OPEN) {
+        if (textBuffer) {
+          body.push({
+            kind: "InlineText",
+            loc: startLoc,
+            text: textBuffer,
+          });
+          textBuffer = "";
+        }
+        const expr = parseLuaExpr(ctx);
+        if (expr) body.push(expr);
+        continue;
+      }
+
+      if (token.type === TokenType.DIRECTIVE) {
+        if (textBuffer) {
+          body.push({
+            kind: "InlineText",
+            loc: startLoc,
+            text: textBuffer,
+          });
+          textBuffer = "";
+        }
+        const nested = parseInlineDirective(ctx);
+        if (nested) body.push(nested);
+        continue;
+      }
+
+      if (isTextLikeToken(token.type)) {
+        textBuffer += tokenTextValue(token);
+        ctx.pos++;
+        continue;
+      }
+
+      // Default: consume as text
+      textBuffer += token.value;
+      ctx.pos++;
+    }
+  }
+
+  // Sugar form: @name[...] in paragraph context (Spec §5.5)
+  const paraToken = peekToken(ctx);
+  if (paraToken && paraToken.type === TokenType.PARA_OPEN) {
+    const para = parseParagraphBlock(ctx);
+    if (para) {
+      // Inline directive with paragraph sugar — inline the paragraph's inlines as body
+      body = para.inlines;
+    }
+  }
+
+  return {
+    kind: "InlineDirective",
+    loc: startLoc,
+    name,
+    argsRaw,
+    body,
+  };
+}
+
+/**
  * Parse a Lua expression: $(...).
  */
 function parseLuaExpr(ctx: ParseContext): LuaExpr | null {
@@ -526,12 +701,10 @@ function parseLuaExpr(ctx: ParseContext): LuaExpr | null {
   if (!startToken || startToken.type !== TokenType.LUA_EXPR_OPEN) return null;
 
   const startLoc = loc(startToken.line, startToken.column);
-  ctx.pos++; // consume LUA_EXPR_OPEN
+  ctx.pos++; // consume LUA_EXPR_OPEN (the `$(` token)
 
   let expr = "";
   let depth = 1;
-  ctx.pos++; // consume $(
-  const openParen = startToken.value.length - 1;
 
   while (depth > 0 && ctx.pos < ctx.tokens.length) {
     const token = peekToken(ctx);

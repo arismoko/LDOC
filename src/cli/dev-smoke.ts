@@ -40,6 +40,15 @@ async function runSmokeTests(): Promise<TestResult[]> {
       const { cst, diagnostics } = parseAndBind(input);
       
       const errors = diagnostics.filter(d => d.severity === "error");
+      const warnings = diagnostics.filter(d => d.severity === "warning");
+      
+      if (warnings.length > 0) {
+        console.log(`  ⚠ Warnings: ${warnings.length}`);
+        for (const w of warnings) {
+          console.log(`    ${w.code}: ${w.message}`);
+        }
+      }
+      
       if (errors.length > 0) {
         console.error(`  ❌ Parse errors: ${errors.length}`);
         results.push({

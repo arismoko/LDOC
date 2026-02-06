@@ -12,10 +12,11 @@
  * Logic will be rewritten in commits 10-12.
  */
 
-import type { CSTDocument, ParseResult } from "../types/cst.ts";
+import type { Document, CSTDocument, ParseResult } from "../types/cst.ts";
 import type { SymbolTable, BindResult } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { createSymbolTable } from "../types/symbols.ts";
+import { validate } from "./validator.ts";
 
 /**
  * Options for the binder.
@@ -44,11 +45,12 @@ export class Binder {
    * Bind a CST document.
    */
   async bind(cst: CSTDocument): Promise<BindResult> {
-    // STUB: no symbol collection yet — v3 CST shape is different
+    // Run directive validation against registry
+    const validationDiags = validate(cst as Document);
     return {
       cst,
       symbols: createSymbolTable(),
-      diagnostics: [],
+      diagnostics: validationDiags,
     };
   }
 
@@ -56,11 +58,12 @@ export class Binder {
    * Synchronous bind for cases without imports.
    */
   bindSync(cst: CSTDocument): BindResult {
-    // STUB: no symbol collection yet — v3 CST shape is different
+    // Run directive validation against registry
+    const validationDiags = validate(cst as Document);
     return {
       cst,
       symbols: createSymbolTable(),
-      diagnostics: [],
+      diagnostics: validationDiags,
     };
   }
 }

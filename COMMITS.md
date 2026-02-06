@@ -76,7 +76,9 @@
 
 - `bun run smoke` runs (it may fail logic, but TS must compile).
 
-### Commit 10 — `feat(v3-contracts): add directive registry + validator`
+### Commit 10 — `feat(v3-contracts): add directive registry + validator` ✅
+
+**Status**: ✅ Complete
 
 **Changes**
 

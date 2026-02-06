@@ -9,4 +9,11 @@
 
 export { Binder, bind, bindSync, type BinderOptions } from "./binder.ts";
 export { ImportResolver, resolveImports, type ResolverOptions, type ResolveResult } from "./resolver.ts";
-export { Validator, validate, type BindingContext } from "./validator.ts";
+export { validate } from "./validator.ts";
+export {
+  getDirectiveContract,
+  isKnownDirective,
+  knownDirectiveNames,
+  type DirectiveContract,
+  type DirectiveContext,
+} from "./contracts.ts";

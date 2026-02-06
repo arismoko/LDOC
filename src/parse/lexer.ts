@@ -48,13 +48,10 @@ export class Lexer {
 
     // Newline
     if (char === "\n") {
+      this.emit(TokenType.BLANK_LINE, "\n");
       this.advance();
       this.line++;
       this.column = 0;
-      // Emit BLANK_LINE at end of file for blank line detection
-      if (this.isAtEnd()) {
-        this.emit(TokenType.BLANK_LINE, "");
-      }
       return;
     }
 

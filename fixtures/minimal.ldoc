@@ -5,4 +5,4 @@
 
 [This is a minimal LDOC v3 document.]
 [It demonstrates the basic paragraph block syntax.]
-[Multiple paragraphs can be written using `[...]` notation.]
+[Multiple paragraphs can be written using paragraph block notation.]
