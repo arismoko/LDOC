@@ -71,6 +71,10 @@ export class Lexer {
 
     // Newline — consume and check for paragraph breaks
     if (char === "\n") {
+      // Newlines end unclosed argument lists (recovery)
+      if (this.parenDepth > 0) {
+        this.parenDepth = 0;
+      }
       this.advance();
       this.line++;
       this.column = 0;
@@ -202,16 +206,25 @@ export class Lexer {
       return;
     }
 
-    // Argument syntax - only special inside parentheses
-    if (char === "(") {
+    // Argument syntax - parentheses are only special inside argument context
+    // Opening ( is handled in scanDirective() when it immediately follows @name
+    // Here we handle nested ( and ) inside argument lists
+    if (char === "(" && this.parenDepth > 0) {
+      // Nested ( inside arguments - track for matching but consume as text
       this.parenDepth++;
-      this.emit(TokenType.LPAREN, "(");
+      this.tokens.push(token(TokenType.TEXT, "(", this.line, this.column, this.line, this.column + 1));
       this.advance();
       return;
     }
-    if (char === ")") {
-      if (this.parenDepth > 0) this.parenDepth--;
-      this.emit(TokenType.RPAREN, ")");
+    if (char === ")" && this.parenDepth > 0) {
+      this.parenDepth--;
+      if (this.parenDepth === 0) {
+        // Final closing paren - emit RPAREN to close argument list
+        this.emit(TokenType.RPAREN, ")");
+      } else {
+        // Nested closing paren - consume as text
+        this.tokens.push(token(TokenType.TEXT, ")", this.line, this.column, this.line, this.column + 1));
+      }
       this.advance();
       return;
     }
@@ -354,6 +367,15 @@ export class Lexer {
     }
 
     this.tokens.push(token(TokenType.DIRECTIVE, name, startLine, startCol, this.line, this.column));
+
+    // If ( immediately follows the directive name (no whitespace), it's argument syntax.
+    // e.g., @style(bold) — the ( starts argument parsing.
+    // Without this, standalone ( in prose like "one (1)" would be misinterpreted.
+    if (this.peek() === "(") {
+      this.parenDepth++;
+      this.emit(TokenType.LPAREN, "(");
+      this.advance();
+    }
   }
 
   private scanNumberedDirective(startLine: number, startCol: number): void {
@@ -762,11 +784,15 @@ export class Lexer {
         char === "[" ||
         char === "!" ||
         char === "#" ||
-        char === "(" ||
-        char === ")" ||
         char === '"' ||
         char === "'"
       ) {
+        break;
+      }
+      
+      // Parentheses are special inside argument context
+      // ( increments depth (handled in scanToken), ) decrements/closes
+      if (this.parenDepth > 0 && (char === "(" || char === ")")) {
         break;
       }
       
