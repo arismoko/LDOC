@@ -210,16 +210,21 @@ function emitList(node: List, ctx: EmitContext): DocxBlock[] {
           id: dynamicRef,
           levels: baseDef.levels.map((l) => ({ ...l, start: l.level === 0 ? node.start : undefined })),
         });
+        reference = dynamicRef;
       }
+      // If baseDef not found (e.g. default not yet created), keep original reference
+    } else {
+      reference = dynamicRef;
     }
-    reference = dynamicRef;
   }
 
   // Determine numbering instance for start/continue semantics
+  // Key by (reference, listLevel) so nested lists don't clobber parent continuation state
+  const instanceKey = `${reference}:${ctx.listLevel}`;
   let instance: number | undefined;
   if (node.continue) {
-    // Continue: reuse the last instance for this reference
-    instance = ctx.lastNumberingInstance.get(reference);
+    // Continue: reuse the last instance for this reference at this nesting level
+    instance = ctx.lastNumberingInstance.get(instanceKey);
   }
   if (instance === undefined) {
     // New list: allocate a fresh instance
@@ -227,7 +232,7 @@ function emitList(node: List, ctx: EmitContext): DocxBlock[] {
     ctx.numberingInstances.set(reference, next);
     instance = next;
   }
-  ctx.lastNumberingInstance.set(reference, instance);
+  ctx.lastNumberingInstance.set(instanceKey, instance);
 
   // Save current level and increment
   const savedLevel = ctx.listLevel;
