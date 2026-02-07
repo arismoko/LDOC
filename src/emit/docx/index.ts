@@ -109,6 +109,8 @@ function createEmitContext(
     basePath: options.basePath,
     listLevel: 0,
     numberingMode,
+    numberingInstances: new Map(),
+    lastNumberingInstance: new Map(),
   };
 }
 

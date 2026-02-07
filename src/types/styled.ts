@@ -185,6 +185,8 @@ export interface NumberingLevel {
   text: string; // e.g., "%1." or "%1.%2."
   indent: number;
   hanging: number;
+  /** Starting number (defaults to 1) */
+  start?: number;
 }
 
 // =============================================================================

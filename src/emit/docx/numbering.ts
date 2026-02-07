@@ -62,6 +62,7 @@ function levelToDocx(level: NumberingLevel): ILevelsOptions {
     format: formatToLevelFormat(level.format),
     text: level.text,
     alignment: AlignmentType.START,
+    ...(level.start !== undefined ? { start: level.start } : {}),
     style: {
       paragraph: {
         indent: { 

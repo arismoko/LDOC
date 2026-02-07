@@ -90,6 +90,10 @@ export interface EmitContext {
   listLevel: number;
   /** Numbering mode (e.g., "tiered" or "legal") */
   numberingMode?: string;
+  /** Tracks next instance ID per numbering reference (for start/continue) */
+  numberingInstances: Map<string, number>;
+  /** Tracks the last instance used per numbering reference (for continue) */
+  lastNumberingInstance: Map<string, number>;
 }
 
 /**
@@ -187,18 +191,49 @@ function emitHeading(node: Heading, ctx: EmitContext): DocxBlock[] {
 
 function emitList(node: List, ctx: EmitContext): DocxBlock[] {
   const results: DocxBlock[] = [];
-  const reference = getNumberingReference(
+  let reference = getNumberingReference(
     node.ordered,
     node.numberFormat,
     ctx.numberingDefinitions,
     ctx.numberingMode
   );
   
+  // Handle start: N — create a dynamic numbering definition with custom start
+  if (node.start !== undefined && node.start !== 1 && node.ordered) {
+    const dynamicRef = `${reference}-start-${node.start}`;
+    const existingDef = ctx.numberingDefinitions.find((d) => d.id === dynamicRef);
+    if (!existingDef) {
+      // Clone the base definition's levels with the custom start value
+      const baseDef = ctx.numberingDefinitions.find((d) => d.id === reference);
+      if (baseDef) {
+        ctx.numberingDefinitions.push({
+          id: dynamicRef,
+          levels: baseDef.levels.map((l) => ({ ...l, start: l.level === 0 ? node.start : undefined })),
+        });
+      }
+    }
+    reference = dynamicRef;
+  }
+
+  // Determine numbering instance for start/continue semantics
+  let instance: number | undefined;
+  if (node.continue) {
+    // Continue: reuse the last instance for this reference
+    instance = ctx.lastNumberingInstance.get(reference);
+  }
+  if (instance === undefined) {
+    // New list: allocate a fresh instance
+    const next = (ctx.numberingInstances.get(reference) ?? 0) + 1;
+    ctx.numberingInstances.set(reference, next);
+    instance = next;
+  }
+  ctx.lastNumberingInstance.set(reference, instance);
+
   // Save current level and increment
   const savedLevel = ctx.listLevel;
   
   for (const item of node.items) {
-    results.push(...emitListItem(item, reference, ctx));
+    results.push(...emitListItem(item, reference, instance, ctx));
   }
   
   // Restore level
@@ -210,6 +245,7 @@ function emitList(node: List, ctx: EmitContext): DocxBlock[] {
 function emitListItem(
   item: ListItem,
   reference: string,
+  instance: number,
   ctx: EmitContext
 ): DocxBlock[] {
   const results: DocxBlock[] = [];
@@ -225,6 +261,7 @@ function emitListItem(
         numbering: {
           reference,
           level: ctx.listLevel,
+          instance,
         },
       })
     );
