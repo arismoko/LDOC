@@ -877,6 +877,22 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
     }
     case "pagebreak":
       return [{ type: "PageBreak", loc: node.loc }];
+    case "anchor": {
+      const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+      const id = typeof args.id === "string" ? args.id : undefined;
+      if (!id) {
+        state.diagnostics.push(
+          createWarning(DiagnosticCode.PARSE_ERROR, '@anchor requires id: "..."', node.loc),
+        );
+        return [];
+      }
+      // Bookmark is an Inline node; wrap in an empty paragraph to anchor it in block flow
+      return [{
+        type: "Paragraph",
+        content: [{ type: "Bookmark", name: id, loc: node.loc }],
+        loc: node.loc,
+      }];
+    }
     case "break":
       return [{ type: "ColumnBreak", loc: node.loc }];
     case "columns": {

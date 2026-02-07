@@ -160,4 +160,37 @@ describe("layout evaluation", () => {
     expect(styledDocument.documentStyles.marginBottom).toBe(1440);
     expect(styledDocument.documentStyles.marginLeft).toBe(1800);
   });
+
+  test("@anchor(id: ...) produces a Bookmark node in a wrapper paragraph", async () => {
+    const source = `@anchor(id: "payment-terms")
+[Body text]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    // First block should be the anchor paragraph
+    const anchor = document.blocks[0];
+    expect(anchor?.type).toBe("Paragraph");
+    if (anchor?.type === "Paragraph") {
+      expect(anchor.content.length).toBe(1);
+      const bookmark = anchor.content[0];
+      expect(bookmark?.type).toBe("Bookmark");
+      if (bookmark?.type === "Bookmark") {
+        expect(bookmark.name).toBe("payment-terms");
+      }
+    }
+
+    // Second block should be body text
+    expect(document.blocks[1]?.type).toBe("Paragraph");
+  });
+
+  test("@anchor without id produces a diagnostic", async () => {
+    const source = `@anchor
+[Body]
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.message.includes("@anchor requires id"))).toBe(true);
+  });
 });
