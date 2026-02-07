@@ -24,7 +24,8 @@
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-protocol": "^3.17.5",
     "vscode-languageserver-textdocument": "^1.0.12",
-    "vscode-uri": "^3.1.0"
+    "vscode-uri": "^3.1.0",
+    "wasmoon": "^1.16.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
