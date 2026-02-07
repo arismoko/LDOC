@@ -81,7 +81,7 @@ function validateBlocks(blocks: Block[], state: ValidationState): void {
       case "StructuralBody":
         validateBlocks(block.children, state);
         break;
-      // Table, LayoutDirective, HeaderFooter, Include are specialized
+      // Table, LayoutDirective, HeaderFooter are specialized
       // CST nodes — they were already validated by the parser.
       // We don't need to check their directive names.
       default:

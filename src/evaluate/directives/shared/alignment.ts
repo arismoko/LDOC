@@ -20,8 +20,6 @@ export function applyAlignmentToBlock(block: Block, align: HorizontalAlign): Blo
   switch (block.type) {
     case "Paragraph":
       return { ...block, style: withTextAlign(block.style, align) };
-    case "Heading":
-      return { ...block, style: withTextAlign(block.style, align) };
     case "Blockquote":
       return {
         ...block,

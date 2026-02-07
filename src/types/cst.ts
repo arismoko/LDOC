@@ -32,8 +32,7 @@ export type Block =
   | StructuralBody
   | Table
   | LayoutDirective
-  | HeaderFooter
-  | Include;
+  | HeaderFooter;
 
 /** Paragraph block - exactly one paragraph enclosed in [...] */
 export interface ParagraphBlock {
@@ -160,18 +159,6 @@ export interface Footer {
   left?: ParagraphBlock;
   center?: ParagraphBlock;
   right?: ParagraphBlock;
-}
-
-// =============================================================================
-// Include Directive
-// =============================================================================
-
-/** File include - @include(path: "...", args: {...}) */
-export interface Include {
-  kind: "Include";
-  loc: SourceLocation;
-  path: string;
-  args: Record<string, any>; // evaluated later
 }
 
 // =============================================================================

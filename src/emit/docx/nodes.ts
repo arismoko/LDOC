@@ -24,7 +24,6 @@ import type {
   Block,
   Inline,
   Paragraph as ParagraphNode,
-  Heading,
   List,
   ListItem,
   Table,
@@ -57,7 +56,7 @@ import type {
 import type { ComputedStyle, NumberingDefinition, StyleResolver } from "../../types/styled.ts";
 import type { Diagnostic } from "../../types/diagnostics.ts";
 import type { SourceLocation } from "../../types/source-location.ts";
-import { toRunOptions, toParagraphOptions, toHeadingLevel } from "./styles.ts";
+import { toRunOptions, toParagraphOptions } from "./styles.ts";
 import { getNumberingReference } from "./numbering.ts";
 import { emitTable } from "./tables.ts";
 import { bookmarkSafeName } from "../../shared/bookmarks.ts";
@@ -120,8 +119,6 @@ export function emitBlock(block: Block, ctx: EmitContext): DocxBlock[] {
   switch (block.type) {
     case "Paragraph":
       return emitParagraph(block, ctx);
-    case "Heading":
-      return emitHeading(block, ctx);
     case "List":
       return emitList(block, ctx);
     case "Table":
@@ -161,34 +158,6 @@ function emitParagraph(node: ParagraphNode, ctx: EmitContext): DocxBlock[] {
     new Paragraph({
       ...toParagraphOptions(style),
       children,
-    }),
-  ];
-}
-
-function emitHeading(node: Heading, ctx: EmitContext): DocxBlock[] {
-  const style = resolveNodeStyle(node.style, ctx);
-  const inlineChildren = emitInlines(node.content, ctx, style);
-  
-  // Register bookmark if anchor is specified
-  if (node.anchor) {
-    const anchorId = bookmarkSafeName(node.anchor);
-    ctx.bookmarks.add(anchorId);
-    // For bookmarks, wrap inline content in a Bookmark
-    // docx Bookmark wraps content, so we pass children to it
-    return [
-      new Paragraph({
-        ...toParagraphOptions(style),
-        heading: toHeadingLevel(node.level),
-        children: [new Bookmark({ id: anchorId, children: inlineChildren })],
-      }),
-    ];
-  }
-  
-  return [
-    new Paragraph({
-      ...toParagraphOptions(style),
-      heading: toHeadingLevel(node.level),
-      children: inlineChildren,
     }),
   ];
 }

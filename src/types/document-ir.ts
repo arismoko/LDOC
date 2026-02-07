@@ -130,15 +130,6 @@ export interface Paragraph extends IRBase {
   style?: StyleRef;
 }
 
-export interface Heading extends IRBase {
-  type: "Heading";
-  level: 1 | 2 | 3 | 4 | 5 | 6;
-  content: Inline[];
-  style?: StyleRef;
-  /** Optional anchor for cross-references */
-  anchor?: string;
-}
-
 export interface List extends IRBase {
   type: "List";
   ordered: boolean;
@@ -361,7 +352,6 @@ export type Inline =
 
 export type Block =
   | Paragraph
-  | Heading
   | List
   | Table
   | Blockquote

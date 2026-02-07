@@ -124,13 +124,10 @@ function createEmitContext(
 /**
  * First pass: collect all bookmark/anchor names.
  * This allows cross-references to work even if target appears after reference.
- * Scans both heading anchors and Anchor block nodes (from @anchor directives).
+ * Scans Anchor block nodes (from @anchor directives).
  */
 function collectBookmarks(doc: DocIR, ctx: EmitContext): void {
   function visitBlock(block: Block): void {
-    if (block.type === "Heading" && block.anchor) {
-      ctx.bookmarks.add(bookmarkSafeName(block.anchor));
-    }
     if (block.type === "Anchor") {
       ctx.bookmarks.add(bookmarkSafeName(block.id));
     }
@@ -324,6 +321,6 @@ function compileFootnotes(ctx: EmitContext): Record<number, { children: Paragrap
 // =============================================================================
 
 export { createNumberingConfig } from "./numbering.ts";
-export { toRunOptions, toParagraphOptions, toHeadingLevel } from "./styles.ts";
+export { toRunOptions, toParagraphOptions } from "./styles.ts";
 export { emitBlock, emitBlocks, emitInline, emitInlines } from "./nodes.ts";
 export type { EmitContext, DocxBlock } from "./nodes.ts";

@@ -32,7 +32,7 @@ export const handleBlockStyle: BlockDirectiveHandler = async (node, ctx) => {
   }
 
   return inner.map((block) => {
-    if (block.type !== "Paragraph" && block.type !== "Heading") {
+    if (block.type !== "Paragraph") {
       return block;
     }
 
