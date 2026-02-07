@@ -195,6 +195,12 @@ export function getNumberingReference(
     return bulletDef?.id ?? "bullets";
   }
 
+  // Honor numbering mode first — legal mode should use legal format
+  // unless a specific non-decimal format was requested
+  if (numberingMode === "legal" && (numberFormat === undefined || numberFormat === "decimal")) {
+    return "ordered-legal";
+  }
+
   // For ordered lists, find matching format
   const format = numberFormat ?? "decimal";
   const matchingDef = definitions.find((d) => {
@@ -202,10 +208,5 @@ export function getNumberingReference(
     return firstLevel && firstLevel.format === format;
   });
 
-  if (matchingDef) {
-    return matchingDef.id;
-  }
-
-  // Use legal or tiered based on mode
-  return numberingMode === "legal" ? "ordered-legal" : "ordered-decimal";
+  return matchingDef?.id ?? "ordered-decimal";
 }

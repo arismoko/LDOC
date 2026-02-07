@@ -350,12 +350,12 @@ function emitFootnote(node: Footnote, ctx: EmitContext): DocxBlock[] {
 // =============================================================================
 
 /** Result type for inline emission */
-export type DocxInline = TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | typeof Bookmark | FootnoteReferenceRun;
+export type DocxInline = TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | Bookmark | FootnoteReferenceRun;
 
 /**
  * Emit an Inline node to docx run/element array.
  */
-export function emitInline(node: Inline, ctx: EmitContext, parentStyle: ComputedStyle, options?: InlineEmitOptions): (TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun)[] {
+export function emitInline(node: Inline, ctx: EmitContext, parentStyle: ComputedStyle, options?: InlineEmitOptions): DocxInline[] {
   switch (node.type) {
     case "Text":
       return emitText(node, parentStyle, options);
@@ -403,7 +403,7 @@ export function emitInlines(
   ctx: EmitContext,
   parentStyle: ComputedStyle,
   options?: InlineEmitOptions
-): (TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun)[] {
+): DocxInline[] {
   return inlines.flatMap((inline) => emitInline(inline, ctx, parentStyle, options));
 }
 
@@ -532,12 +532,11 @@ function emitCrossRef(node: CrossRef, ctx: EmitContext, parentStyle: ComputedSty
   ];
 }
 
-function emitBookmark(node: BookmarkNode, ctx: EmitContext): TextRun[] {
+function emitBookmark(node: BookmarkNode, ctx: EmitContext): Bookmark[] {
   const anchorId = sanitizeBookmarkName(node.name);
   ctx.bookmarks.add(anchorId);
-  // Bookmarks are zero-width markers - return empty TextRun with bookmark ID
-  // Note: docx package handles this differently - we need Bookmark wrapper at paragraph level
-  return [];
+  // Emit a zero-width bookmark (start + end markers with no visible content)
+  return [new Bookmark({ id: anchorId, children: [] })];
 }
 
 function emitHardBreak(): TextRun[] {

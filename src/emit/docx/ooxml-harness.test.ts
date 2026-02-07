@@ -23,4 +23,19 @@ describe("ooxml harness", () => {
     expect(stylesXml.includes("<w:styles")).toBe(true);
     expect(stylesXml.includes('w:styleId="Heading1"')).toBe(true);
   });
+
+  test("@anchor emits bookmarkStart and bookmarkEnd in DOCX XML", async () => {
+    const source = `@anchor(id: "payment-terms")
+[See payment terms above.]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    expect(docXml.includes("w:bookmarkStart")).toBe(true);
+    expect(docXml.includes("w:bookmarkEnd")).toBe(true);
+    // Bookmark name is sanitized: hyphens become underscores
+    expect(docXml.includes("payment_terms")).toBe(true);
+  });
 });

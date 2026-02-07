@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
-import { createNumberingConfig } from "./numbering.ts";
+import { createNumberingConfig, getNumberingReference } from "./numbering.ts";
 import { LevelFormat } from "docx";
+import type { NumberingDefinition } from "../../types/styled.ts";
 
 describe("numbering config", () => {
   test("default mode creates tiered decimal levels", () => {
@@ -41,5 +42,32 @@ describe("numbering config", () => {
     const bullets = config.config.find(c => c.reference === "bullets");
     expect(bullets).toBeDefined();
     expect(bullets!.levels[0]!.format).toBe(LevelFormat.BULLET);
+  });
+});
+
+describe("getNumberingReference", () => {
+  const decimalDef: NumberingDefinition = {
+    id: "style-decimal",
+    levels: [{ level: 0, format: "decimal", text: "%1.", indent: 720, hanging: 360 }],
+  };
+
+  test("legal mode returns ordered-legal even when decimal defs exist", () => {
+    const ref = getNumberingReference(true, "decimal", [decimalDef], "legal");
+    expect(ref).toBe("ordered-legal");
+  });
+
+  test("legal mode returns ordered-legal when no format specified", () => {
+    const ref = getNumberingReference(true, undefined, [decimalDef], "legal");
+    expect(ref).toBe("ordered-legal");
+  });
+
+  test("tiered mode uses matching decimal definition", () => {
+    const ref = getNumberingReference(true, "decimal", [decimalDef], "tiered");
+    expect(ref).toBe("style-decimal");
+  });
+
+  test("no mode uses matching decimal definition", () => {
+    const ref = getNumberingReference(true, "decimal", [decimalDef], undefined);
+    expect(ref).toBe("style-decimal");
   });
 });
