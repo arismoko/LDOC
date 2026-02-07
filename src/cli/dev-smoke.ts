@@ -7,7 +7,7 @@
  * Outputs to /tmp/ldoc-smoke-<timestamp>/ for inspection.
  */
 
-import { compile, parseAndBind } from "../pipeline/index.ts";
+import { compile, parseAndBindWithIncludes } from "../pipeline/index.ts";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 
@@ -43,7 +43,9 @@ async function runSmokeTests(): Promise<TestResult[]> {
       const input = await Bun.file(inputPath).text();
       
       // Parse and bind to check syntax
-      const { cst, symbols, diagnostics } = parseAndBind(input);
+      const { cst, symbols, diagnostics } = await parseAndBindWithIncludes(input, {
+        sourcePath: inputPath,
+      });
       
       const errors = diagnostics.filter(d => d.severity === "error");
       const warnings = diagnostics.filter(d => d.severity === "warning");

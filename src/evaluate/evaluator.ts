@@ -43,11 +43,11 @@ import type {
 } from "../types/document-ir.ts";
 import type { SymbolTable } from "../types/symbols.ts";
 import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
+import { defaultIncludeRoot, resolveIncludeFilePath } from "../shared/include-path.ts";
 import { parseLengthToTwips } from "../shared/units.ts";
 import { parseSource } from "../parse/index.ts";
 import { bindSync } from "../bind/index.ts";
 import { createEnv, evaluate as evaluateLua, execute as executeLua } from "./lua/runtime.ts";
-import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 
 export type SourceLoader = (path: string) => Promise<string>;
 
@@ -59,6 +59,7 @@ interface EvaluationState {
   luaEngine: Awaited<ReturnType<typeof createEnv>>;
   variables: Record<string, unknown>;
   sourcePath?: string;
+  includeRoot?: string;
   loadFile?: SourceLoader;
   includeStack: string[];
 }
@@ -66,6 +67,7 @@ interface EvaluationState {
 export interface EvaluateOptions {
   variables?: Record<string, unknown>;
   sourcePath?: string;
+  includeRoot?: string;
   loadFile?: SourceLoader;
   includeStack?: string[];
 }
@@ -304,14 +306,6 @@ function withDiagnosticSource(diagnostic: Diagnostic, sourcePath: string): Diagn
   };
 }
 
-function resolveIncludePath(rawPath: string, sourcePath: string): string {
-  if (isAbsolute(rawPath)) {
-    return rawPath;
-  }
-
-  return resolvePath(dirname(sourcePath), rawPath);
-}
-
 function toIncludeArgs(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
@@ -416,7 +410,24 @@ async function evaluateIncludeDirective(node: Directive, state: EvaluationState)
     return [];
   }
 
-  const resolvedPath = resolveIncludePath(includePath, state.sourcePath);
+  const includeRoot = state.includeRoot ?? defaultIncludeRoot(state.sourcePath);
+  const resolved = resolveIncludeFilePath({
+    includePath,
+    sourcePath: state.sourcePath,
+    rootPath: includeRoot,
+  });
+  if (!resolved.ok) {
+    state.diagnostics.push(
+      createError(
+        DiagnosticCode.IMPORT_NOT_FOUND,
+        resolved.reason,
+        node.loc,
+      ),
+    );
+    return [];
+  }
+
+  const resolvedPath = resolved.path;
   if (state.includeStack.includes(resolvedPath)) {
     state.diagnostics.push(
       createError(
@@ -468,6 +479,7 @@ async function evaluateIncludeDirective(node: Directive, state: EvaluationState)
   const childResult = await evaluate(parsed.cst, bindResult.symbols, {
     variables: childVariables,
     sourcePath: resolvedPath,
+    includeRoot,
     loadFile: state.loadFile,
     includeStack: [...state.includeStack, resolvedPath],
   });
@@ -909,6 +921,7 @@ export async function evaluate(
     luaEngine,
     variables: data,
     sourcePath: options.sourcePath,
+    includeRoot: options.includeRoot ?? (options.sourcePath ? defaultIncludeRoot(options.sourcePath) : undefined),
     loadFile: options.loadFile,
     includeStack: options.includeStack ?? (options.sourcePath ? [options.sourcePath] : []),
   };

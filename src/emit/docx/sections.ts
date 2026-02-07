@@ -7,7 +7,7 @@
 import { Header, Footer, Paragraph, SectionType } from "docx";
 import type { ISectionOptions, Table, ISectionPropertiesOptions } from "docx";
 
-import type { Section, HeaderFooter } from "../../types/document-ir.ts";
+import type { HeaderFooter } from "../../types/document-ir.ts";
 import type { EmitContext, DocxBlock } from "./nodes.ts";
 import { emitBlocks } from "./nodes.ts";
 import { type Mutable } from "./utils.ts";
@@ -168,48 +168,4 @@ export function compileFooter(headerFooter: HeaderFooter, ctx: EmitContext): Foo
   return new Footer({
     children: children as (Paragraph | Table)[],
   });
-}
-
-/**
- * Build section headers from HeaderFooterConfig.
- */
-export function buildSectionHeaders(
-  config: Section["headers"],
-  ctx: EmitContext
-): SectionHeaders {
-  const headers: SectionHeaders = {};
-  
-  if (config?.default) {
-    headers.default = compileHeader(config.default, ctx);
-  }
-  if (config?.first) {
-    headers.first = compileHeader(config.first, ctx);
-  }
-  if (config?.even) {
-    headers.even = compileHeader(config.even, ctx);
-  }
-  
-  return headers;
-}
-
-/**
- * Build section footers from HeaderFooterConfig.
- */
-export function buildSectionFooters(
-  config: Section["headers"],  // Note: Footers use same structure
-  ctx: EmitContext
-): SectionFooters {
-  const footers: SectionFooters = {};
-  
-  if (config?.default && config.default.kind === "footer") {
-    footers.default = compileFooter(config.default, ctx);
-  }
-  if (config?.first && config.first.kind === "footer") {
-    footers.first = compileFooter(config.first, ctx);
-  }
-  if (config?.even && config.even.kind === "footer") {
-    footers.even = compileFooter(config.even, ctx);
-  }
-  
-  return footers;
 }

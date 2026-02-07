@@ -4,7 +4,7 @@
  * LDOC CLI - Legal Document DSL Compiler
  */
 
-import { compile, parseAndBind } from "../pipeline/index.ts";
+import { compile, parseAndBindWithIncludes } from "../pipeline/index.ts";
 
 const HELP = `
 ldoc - Legal Document DSL Compiler
@@ -152,7 +152,9 @@ async function parseCommand(args: string[]): Promise<void> {
 
   try {
     const input = await Bun.file(inputFile).text();
-    const { cst, diagnostics } = parseAndBind(input);
+    const { cst, diagnostics } = await parseAndBindWithIncludes(input, {
+      sourcePath: inputFile,
+    });
 
     // Show any errors
     for (const diag of diagnostics) {
@@ -181,7 +183,9 @@ async function validateCommand(args: string[]): Promise<void> {
 
   try {
     const input = await Bun.file(inputFile).text();
-    const { diagnostics } = parseAndBind(input);
+    const { diagnostics } = await parseAndBindWithIncludes(input, {
+      sourcePath: inputFile,
+    });
 
     const errors = diagnostics.filter((d) => d.severity === "error");
     const warnings = diagnostics.filter((d) => d.severity === "warning");

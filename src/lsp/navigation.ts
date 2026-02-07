@@ -50,12 +50,19 @@ export function findNodeAtPosition(
   pos: Position
 ): CSTNode | null {
   let best: CSTNode | null = null;
-  const line = pos.line + 1;
+
+  const spanSize = (node: CSTNode): number => {
+    const lineSpan = node.loc.endLine - node.loc.line;
+    const charSpan = node.loc.endColumn - node.loc.column;
+    return lineSpan * 10_000 + charSpan;
+  };
 
   const visit = (node: CSTNode): void => {
-    const inRange = positionInLocation(pos, node.loc);
-    const sameLine = node.loc.line === line;
-    if (inRange || sameLine) {
+    if (!positionInLocation(pos, node.loc)) {
+      return;
+    }
+
+    if (!best || spanSize(node) <= spanSize(best)) {
       best = node;
     }
   };
@@ -91,36 +98,7 @@ function extractDefReferencesFromArgs(argsRaw: string | undefined, loc: Directiv
 
   const args = parsed;
 
-  const refs: string[] = [];
-  const visit = (value: unknown): void => {
-    if (typeof value === "string") {
-      refs.push(value);
-      return;
-    }
-
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        visit(item);
-      }
-      return;
-    }
-
-    if (value && typeof value === "object") {
-      for (const nested of Object.values(value as Record<string, unknown>)) {
-        visit(nested);
-      }
-    }
-  };
-
-  if (typeof args.ref === "string") {
-    refs.push(args.ref);
-  }
-
-  for (const value of Object.values(args)) {
-    visit(value);
-  }
-
-  return refs;
+  return typeof args.ref === "string" ? [args.ref] : [];
 }
 
 function directiveReferencesDef(directive: Directive, symbolName: string): boolean {
@@ -128,10 +106,22 @@ function directiveReferencesDef(directive: Directive, symbolName: string): boole
   return refs.some((ref) => ref === symbolName);
 }
 
-function findSymbolAtPosition(ctx: NavigationContext, pos: Position): string | null {
+function isLikelyDefinitionHit(pos: Position, symbolName: string, definitionLine: number, definitionColumn: number): boolean {
   const line = pos.line + 1;
+  if (line !== definitionLine) {
+    return false;
+  }
+
+  const maxColumn = definitionColumn + symbolName.length + 16;
+  return pos.character >= definitionColumn && pos.character <= maxColumn;
+}
+
+function findSymbolAtPosition(ctx: NavigationContext, pos: Position): string | null {
   for (const [name, symbol] of ctx.symbols.defs) {
-    if (positionInLocation(pos, symbol.definedAt) || symbol.definedAt.line === line) {
+    if (
+      positionInLocation(pos, symbol.definedAt)
+      || isLikelyDefinitionHit(pos, name, symbol.definedAt.line, symbol.definedAt.column)
+    ) {
       return name;
     }
   }
@@ -171,10 +161,11 @@ export function getDefinition(
   ctx: NavigationContext,
   pos: Position
 ): Location | null {
-  const line = pos.line + 1;
-
-  for (const symbol of ctx.symbols.defs.values()) {
-    if (symbol.definedAt.line === line) {
+  for (const [name, symbol] of ctx.symbols.defs) {
+    if (
+      positionInLocation(pos, symbol.definedAt)
+      || isLikelyDefinitionHit(pos, name, symbol.definedAt.line, symbol.definedAt.column)
+    ) {
       return {
         uri: ctx.uri,
         range: sourceLocationToRange(symbol.definedAt),
@@ -202,8 +193,6 @@ export function getDefinition(
 
 /**
  * Get all references to a symbol at the given position.
- *
- * STUBBED — returns empty array.
  */
 export function getReferences(
   ctx: NavigationContext,

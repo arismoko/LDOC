@@ -8,3 +8,4 @@ export * from "./filters.ts";
 export * from "./bookmarks.ts";
 export * from "./numbering.ts";
 export * from "./args.ts";
+export * from "./include-path.ts";

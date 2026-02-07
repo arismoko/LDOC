@@ -201,6 +201,7 @@ export interface Section extends IRBase {
   columns?: ColumnsConfig;
   /** Headers/footers for this section */
   headers?: HeaderFooterConfig;
+  footers?: HeaderFooterConfig;
 }
 
 export interface ColumnsConfig {

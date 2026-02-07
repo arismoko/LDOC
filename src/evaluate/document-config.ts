@@ -16,6 +16,7 @@
  */
 
 import type { PageLayout, InlineStyleProps } from "../types/document-ir.ts";
+import { parseLengthToTwips as parseLengthToTwipsShared } from "../shared/units.ts";
 
 /**
  * Parsed document configuration from @document body.
@@ -214,20 +215,17 @@ function parseValue(value: string): unknown {
  * Parse a length value (e.g., "0.9in", "6pt") to twips.
  */
 export function parseLengthToTwips(value: string): number | undefined {
-  const match = value.match(/^(-?[\d.]+)(in|pt|cm|mm|px|twip)?$/);
-  if (!match) return undefined;
-  
-  const num = parseFloat(match[1]!);
-  const unit = match[2] || "pt";
-  
-  switch (unit) {
-    case "in": return num * 1440; // 1 inch = 1440 twips
-    case "pt": return num * 20;   // 1 point = 20 twips
-    case "cm": return num * 567;  // 1 cm ≈ 567 twips
-    case "mm": return num * 56.7; // 1 mm ≈ 56.7 twips
-    case "px": return num * 15;   // 1 px ≈ 15 twips (96 dpi)
-    case "twip": return num;
-    default: return num * 20; // Default to points
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const normalized = /[a-z]+$/i.test(trimmed)
+    ? trimmed
+    : `${trimmed}pt`;
+
+  try {
+    return parseLengthToTwipsShared(normalized);
+  } catch {
+    return undefined;
   }
 }
 

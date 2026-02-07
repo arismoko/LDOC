@@ -7,6 +7,7 @@
 import { parseSource } from "../parse/index.ts";
 import { bind, bindSync } from "../bind/index.ts";
 import { evaluate, type SourceLoader } from "../evaluate/index.ts";
+import { defaultIncludeRoot } from "../shared/include-path.ts";
 import { style, type StyleOptions } from "../style/index.ts";
 import { emit, type EmitOptions } from "../emit/index.ts";
 import type { CSTDocument } from "../types/cst.ts";
@@ -31,6 +32,9 @@ export interface CompileOptions {
 
   /** Custom source loader for @include expansion */
   loadFile?: SourceLoader;
+
+  /** Root directory include paths must stay within */
+  includeRoot?: string;
   
   /** Style options */
   style?: StyleOptions;
@@ -100,10 +104,14 @@ async function runPipelineTo(
 
   const sourceLoader: SourceLoader = options.loadFile
     ?? (async (path: string) => Bun.file(path).text());
+  const includeRoot = options.sourcePath
+    ? (options.includeRoot ?? defaultIncludeRoot(options.sourcePath))
+    : options.includeRoot;
 
   // Phase 2: Bind
   const bindResult = await bind(state.cst, {
     sourcePath: options.sourcePath,
+    includeRoot,
     loadFile: async (path: string) => parseSource(await sourceLoader(path)),
   });
   state.diagnostics.push(...bindResult.diagnostics);
@@ -120,6 +128,7 @@ async function runPipelineTo(
   const evalResult = await evaluate(state.cst, state.symbols, {
     variables: options.variables,
     sourcePath: options.sourcePath,
+    includeRoot,
     loadFile: sourceLoader,
   });
   state.diagnostics.push(...evalResult.diagnostics);
@@ -196,7 +205,7 @@ export async function tryCompile(
 // =============================================================================
 
 /**
- * Parse and bind only (for LSP/validation).
+ * Parse and bind only (single-document, no include loading).
  */
 export function parseAndBind(
   source: string
@@ -225,6 +234,48 @@ export function parseAndBind(
     cst: state.cst!,
     symbols: state.symbols!,
     diagnostics: state.diagnostics,
+  };
+}
+
+/**
+ * Parse and bind with include resolution.
+ *
+ * Use this for file-backed workflows (CLI/LSP) where @include diagnostics
+ * should match full compile behavior.
+ */
+export async function parseAndBindWithIncludes(
+  source: string,
+  options: Pick<CompileOptions, "sourcePath" | "loadFile" | "includeRoot"> = {},
+): Promise<{ cst: CSTDocument; symbols: SymbolTable; diagnostics: Diagnostic[] }> {
+  const parseResult = parseSource(source);
+  const diagnostics: Diagnostic[] = [...parseResult.diagnostics];
+  const parseErrors = parseResult.diagnostics.filter((d) => d.severity === "error");
+  if (parseErrors.length > 0) {
+    throw new Error(`Parse failed: ${parseErrors[0]?.message ?? "unknown error"}`);
+  }
+
+  const sourceLoader: SourceLoader = options.loadFile
+    ?? (async (path: string) => Bun.file(path).text());
+  const includeRoot = options.sourcePath
+    ? (options.includeRoot ?? defaultIncludeRoot(options.sourcePath))
+    : options.includeRoot;
+
+  const bindResult = await bind(parseResult.cst, {
+    sourcePath: options.sourcePath,
+    includeRoot,
+    loadFile: async (path: string) => parseSource(await sourceLoader(path)),
+  });
+
+  diagnostics.push(...bindResult.diagnostics);
+  const bindErrors = bindResult.diagnostics.filter((d) => d.severity === "error");
+  if (bindErrors.length > 0) {
+    throw new Error(`Binding failed: ${bindErrors[0]?.message ?? "unknown error"}`);
+  }
+
+  return {
+    cst: parseResult.cst,
+    symbols: bindResult.symbols,
+    diagnostics,
   };
 }
 

@@ -1,9 +1,5 @@
 /**
  * LSP Completion Provider — directive and symbol completion.
- *
- * STUBBED for v3 migration (commit 9.1).
- * Context detection is simplified; old CST types removed.
- * Will be enhanced once core stabilizes.
  */
 
 import {
@@ -34,8 +30,6 @@ export interface CompletionOptions {
 
 /**
  * Detect completion context using text-based heuristics.
- *
- * SIMPLIFIED for v3 stub — only detects directive completion.
  */
 export function getCompletionContext(
   _cst: CSTDocument,

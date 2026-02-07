@@ -16,12 +16,13 @@ import {
   type InitializeResult,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { URI } from "vscode-uri";
 
 import type { CSTDocument, CSTDirective, ParseResult } from "../types/cst.ts";
 import type { SymbolTable } from "../types/symbols.ts";
 import { parseSource } from "../parse/index.ts";
 import { bindSync } from "../bind/index.ts";
-import { compileToDocument, parseAndBind } from "../pipeline/index.ts";
+import { compileToDocument, parseAndBind, parseAndBindWithIncludes } from "../pipeline/index.ts";
 import { toLspDiagnostics } from "./diagnostics.ts";
 import { getCompletionContext, getCompletionItems } from "./completion.ts";
 import { getDefinition, getReferences } from "./navigation.ts";
@@ -36,6 +37,18 @@ interface DocumentCache {
 }
 
 const cache = new Map<string, DocumentCache>();
+
+function sourcePathFromUri(uri: string): string | undefined {
+  try {
+    const parsed = URI.parse(uri);
+    if (parsed.scheme !== "file") {
+      return undefined;
+    }
+    return parsed.fsPath;
+  } catch {
+    return undefined;
+  }
+}
 
 // =============================================================================
 // Server Setup
@@ -73,11 +86,14 @@ documents.onDidChangeContent(async (change) => {
   let diagnostics = [] as ReturnType<typeof parseSource>["diagnostics"];
 
   try {
-    const parseBind = parseAndBind(text);
+    const sourcePath = sourcePathFromUri(uri);
+    const parseBind = sourcePath
+      ? await parseAndBindWithIncludes(text, { sourcePath })
+      : parseAndBind(text);
     cst = parseBind.cst;
     symbols = parseBind.symbols;
 
-    const evalResult = await compileToDocument(text);
+    const evalResult = await compileToDocument(text, sourcePath ? { sourcePath } : {});
     diagnostics = evalResult.diagnostics;
   } catch {
     const parseResult = parseSource(text);

@@ -49,4 +49,30 @@ describe("import resolver", () => {
 
     expect(result.diagnostics.some((d) => d.code === "B006")).toBe(true);
   });
+
+  test("rejects paths that escape include root", async () => {
+    const basePath = "/virtual/root/main.ldoc";
+    const loader = createParseLoader({
+      [resolvePath("/virtual", "outside.ldoc")]: "[Outside]",
+    });
+    const cst = parseSource(`@include(path: "../outside.ldoc")`).cst;
+
+    const result = await resolveImports(cst, {
+      basePath,
+      includeRoot: "/virtual/root",
+      loadFile: loader,
+    });
+
+    expect(result.diagnostics.some((d) => d.code === "B005")).toBe(true);
+  });
+
+  test("rejects absolute include paths", async () => {
+    const cst = parseSource(`@include(path: "/etc/passwd")`).cst;
+    const result = await resolveImports(cst, {
+      basePath: "/virtual/main.ldoc",
+      loadFile: async () => parseSource(""),
+    });
+
+    expect(result.diagnostics.some((d) => d.code === "B005")).toBe(true);
+  });
 });

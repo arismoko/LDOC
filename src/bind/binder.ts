@@ -10,9 +10,9 @@
  */
 
 import type { Document, CSTDocument, Block, Directive, ParseResult } from "../types/cst.ts";
-import type { SymbolTable, DefSymbol, BindResult } from "../types/symbols.ts";
+import type { SymbolTable, BindResult } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
-import { warning, error as diagError, DiagnosticCode } from "../types/diagnostics.ts";
+import { error as diagError, DiagnosticCode } from "../types/diagnostics.ts";
 import { createSymbolTable } from "../types/symbols.ts";
 import { validate } from "./validator.ts";
 import { resolveImports } from "./resolver.ts";
@@ -28,6 +28,8 @@ function isParseError(result: ArgsObject | ParseArgsResult): result is ParseArgs
 export interface BinderOptions {
   /** Source path of the entry document (for import resolution) */
   sourcePath?: string;
+  /** Root directory include paths must stay within */
+  includeRoot?: string;
   /** Function to load and parse a file */
   loadFile?: (path: string) => Promise<ParseResult>;
 }
@@ -60,10 +62,10 @@ export class Binder {
     if (this.options.loadFile && this.options.sourcePath) {
       const importResult = await resolveImports(doc, {
         basePath: this.options.sourcePath,
+        includeRoot: this.options.includeRoot,
         loadFile: this.options.loadFile,
       });
       diagnostics.push(...importResult.diagnostics);
-      mergeSymbols(symbols, importResult.symbols, diagnostics);
     }
 
     collectDefs(doc.children, symbols, diagnostics);
@@ -86,34 +88,6 @@ export class Binder {
     collectDefs(doc.children, symbols, diagnostics);
 
     return { cst, symbols, diagnostics };
-  }
-}
-
-function mergeSymbols(target: SymbolTable, source: SymbolTable, diagnostics: Diagnostic[]): void {
-  for (const [name, symbol] of source.defs) {
-    if (target.defs.has(name)) {
-      diagnostics.push(
-        diagError(
-          DiagnosticCode.DUPLICATE_DEFINITION,
-          `Duplicate imported definition '${name}'`,
-          symbol.definedAt,
-        ),
-      );
-      continue;
-    }
-    target.defs.set(name, symbol);
-  }
-
-  for (const [name, symbol] of source.styles) {
-    if (!target.styles.has(name)) {
-      target.styles.set(name, symbol);
-    }
-  }
-
-  for (const [name, symbol] of source.anchors) {
-    if (!target.anchors.has(name)) {
-      target.anchors.set(name, symbol);
-    }
   }
 }
 

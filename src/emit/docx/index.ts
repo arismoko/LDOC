@@ -260,11 +260,15 @@ function findFirstHeaderFooter(
   kind: "header" | "footer"
 ): HeaderFooter | undefined {
   for (const block of blocks) {
-    if (block.type === "Section" && block.headers) {
-      const config = block.headers.default;
-      if (config && config.kind === kind) {
-        return config;
-      }
+    if (block.type !== "Section") {
+      continue;
+    }
+
+    const config = kind === "header"
+      ? block.headers?.default
+      : block.footers?.default;
+    if (config && config.kind === kind) {
+      return config;
     }
   }
   return undefined;

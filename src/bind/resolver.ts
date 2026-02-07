@@ -2,15 +2,13 @@
  * Import resolution for the BIND phase.
  */
 
-import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
-
 import type { Block, CSTDocument, ParseResult } from "../types/cst.ts";
 import type { SymbolTable } from "../types/symbols.ts";
 import { createSymbolTable } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { error, DiagnosticCode } from "../types/diagnostics.ts";
 import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
-import { bindSync } from "./binder.ts";
+import { defaultIncludeRoot, resolveIncludeFilePath } from "../shared/include-path.ts";
 
 /**
  * Options for import resolution.
@@ -18,6 +16,8 @@ import { bindSync } from "./binder.ts";
 export interface ResolverOptions {
   /** Base path for resolving relative imports */
   basePath?: string;
+  /** Root directory include paths must stay within */
+  includeRoot?: string;
   /** Function to load and parse a file */
   loadFile: (path: string) => Promise<ParseResult>;
 }
@@ -26,7 +26,7 @@ export interface ResolverOptions {
  * Result of import resolution.
  */
 export interface ResolveResult {
-  /** Merged symbol table from all imports */
+  /** Imported symbol table (currently reserved for future use) */
   symbols: SymbolTable;
   /** Diagnostics from import resolution */
   diagnostics: Diagnostic[];
@@ -36,8 +36,6 @@ export interface ResolveResult {
 
 /**
  * Import resolver for the BIND phase.
- *
- * STUBBED — returns empty results. Will be rewritten for v3.
  */
 export class ImportResolver {
   private readonly options: ResolverOptions;
@@ -45,6 +43,7 @@ export class ImportResolver {
   private readonly symbols: SymbolTable = createSymbolTable();
   private readonly importedPaths = new Set<string>();
   private readonly visiting = new Set<string>();
+  private includeRoot?: string;
 
   constructor(options: ResolverOptions) {
     this.options = options;
@@ -87,33 +86,25 @@ export class ImportResolver {
     return parsed.path;
   }
 
-  private resolveImportPath(importPath: string, sourcePath: string): string {
-    if (isAbsolute(importPath)) {
-      return importPath;
-    }
-    return resolvePath(dirname(sourcePath), importPath);
-  }
-
-  private mergeImportedSymbols(imported: SymbolTable): void {
-    for (const [name, symbol] of imported.defs) {
-      if (!this.symbols.defs.has(name)) {
-        this.symbols.defs.set(name, symbol);
-      }
-    }
-    for (const [name, symbol] of imported.styles) {
-      if (!this.symbols.styles.has(name)) {
-        this.symbols.styles.set(name, symbol);
-      }
-    }
-    for (const [name, symbol] of imported.anchors) {
-      if (!this.symbols.anchors.has(name)) {
-        this.symbols.anchors.set(name, symbol);
-      }
-    }
-  }
-
   private async visitInclude(importPathRaw: string, includeLoc: { line: number; column: number; endLine: number; endColumn: number }, sourcePath: string): Promise<void> {
-    const resolvedPath = this.resolveImportPath(importPathRaw, sourcePath);
+    const includeRoot = this.includeRoot ?? defaultIncludeRoot(sourcePath);
+    const resolved = resolveIncludeFilePath({
+      includePath: importPathRaw,
+      sourcePath,
+      rootPath: includeRoot,
+    });
+    if (!resolved.ok) {
+      this.diagnostics.push(
+        error(
+          DiagnosticCode.IMPORT_NOT_FOUND,
+          resolved.reason,
+          includeLoc,
+        ),
+      );
+      return;
+    }
+
+    const resolvedPath = resolved.path;
 
     if (this.visiting.has(resolvedPath)) {
       this.diagnostics.push(
@@ -139,10 +130,6 @@ export class ImportResolver {
       if (parseErrors.length > 0) {
         return;
       }
-
-      const bindResult = bindSync(parseResult.cst);
-      this.diagnostics.push(...bindResult.diagnostics);
-      this.mergeImportedSymbols(bindResult.symbols);
 
       await this.walkBlocks(parseResult.cst.children, resolvedPath);
       this.importedPaths.add(resolvedPath);
@@ -185,6 +172,7 @@ export class ImportResolver {
   async resolve(cst: CSTDocument, sourcePath?: string): Promise<ResolveResult> {
     const base = sourcePath ?? this.options.basePath;
     if (base) {
+      this.includeRoot = this.options.includeRoot ?? defaultIncludeRoot(base);
       await this.walkBlocks(cst.children, base);
     }
 
@@ -198,8 +186,6 @@ export class ImportResolver {
 
 /**
  * Resolve imports for a CST.
- *
- * STUBBED — returns empty results.
  */
 export async function resolveImports(
   cst: CSTDocument,

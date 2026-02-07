@@ -57,17 +57,23 @@ describe("include evaluation", () => {
     const childPath = resolvePath("/virtual", "child.ldoc");
     const loadFile = createMapLoader({
       [childPath]: `@params(names: ["name", "title"])
+@def(secret: "S")
 [Signer]
 `,
     });
 
-    const source = `@include(path: "child.ldoc", args: { name: "Alice" })`;
-    const { diagnostics } = await compileToDocument(source, {
+    const source = `@include(path: "child.ldoc", args: { name: "Alice" })
+[secret: $(defs.secret)]`;
+    const { diagnostics, document } = await compileToDocument(source, {
       sourcePath: mainPath,
       loadFile,
     });
 
     expect(diagnostics.some((d) => d.code === "B007")).toBe(true);
+
+    const leakText = paragraphText(document.blocks[0]!);
+    expect(leakText).toBe("secret: ");
+    expect(document.blocks.length).toBe(1);
   });
 
   test("include reports malformed @params declaration", async () => {
@@ -86,5 +92,27 @@ describe("include evaluation", () => {
     });
 
     expect(diagnostics.some((d) => d.code === "P006")).toBe(true);
+  });
+
+  test("include rejects paths that escape include root", async () => {
+    const source = `@include(path: "../outside.ldoc")`;
+    await expect(
+      compileToDocument(source, {
+        sourcePath: "/virtual/root/main.ldoc",
+        loadFile: createMapLoader({
+          [resolvePath("/virtual", "outside.ldoc")]: "[outside]",
+        }),
+      }),
+    ).rejects.toThrow("escapes include root");
+  });
+
+  test("include rejects absolute paths", async () => {
+    const source = `@include(path: "/etc/passwd")`;
+    await expect(
+      compileToDocument(source, {
+        sourcePath: "/virtual/main.ldoc",
+        loadFile: createMapLoader({}),
+      }),
+    ).rejects.toThrow("Absolute include paths are not allowed");
   });
 });
