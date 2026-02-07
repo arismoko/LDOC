@@ -156,7 +156,9 @@
 
 # Phase G — DOCX emitter adaptation
 
-### Commit 16 — `feat(v3-emit): wire v3 pipeline parse->bind->eval->emit`
+### Commit 16 — `feat(v3-emit): wire v3 pipeline parse->bind->eval->emit` ✅
+
+**Status**: ✅ Complete
 
 **Changes**
 
