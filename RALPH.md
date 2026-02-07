@@ -19,8 +19,9 @@ Work loop:
 1. Pick the next unfinished commit from COMMITS.MD (in order).
 2. Implement exactly that commit’s scope.
 3. Run the project’s tests / smoke build. Fix only what you broke.
-4. Commit changes with the commit message specified in COMMITS.MD.
+4. Commit one change with the commit message specified in COMMITS.MD.
 5. Update COMMITS.MD to mark that commit done.
+6. Send a message to the user saying what was done keep it brief. Do not continue after sending this message.
 
 If blocked:
 
