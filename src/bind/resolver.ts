@@ -2,12 +2,11 @@
  * Import resolution for the BIND phase.
  */
 
-import type { Block, Document, ParseResult } from "../types/cst.ts";
+import type { Block, Document, Directive, ParseResult } from "../types/cst.ts";
 import type { SymbolTable } from "../types/symbols.ts";
 import { createSymbolTable } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { error, DiagnosticCode } from "../types/diagnostics.ts";
-import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
 import { defaultIncludeRoot, resolveIncludeFilePath } from "../shared/include-path.ts";
 
 /**
@@ -49,41 +48,33 @@ export class ImportResolver {
     this.options = options;
   }
 
-  private isParseError(result: ArgsObject | ParseArgsResult): result is ParseArgsResult {
-    return "ok" in result && result.ok === false;
-  }
-
-  private parseIncludePath(argsRaw: string | undefined, pathLoc: { line: number; column: number; endLine: number; endColumn: number }): string | null {
-    if (!argsRaw) {
-      this.diagnostics.push(
-        error(
-          DiagnosticCode.PARSE_ERROR,
-          "@include requires args with path",
-          pathLoc,
-        ),
-      );
+  private parseIncludePath(block: Directive): string | null {
+    if (!block.args) {
+      if (!block.argsRaw) {
+        this.diagnostics.push(
+          error(
+            DiagnosticCode.PARSE_ERROR,
+            "@include requires args with path",
+            block.loc,
+          ),
+        );
+      }
+      // If argsRaw exists but args is empty/undefined, parser already emitted diagnostic
       return null;
     }
 
-    const inner = argsRaw.slice(1, -1);
-    const parsed = parseArgsObject(`{${inner}}`, pathLoc);
-    if (this.isParseError(parsed)) {
-      this.diagnostics.push(parsed.error);
-      return null;
-    }
-
-    if (typeof parsed.path !== "string" || parsed.path.length === 0) {
+    if (typeof block.args.path !== "string" || block.args.path.length === 0) {
       this.diagnostics.push(
         error(
           DiagnosticCode.PARSE_ERROR,
           "@include path must be a non-empty string",
-          pathLoc,
+          block.loc,
         ),
       );
       return null;
     }
 
-    return parsed.path;
+    return block.args.path;
   }
 
   private async visitInclude(importPathRaw: string, includeLoc: { line: number; column: number; endLine: number; endColumn: number }, sourcePath: string): Promise<void> {
@@ -149,7 +140,7 @@ export class ImportResolver {
   private async walkBlocks(blocks: Block[], sourcePath: string): Promise<void> {
     for (const block of blocks) {
       if (block.kind === "Directive" && block.name === "include") {
-        const includePath = this.parseIncludePath(block.argsRaw, block.loc);
+        const includePath = this.parseIncludePath(block);
         if (includePath) {
           await this.visitInclude(includePath, block.loc, sourcePath);
         }

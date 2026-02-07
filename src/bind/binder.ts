@@ -16,11 +16,7 @@ import { error as diagError, DiagnosticCode } from "../types/diagnostics.ts";
 import { createSymbolTable } from "../types/symbols.ts";
 import { validate } from "./validator.ts";
 import { resolveImports } from "./resolver.ts";
-import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
-
-function isParseError(result: ArgsObject | ParseArgsResult): result is ParseArgsResult {
-  return "ok" in result && result.ok === false;
-}
+import type { ArgsObject } from "../shared/args.ts";
 
 /**
  * Options for the binder.
@@ -114,34 +110,24 @@ function collectDefs(blocks: Block[], symbols: SymbolTable, diagnostics: Diagnos
 }
 
 /**
- * Parse a @def directive's args and add bindings to the symbol table.
+ * Collect a @def directive's bindings from its parsed args.
  */
 function collectDefBindings(dir: Directive, symbols: SymbolTable, diagnostics: Diagnostic[]): void {
-  if (!dir.argsRaw) {
-    diagnostics.push(
-      diagError(
-        DiagnosticCode.PARSE_ERROR,
-        `@def requires arguments: @def(key: value, ...)`,
-        dir.loc,
-      ),
-    );
+  if (!dir.args || Object.keys(dir.args).length === 0) {
+    if (!dir.argsRaw) {
+      diagnostics.push(
+        diagError(
+          DiagnosticCode.PARSE_ERROR,
+          `@def requires arguments: @def(key: value, ...)`,
+          dir.loc,
+        ),
+      );
+    }
+    // If argsRaw exists but args is empty, the parser already emitted a parse error diagnostic
     return;
   }
 
-  // argsRaw includes parens: "(key: value, ...)"
-  // Strip parens, wrap in braces for JSON5 parsing (Spec §6.1)
-  const inner = dir.argsRaw.slice(1, -1);
-  const wrapped = `{${inner}}`;
-  const parsed = parseArgsObject(wrapped, dir.loc);
-
-  // Check for parse failure
-  if (isParseError(parsed)) {
-    diagnostics.push(parsed.error);
-    return;
-  }
-
-  // parsed is an ArgsObject (Record<string, JSON5Value>)
-  const args = parsed;
+  const args = dir.args;
 
   for (const [name, value] of Object.entries(args)) {
     if (symbols.defs.has(name)) {

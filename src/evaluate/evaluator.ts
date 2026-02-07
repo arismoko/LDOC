@@ -40,7 +40,8 @@ import type {
   Styled,
 } from "../types/document-ir.ts";
 import type { SymbolTable } from "../types/symbols.ts";
-import { parseArgsObject, type ArgsObject, type JSON5Value, type ParseArgsResult } from "../shared/args.ts";
+import type { ArgsObject } from "../shared/args.ts";
+import type { JSON5Value } from "../shared/args.ts";
 import { defaultIncludeRoot, resolveIncludeFilePath } from "../shared/include-path.ts";
 import { parseLengthToTwips } from "../shared/units.ts";
 import { parseSource } from "../parse/index.ts";
@@ -68,25 +69,6 @@ export interface EvaluateOptions {
   includeRoot?: string;
   loadFile?: SourceLoader;
   includeStack?: string[];
-}
-
-function isArgsParseError(result: ArgsObject | ParseArgsResult): result is ParseArgsResult {
-  return "ok" in result && result.ok === false;
-}
-
-function parseDirectiveArgs(argsRaw: string | undefined, state: EvaluationState, loc: Directive["loc"]): ArgsObject {
-  if (!argsRaw) {
-    return {};
-  }
-
-  const inner = argsRaw.slice(1, -1);
-  const parsed = parseArgsObject(`{${inner}}`, loc);
-  if (isArgsParseError(parsed)) {
-    state.diagnostics.push(parsed.error);
-    return {};
-  }
-
-  return parsed;
 }
 
 function inlineStyleFromRunChannel(value: unknown): InlineStyleProps {
@@ -485,7 +467,7 @@ function readParamsNames(cst: CST.Document, state: EvaluationState): string[] {
     return [];
   }
 
-  const args = parseDirectiveArgs(paramsDirective.argsRaw, state, paramsDirective.loc);
+  const args = paramsDirective.args ?? {};
   const names = args.names;
   if (!Array.isArray(names)) {
     state.diagnostics.push(
@@ -537,7 +519,7 @@ function validateIncludeParams(
 }
 
 async function evaluateIncludeDirective(node: Directive, state: EvaluationState): Promise<Block[]> {
-  const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+  const args = node.args ?? {};
   const includePath = typeof args.path === "string" ? args.path : undefined;
   if (!includePath) {
     state.diagnostics.push(
@@ -719,7 +701,7 @@ async function evaluateInlineDirective(node: CST.InlineDirective, state: Evaluat
   }
 
   if (node.name === "ref") {
-    const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+    const args = node.args ?? {};
     const id = typeof args.id === "string" ? args.id : undefined;
     if (!id) {
       state.diagnostics.push(
@@ -742,7 +724,7 @@ async function evaluateInlineDirective(node: CST.InlineDirective, state: Evaluat
     return bodyInlines;
   }
 
-  const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+  const args = node.args ?? {};
 
   // Resolve ref from @def bindings (Spec §10.4)
   const { runChannel } = resolveStyleRef(args, state, node.loc);
@@ -824,7 +806,7 @@ async function evaluateListRun(blocks: CST.Block[], start: number, state: Evalua
   }
 
   // Parse list marker args (start, continue) from first item
-  const args = parseDirectiveArgs(first.argsRaw, state, first.loc);
+  const args = first.args ?? {};
   const listStart = typeof args.start === "number" ? args.start : undefined;
   const listContinue = typeof args.continue === "boolean" ? args.continue : undefined;
 
@@ -885,7 +867,7 @@ function evaluateTableDirective(node: Directive, state: EvaluationState): Table 
   const rowColumnOwners: TableCell[][] = [];
 
   for (const rowNode of rowNodes) {
-    const args = parseDirectiveArgs(rowNode.argsRaw, state, rowNode.loc);
+    const args = rowNode.args ?? {};
     const values = Array.isArray(args.cells) ? args.cells : [];
     const cells: TableCell[] = [];
     const columnOwners: TableCell[] = [];
@@ -974,7 +956,7 @@ async function executeLuaDirective(node: Directive, state: EvaluationState): Pro
 async function evaluateDirective(node: Directive, state: EvaluationState): Promise<Block[]> {
   switch (node.name) {
     case "document": {
-      const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+      const args = node.args ?? {};
       if (typeof args.title === "string") state.metadata.title = args.title;
       if (typeof args.author === "string") state.metadata.author = args.author;
       if (typeof args.date === "string") state.metadata.date = args.date;
@@ -1003,7 +985,7 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
       return [];
     }
     case "def": {
-      const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+      const args = node.args ?? {};
       for (const [key, value] of Object.entries(args)) {
         state.defs[key] = value;
       }
@@ -1016,7 +998,7 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
     case "pagebreak":
       return [{ type: "PageBreak", loc: node.loc }];
     case "anchor": {
-      const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+      const args = node.args ?? {};
       const id = typeof args.id === "string" ? args.id : undefined;
       if (!id) {
         state.diagnostics.push(
@@ -1034,7 +1016,7 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
     case "break":
       return [{ type: "ColumnBreak", loc: node.loc }];
     case "columns": {
-      const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+      const args = node.args ?? {};
       const { count, space } = parseColumnsArgs(args, state, node.loc);
       const content = node.body ? await evaluateBlocks(node.body.children, state) : [];
       return [{
@@ -1053,7 +1035,7 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
       }];
     }
     case "align": {
-      const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+      const args = node.args ?? {};
       const value = args.value;
       const align: HorizontalAlign = value === "left" || value === "center" || value === "right"
         ? value
@@ -1084,7 +1066,7 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
       return evaluateIncludeDirective(node, state);
     case "style": {
       const inner = node.body ? await evaluateBlocks(node.body.children, state) : [];
-      const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+      const args = node.args ?? {};
 
       // Resolve ref from @def bindings (Spec §10.4)
       const { runChannel, pChannel, refResolved } = resolveStyleRef(args, state, node.loc);
