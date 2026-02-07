@@ -67,6 +67,12 @@ export class Lexer {
       return;
     }
 
+    // Escape sequences (Spec §3.3)
+    if (char === "\\") {
+      this.scanEscape();
+      return;
+    }
+
     // Paragraph block open
     if (char === "[") {
       this.emit(TokenType.PARA_OPEN, "[");
@@ -109,6 +115,13 @@ export class Lexer {
     // Line comment
     if (char === "/" && this.peek(1) === "/") {
       this.scanLineComment();
+      return;
+    }
+
+    // Single slash (not a comment) — consume as text
+    if (char === "/") {
+      this.emit(TokenType.TEXT, "/");
+      this.advance();
       return;
     }
 
@@ -175,12 +188,6 @@ export class Lexer {
     // String literal
     if (char === '"' || char === "'") {
       this.scanString();
-      return;
-    }
-
-    // Number literal
-    if (this.isDigit(char)) {
-      this.scanNumber();
       return;
     }
 
@@ -280,29 +287,53 @@ export class Lexer {
 
     if (this.peek() === quote) {
       this.advance();
+    } else {
+      // Unterminated string — hit newline or EOF before closing quote
+      this.diagnostics.push(
+        error(
+          DiagnosticCode.UNCLOSED_DELIMITER,
+          `Unterminated string literal (missing closing ${quote})`,
+          loc(startLine, startCol)
+        )
+      );
     }
 
     this.emit(TokenType.STRING, value, startLine, startCol, this.line, this.column);
   }
 
-  private scanNumber(): void {
+  /**
+   * Scan an escape sequence (Spec §3.3).
+   * Recognized: \\ \@ \[ \] \{ \} \( \) \$
+   * Unknown \X → literal \X
+   */
+  private scanEscape(): void {
     const startLine = this.line;
     const startCol = this.column;
-    let value = "";
+    this.advance(); // consume backslash
 
-    while (!this.isAtEnd() && this.isDigit(this.peek())) {
-      value += this.advance();
+    if (this.isAtEnd()) {
+      // Trailing backslash at end of input → literal backslash
+      this.emit(TokenType.TEXT, "\\", startLine, startCol, this.line, this.column);
+      return;
     }
 
-    // Check for decimal point (length tokens use this pattern)
-    if (this.peek() === ".") {
-      value += this.advance();
-      while (!this.isAtEnd() && this.isDigit(this.peek())) {
-        value += this.advance();
+    const next = this.peek();
+    const escapable = "\\@[]{}()$";
+    if (escapable.includes(next)) {
+      this.advance(); // consume the escaped character
+      this.emit(TokenType.TEXT, next, startLine, startCol, this.line, this.column);
+    } else {
+      // Unknown escape → literal \X
+      // If the next char is a newline, don't consume it — let the main
+      // loop handle it so BLANK_LINE is emitted and line/column stay correct.
+      const next2 = this.peek();
+      if (next2 === "\n") {
+        this.emit(TokenType.TEXT, "\\", startLine, startCol, this.line, this.column);
+      } else {
+        const char = this.advance();
+        this.emit(TokenType.TEXT, "\\" + char, startLine, startCol, this.line, this.column);
       }
     }
-
-    this.emit(TokenType.NUMBER, value, startLine, startCol, this.line, this.column);
   }
 
   private scanText(): void {
@@ -316,6 +347,7 @@ export class Lexer {
       // Stop at any token start characters
       if (
         char === "\n" ||
+        char === "\\" ||
         char === "@" ||
         char === "{" ||
         char === "}" ||
@@ -329,8 +361,7 @@ export class Lexer {
         char === "," ||
         char === ":" ||
         char === "=" ||
-        char === "." ||
-        char === "/"
+        char === "."
       ) {
         break;
       }
@@ -352,6 +383,11 @@ export class Lexer {
 
     let comment = "";
     while (!this.isAtEnd() && this.peek() !== "\n") {
+      // Stop at paragraph delimiters so they can be tokenized independently.
+      // This ensures `[text // comment ] more]` doesn't swallow the `]`.
+      if (this.peek() === "]" || this.peek() === "[") {
+        break;
+      }
       comment += this.advance();
     }
 

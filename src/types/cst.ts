@@ -5,7 +5,6 @@
  * and structural bodies {...}. This CST reflects that.
  */
 
-import type { TokenType } from "./tokens.ts";
 import type { Diagnostic } from "./diagnostics.ts";
 import type { SourceLocation } from "./source-location.ts";
 
@@ -202,39 +201,6 @@ export interface InlineHardBreak {
 }
 
 // =============================================================================
-// Other (reserved for future use)
-// =============================================================================
-
-/** Anchor - @anchor(id: "...") */
-export interface Anchor {
-  kind: "Anchor";
-  loc: SourceLocation;
-  id: string;
-}
-
-/** Def - @def(...) */
-export interface Def {
-  kind: "Def";
-  loc: SourceLocation;
-  bindings: Record<string, any>; // name -> value
-}
-
-/** Style application - @style(...) */
-export interface Style {
-  kind: "Style";
-  loc: SourceLocation;
-  channel: "p" | "r"; // p for paragraph, r for run
-  argsRaw?: string;
-}
-
-/** Document config - @document(...) */
-export interface DocumentConfig {
-  kind: "DocumentConfig";
-  loc: SourceLocation;
-  argsRaw?: string;
-}
-
-// =============================================================================
 // Parse Result
 // =============================================================================
 
@@ -244,96 +210,3 @@ export interface ParseResult {
   /** Flag for incomplete marker (EOF-close recovery) */
   incomplete?: boolean;
 }
-
-// =============================================================================
-// Constructors
-// =============================================================================
-
-export function document(loc: SourceLocation, children: Block[]): Document {
-  return { kind: "Document", loc, children };
-}
-
-export function paragraphBlock(loc: SourceLocation, inlines: Inline[]): ParagraphBlock {
-  return { kind: "ParagraphBlock", loc, inlines };
-}
-
-export function directive(loc: SourceLocation, name: string, argsRaw?: string, body?: StructuralBody): Directive {
-  return { kind: "Directive", loc, name, argsRaw, body };
-}
-
-export function listItemMarker(loc: SourceLocation, ordered: boolean, depth: number, argsRaw?: string, body?: StructuralBody): ListItemMarker {
-  return { kind: "ListItemMarker", loc, ordered, depth, argsRaw, body };
-}
-
-export function structuralBody(loc: SourceLocation, children: Block[]): StructuralBody {
-  return { kind: "StructuralBody", loc, children };
-}
-
-export function table(loc: SourceLocation, rows: TableRow[]): Table {
-  return { kind: "Table", loc, rows };
-}
-
-export function tableRow(loc: SourceLocation, cells: string[]): TableRow {
-  return { kind: "TableRow", loc, cells };
-}
-
-export function pagebreak(loc: SourceLocation): Pagebreak {
-  return { kind: "Pagebreak", loc };
-}
-
-export function columns(loc: SourceLocation, count: number, gap: string, separator: boolean, body: StructuralBody): Columns {
-  return { kind: "Columns", loc, count, gap, separator, body };
-}
-
-export function box(loc: SourceLocation, body: StructuralBody): Box {
-  return { kind: "Box", loc, body };
-}
-
-export function align(loc: SourceLocation, value: "left" | "center" | "right", body: StructuralBody): Align {
-  return { kind: "Align", loc, value, body };
-}
-
-export function header(loc: SourceLocation, left?: ParagraphBlock, center?: ParagraphBlock, right?: ParagraphBlock): Header {
-  return { kind: "Header", loc, left, center, right };
-}
-
-export function footer(loc: SourceLocation, left?: ParagraphBlock, center?: ParagraphBlock, right?: ParagraphBlock): Footer {
-  return { kind: "Footer", loc, left, center, right };
-}
-
-export function include(loc: SourceLocation, path: string, args: Record<string, any>): Include {
-  return { kind: "Include", loc, path, args };
-}
-
-export function inlineText(loc: SourceLocation, text: string): InlineText {
-  return { kind: "InlineText", loc, text };
-}
-
-export function inlineDirective(loc: SourceLocation, name: string, argsRaw?: string, body?: Inline[]): InlineDirective {
-  return { kind: "InlineDirective", loc, name, argsRaw, body };
-}
-
-export function luaExpr(loc: SourceLocation, expr: string): LuaExpr {
-  return { kind: "LuaExpr", loc, expr };
-}
-
-export function inlineHardBreak(loc: SourceLocation): InlineHardBreak {
-  return { kind: "InlineHardBreak", loc };
-}
-
-export function anchor(loc: SourceLocation, id: string): Anchor {
-  return { kind: "Anchor", loc, id };
-}
-
-export function def(loc: SourceLocation, bindings: Record<string, any>): Def {
-  return { kind: "Def", loc, bindings };
-}
-
-export function style(loc: SourceLocation, channel: "p" | "r", argsRaw?: string): Style {
-  return { kind: "Style", loc, channel, argsRaw };
-}
-
-export function documentConfig(loc: SourceLocation, argsRaw?: string): DocumentConfig {
-  return { kind: "DocumentConfig", loc, argsRaw };
-}
-

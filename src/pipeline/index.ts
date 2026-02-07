@@ -80,6 +80,76 @@ interface PipelineState {
 type PipelineStage = "parse" | "bind" | "evaluate" | "style";
 
 /**
+ * Error that carries accumulated diagnostics from earlier pipeline stages.
+ */
+class PipelineError extends Error {
+  constructor(message: string, public readonly diagnostics: Diagnostic[]) {
+    super(message);
+    this.name = "PipelineError";
+  }
+}
+
+// =============================================================================
+// Internal Helpers (DRY: shared by runPipelineTo, parseAndBind, parseAndBindWithIncludes)
+// =============================================================================
+
+/**
+ * Parse source and throw on errors.
+ * Returns CST and all diagnostics (including non-error ones).
+ */
+function parseWithDiagnostics(source: string): { cst: CST.Document; diagnostics: Diagnostic[] } {
+  const parseResult = parseSource(source);
+  const parseErrors = parseResult.diagnostics.filter((d) => d.severity === "error");
+  if (parseErrors.length > 0) {
+    throw new PipelineError(
+      `Parse failed: ${parseErrors[0]?.message ?? "unknown error"}`,
+      parseResult.diagnostics
+    );
+  }
+  return { cst: parseResult.cst, diagnostics: parseResult.diagnostics };
+}
+
+/**
+ * Throw if any diagnostics are errors.
+ */
+function throwOnBindErrors(allDiagnostics: Diagnostic[], bindDiagnostics: Diagnostic[]): void {
+  const bindErrors = bindDiagnostics.filter((d) => d.severity === "error");
+  if (bindErrors.length > 0) {
+    throw new PipelineError(
+      `Binding failed: ${bindErrors[0]?.message ?? "unknown error"}`,
+      allDiagnostics
+    );
+  }
+}
+
+/**
+ * Build bind options with source loader and include root.
+ */
+function buildBindOptions(
+  options: Pick<CompileOptions, "sourcePath" | "loadFile" | "includeRoot">
+): {
+  sourceLoader: SourceLoader;
+  includeRoot: string | undefined;
+  bindOptions: Parameters<typeof bind>[1];
+} {
+  const sourceLoader: SourceLoader = options.loadFile
+    ?? (async (path: string) => Bun.file(path).text());
+  const includeRoot = options.sourcePath
+    ? (options.includeRoot ?? defaultIncludeRoot(options.sourcePath))
+    : options.includeRoot;
+
+  return {
+    sourceLoader,
+    includeRoot,
+    bindOptions: {
+      sourcePath: options.sourcePath,
+      includeRoot,
+      loadFile: async (path: string) => parseSource(await sourceLoader(path)),
+    },
+  };
+}
+
+/**
  * Run pipeline up to (and including) the specified stage.
  * Throws on errors in parse/bind stages.
  */
@@ -91,36 +161,18 @@ async function runPipelineTo(
   const state: PipelineState = { diagnostics: [] };
 
   // Phase 1: Parse
-  const parseResult = parseSource(source);
-  state.diagnostics.push(...parseResult.diagnostics);
-  state.cst = parseResult.cst;
-  
-  const parseErrors = parseResult.diagnostics.filter(d => d.severity === "error");
-  if (parseErrors.length > 0) {
-    throw new Error(`Parse failed: ${parseErrors[0]?.message ?? "unknown error"}`);
-  }
+  const { cst, diagnostics: parseDiagnostics } = parseWithDiagnostics(source);
+  state.diagnostics.push(...parseDiagnostics);
+  state.cst = cst;
   
   if (stopAt === "parse") return state;
 
-  const sourceLoader: SourceLoader = options.loadFile
-    ?? (async (path: string) => Bun.file(path).text());
-  const includeRoot = options.sourcePath
-    ? (options.includeRoot ?? defaultIncludeRoot(options.sourcePath))
-    : options.includeRoot;
-
   // Phase 2: Bind
-  const bindResult = await bind(state.cst, {
-    sourcePath: options.sourcePath,
-    includeRoot,
-    loadFile: async (path: string) => parseSource(await sourceLoader(path)),
-  });
+  const { sourceLoader, includeRoot, bindOptions } = buildBindOptions(options);
+  const bindResult = await bind(state.cst, bindOptions);
   state.diagnostics.push(...bindResult.diagnostics);
   state.symbols = bindResult.symbols;
-  
-  const bindErrors = bindResult.diagnostics.filter(d => d.severity === "error");
-  if (bindErrors.length > 0) {
-    throw new Error(`Binding failed: ${bindErrors[0]?.message ?? "unknown error"}`);
-  }
+  throwOnBindErrors(state.diagnostics, bindResult.diagnostics);
   
   if (stopAt === "bind") return state;
 
@@ -137,10 +189,23 @@ async function runPipelineTo(
   if (stopAt === "evaluate") return state;
 
   // Phase 4: Style
+  // Merge @document layout metadata into style options (document wins over caller defaults)
+  const layout = state.document.metadata.layout;
+  const mergedStyleOptions: StyleOptions = {
+    ...options.style,
+    ...(layout?.pageSize?.width ? { pageWidth: layout.pageSize.width } : {}),
+    ...(layout?.pageSize?.height ? { pageHeight: layout.pageSize.height } : {}),
+    ...(layout?.margins ? {
+      margins: {
+        ...options.style?.margins,
+        ...layout.margins,
+      },
+    } : {}),
+  };
   const styleResult = style(
     state.document,
     state.symbols,
-    options.style
+    mergedStyleOptions
   );
   state.diagnostics.push(...styleResult.diagnostics);
   state.styledDocument = styleResult.styledDocument;
@@ -192,10 +257,11 @@ export async function tryCompile(
     const result = await compile(source, options);
     return { ok: true, value: result, diagnostics: result.diagnostics };
   } catch (error) {
+    const diagnostics = error instanceof PipelineError ? error.diagnostics : [];
     return {
       ok: false,
       error: error instanceof Error ? error : new Error(String(error)),
-      diagnostics: [],
+      diagnostics,
     };
   }
 }
@@ -210,30 +276,16 @@ export async function tryCompile(
 export function parseAndBind(
   source: string
 ): { cst: CST.Document; symbols: SymbolTable; diagnostics: Diagnostic[] } {
-  const state: PipelineState = { diagnostics: [] };
+  const { cst, diagnostics } = parseWithDiagnostics(source);
 
-  const parseResult = parseSource(source);
-  state.diagnostics.push(...parseResult.diagnostics);
-  state.cst = parseResult.cst;
-
-  const parseErrors = parseResult.diagnostics.filter((d) => d.severity === "error");
-  if (parseErrors.length > 0) {
-    throw new Error(`Parse failed: ${parseErrors[0]?.message ?? "unknown error"}`);
-  }
-
-  const bindResult = bindSync(state.cst);
-  state.diagnostics.push(...bindResult.diagnostics);
-  state.symbols = bindResult.symbols;
-
-  const bindErrors = bindResult.diagnostics.filter((d) => d.severity === "error");
-  if (bindErrors.length > 0) {
-    throw new Error(`Binding failed: ${bindErrors[0]?.message ?? "unknown error"}`);
-  }
+  const bindResult = bindSync(cst);
+  diagnostics.push(...bindResult.diagnostics);
+  throwOnBindErrors(diagnostics, bindResult.diagnostics);
 
   return {
-    cst: state.cst!,
-    symbols: state.symbols!,
-    diagnostics: state.diagnostics,
+    cst,
+    symbols: bindResult.symbols,
+    diagnostics,
   };
 }
 
@@ -247,33 +299,15 @@ export async function parseAndBindWithIncludes(
   source: string,
   options: Pick<CompileOptions, "sourcePath" | "loadFile" | "includeRoot"> = {},
 ): Promise<{ cst: CST.Document; symbols: SymbolTable; diagnostics: Diagnostic[] }> {
-  const parseResult = parseSource(source);
-  const diagnostics: Diagnostic[] = [...parseResult.diagnostics];
-  const parseErrors = parseResult.diagnostics.filter((d) => d.severity === "error");
-  if (parseErrors.length > 0) {
-    throw new Error(`Parse failed: ${parseErrors[0]?.message ?? "unknown error"}`);
-  }
+  const { cst, diagnostics } = parseWithDiagnostics(source);
 
-  const sourceLoader: SourceLoader = options.loadFile
-    ?? (async (path: string) => Bun.file(path).text());
-  const includeRoot = options.sourcePath
-    ? (options.includeRoot ?? defaultIncludeRoot(options.sourcePath))
-    : options.includeRoot;
-
-  const bindResult = await bind(parseResult.cst, {
-    sourcePath: options.sourcePath,
-    includeRoot,
-    loadFile: async (path: string) => parseSource(await sourceLoader(path)),
-  });
-
+  const { bindOptions } = buildBindOptions(options);
+  const bindResult = await bind(cst, bindOptions);
   diagnostics.push(...bindResult.diagnostics);
-  const bindErrors = bindResult.diagnostics.filter((d) => d.severity === "error");
-  if (bindErrors.length > 0) {
-    throw new Error(`Binding failed: ${bindErrors[0]?.message ?? "unknown error"}`);
-  }
+  throwOnBindErrors(diagnostics, bindResult.diagnostics);
 
   return {
-    cst: parseResult.cst,
+    cst,
     symbols: bindResult.symbols,
     diagnostics,
   };
@@ -281,7 +315,7 @@ export async function parseAndBindWithIncludes(
 
 /**
  * Full pipeline up to Document IR (no DOCX generation).
- * Synchronous - useful for testing and tooling.
+ * Useful for testing and tooling.
  */
 export async function compileToDocument(
   source: string,
@@ -296,7 +330,7 @@ export async function compileToDocument(
 
 /**
  * Full pipeline up to StyledDocument (no DOCX packing).
- * Synchronous - useful for testing style resolution.
+ * Useful for testing style resolution.
  */
 export async function compileToStyledDocument(
   source: string,

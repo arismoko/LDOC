@@ -60,7 +60,7 @@ import type { SourceLocation } from "../../types/source-location.ts";
 import { toRunOptions, toParagraphOptions, toHeadingLevel } from "./styles.ts";
 import { getNumberingReference } from "./numbering.ts";
 import { emitTable } from "./tables.ts";
-import { sanitizeBookmarkName } from "./utils.ts";
+import { bookmarkSafeName } from "../../shared/bookmarks.ts";
 
 /** Synthetic location for diagnostics when node has no source location */
 const SYNTHETIC_LOC: SourceLocation = { line: 1, column: 0, endLine: 1, endColumn: 0 };
@@ -88,6 +88,14 @@ export interface EmitContext {
   basePath?: string;
   /** Current list nesting level */
   listLevel: number;
+  /** Numbering mode (e.g., "tiered" or "legal") */
+  numberingMode?: string;
+  /** Tracks next instance ID per numbering reference (for start/continue) */
+  numberingInstances: Map<string, number>;
+  /** Tracks the last instance used per continuation key (for continue) */
+  lastNumberingInstance: Map<string, number>;
+  /** Tracks the last reference used per continuation key (for continue after start) */
+  lastNumberingReference: Map<string, string>;
 }
 
 /**
@@ -161,7 +169,7 @@ function emitHeading(node: Heading, ctx: EmitContext): DocxBlock[] {
   
   // Register bookmark if anchor is specified
   if (node.anchor) {
-    const anchorId = sanitizeBookmarkName(node.anchor);
+    const anchorId = bookmarkSafeName(node.anchor);
     ctx.bookmarks.add(anchorId);
     // For bookmarks, wrap inline content in a Bookmark
     // docx Bookmark wraps content, so we pass children to it
@@ -185,17 +193,62 @@ function emitHeading(node: Heading, ctx: EmitContext): DocxBlock[] {
 
 function emitList(node: List, ctx: EmitContext): DocxBlock[] {
   const results: DocxBlock[] = [];
-  const reference = getNumberingReference(
+  const baseReference = getNumberingReference(
     node.ordered,
     node.numberFormat,
-    ctx.numberingDefinitions
+    ctx.numberingDefinitions,
+    ctx.numberingMode
   );
+  let reference = baseReference;
   
+  // Handle start: N — create a dynamic numbering definition with custom start
+  if (node.start !== undefined && node.start !== 1 && node.ordered) {
+    const dynamicRef = `${baseReference}-lvl-${ctx.listLevel}-start-${node.start}`;
+    const existingDef = ctx.numberingDefinitions.find((d) => d.id === dynamicRef);
+    if (!existingDef) {
+      // Clone the base definition's levels with the custom start value at the active nesting level
+      const baseDef = ctx.numberingDefinitions.find((d) => d.id === baseReference);
+      if (baseDef) {
+        ctx.numberingDefinitions.push({
+          id: dynamicRef,
+          levels: baseDef.levels.map((l) => ({ ...l, start: l.level === ctx.listLevel ? node.start : undefined })),
+        });
+        reference = dynamicRef;
+      }
+      // If baseDef not found (e.g. default not yet created), keep original reference
+    } else {
+      reference = dynamicRef;
+    }
+  }
+
+  // Continuation is keyed by logical list family (base reference + level), not by
+  // the dynamic start-override reference. This ensures @#(continue: true) finds the
+  // most recent list even if it was started with @#(start: N).
+  const continuationKey = `${baseReference}:${ctx.listLevel}`;
+  let instance: number | undefined;
+  if (node.continue) {
+    // Continue: reuse the last instance AND reference for this base reference at this level.
+    // The reference may differ from baseReference if the original list used start: N.
+    instance = ctx.lastNumberingInstance.get(continuationKey);
+    const lastRef = ctx.lastNumberingReference.get(continuationKey);
+    if (instance !== undefined && lastRef) {
+      reference = lastRef;
+    }
+  }
+  if (instance === undefined) {
+    // New list: allocate a fresh instance
+    const next = (ctx.numberingInstances.get(reference) ?? 0) + 1;
+    ctx.numberingInstances.set(reference, next);
+    instance = next;
+  }
+  ctx.lastNumberingInstance.set(continuationKey, instance);
+  ctx.lastNumberingReference.set(continuationKey, reference);
+
   // Save current level and increment
   const savedLevel = ctx.listLevel;
   
   for (const item of node.items) {
-    results.push(...emitListItem(item, reference, ctx));
+    results.push(...emitListItem(item, reference, instance, ctx));
   }
   
   // Restore level
@@ -207,6 +260,7 @@ function emitList(node: List, ctx: EmitContext): DocxBlock[] {
 function emitListItem(
   item: ListItem,
   reference: string,
+  instance: number,
   ctx: EmitContext
 ): DocxBlock[] {
   const results: DocxBlock[] = [];
@@ -222,6 +276,7 @@ function emitListItem(
         numbering: {
           reference,
           level: ctx.listLevel,
+          instance,
         },
       })
     );
@@ -347,12 +402,12 @@ function emitFootnote(node: Footnote, ctx: EmitContext): DocxBlock[] {
 // =============================================================================
 
 /** Result type for inline emission */
-export type DocxInline = TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | typeof Bookmark | FootnoteReferenceRun;
+export type DocxInline = TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | Bookmark | FootnoteReferenceRun;
 
 /**
  * Emit an Inline node to docx run/element array.
  */
-export function emitInline(node: Inline, ctx: EmitContext, parentStyle: ComputedStyle, options?: InlineEmitOptions): (TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun)[] {
+export function emitInline(node: Inline, ctx: EmitContext, parentStyle: ComputedStyle, options?: InlineEmitOptions): DocxInline[] {
   switch (node.type) {
     case "Text":
       return emitText(node, parentStyle, options);
@@ -400,7 +455,7 @@ export function emitInlines(
   ctx: EmitContext,
   parentStyle: ComputedStyle,
   options?: InlineEmitOptions
-): (TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun)[] {
+): DocxInline[] {
   return inlines.flatMap((inline) => emitInline(inline, ctx, parentStyle, options));
 }
 
@@ -509,7 +564,7 @@ function emitFootnoteRef(node: FootnoteRef, ctx: EmitContext): (TextRun | Footno
 }
 
 function emitCrossRef(node: CrossRef, ctx: EmitContext, parentStyle: ComputedStyle): (TextRun | InternalHyperlink)[] {
-  const anchorId = sanitizeBookmarkName(node.target);
+  const anchorId = bookmarkSafeName(node.target);
   
   if (!ctx.bookmarks.has(anchorId)) {
     ctx.diagnostics.push({
@@ -529,12 +584,11 @@ function emitCrossRef(node: CrossRef, ctx: EmitContext, parentStyle: ComputedSty
   ];
 }
 
-function emitBookmark(node: BookmarkNode, ctx: EmitContext): TextRun[] {
-  const anchorId = sanitizeBookmarkName(node.name);
+function emitBookmark(node: BookmarkNode, ctx: EmitContext): Bookmark[] {
+  const anchorId = bookmarkSafeName(node.name);
   ctx.bookmarks.add(anchorId);
-  // Bookmarks are zero-width markers - return empty TextRun with bookmark ID
-  // Note: docx package handles this differently - we need Bookmark wrapper at paragraph level
-  return [];
+  // Emit a zero-width bookmark (start + end markers with no visible content)
+  return [new Bookmark({ id: anchorId, children: [] })];
 }
 
 function emitHardBreak(): TextRun[] {

@@ -31,6 +31,7 @@ import type {
   InlineStyleProps,
   List,
   ListItem,
+  PageLayout,
   Paragraph,
   Table,
   TableCell,
@@ -39,7 +40,7 @@ import type {
   Styled,
 } from "../types/document-ir.ts";
 import type { SymbolTable } from "../types/symbols.ts";
-import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
+import { parseArgsObject, type ArgsObject, type JSON5Value, type ParseArgsResult } from "../shared/args.ts";
 import { defaultIncludeRoot, resolveIncludeFilePath } from "../shared/include-path.ts";
 import { parseLengthToTwips } from "../shared/units.ts";
 import { parseSource } from "../parse/index.ts";
@@ -241,8 +242,172 @@ function parseColumnsArgs(args: ArgsObject, state: EvaluationState, loc: Directi
   return { count, space };
 }
 
+/**
+ * Parse page layout config from @document args.
+ * Supports margins (string or object), pageSize, and orientation.
+ */
+function parseDocumentLayout(
+  args: ArgsObject,
+  state: EvaluationState,
+  loc: Directive["loc"],
+): PageLayout | undefined {
+  let hasLayout = false;
+  const layout: PageLayout = {};
+
+  // Parse margins — string shorthand or object
+  if (args.margins !== undefined) {
+    hasLayout = true;
+    if (typeof args.margins === "string") {
+      layout.margins = parseMarginsString(args.margins, state, loc);
+    } else if (typeof args.margins === "object" && args.margins !== null) {
+      const m = args.margins as Record<string, unknown>;
+      // Only set sides that are explicitly provided — unspecified sides
+      // inherit from existing style defaults during pipeline merge.
+      const partial: Record<string, number> = {};
+      if (m.top !== undefined) partial.top = parseSingleMargin(m.top, 1440, state, loc);
+      if (m.bottom !== undefined) partial.bottom = parseSingleMargin(m.bottom, 1440, state, loc);
+      if (m.left !== undefined) partial.left = parseSingleMargin(m.left, 1440, state, loc);
+      if (m.right !== undefined) partial.right = parseSingleMargin(m.right, 1440, state, loc);
+      if (Object.keys(partial).length > 0) {
+        layout.margins = partial as PageLayout["margins"];
+      }
+    }
+  }
+
+  // Parse page size
+  if (args.pageSize !== undefined && typeof args.pageSize === "object" && args.pageSize !== null) {
+    hasLayout = true;
+    const ps = args.pageSize as Record<string, unknown>;
+    const width = typeof ps.width === "string" ? tryParseTwips(ps.width) : undefined;
+    const height = typeof ps.height === "string" ? tryParseTwips(ps.height) : undefined;
+    if (width !== undefined && height !== undefined) {
+      layout.pageSize = { width, height };
+    }
+  }
+
+  // Parse orientation
+  if (args.orientation === "landscape" || args.orientation === "portrait") {
+    hasLayout = true;
+    layout.orientation = args.orientation;
+  }
+
+  return hasLayout ? layout : undefined;
+}
+
+/**
+ * Parse margin shorthand string: "1in" (all), "1in 1.25in" (v h),
+ * "1in 1in 1in 1.25in" (top right bottom left — CSS order).
+ */
+function parseMarginsString(
+  raw: string,
+  state: EvaluationState,
+  loc: Directive["loc"],
+): PageLayout["margins"] {
+  const parts = raw.trim().split(/\s+/);
+  try {
+    if (parts.length === 1) {
+      const all = parseLengthToTwips(parts[0]!);
+      return { top: all, bottom: all, left: all, right: all };
+    }
+    if (parts.length === 2) {
+      const vertical = parseLengthToTwips(parts[0]!);
+      const horizontal = parseLengthToTwips(parts[1]!);
+      return { top: vertical, bottom: vertical, left: horizontal, right: horizontal };
+    }
+    if (parts.length === 4) {
+      return {
+        top: parseLengthToTwips(parts[0]!),
+        right: parseLengthToTwips(parts[1]!),
+        bottom: parseLengthToTwips(parts[2]!),
+        left: parseLengthToTwips(parts[3]!),
+      };
+    }
+    state.diagnostics.push(
+      createWarning(DiagnosticCode.PARSE_ERROR, "margins string must have 1, 2, or 4 values", loc),
+    );
+    return undefined;
+  } catch {
+    state.diagnostics.push(
+      createWarning(DiagnosticCode.PARSE_ERROR, `Invalid margin value in "${raw}"`, loc),
+    );
+    return undefined;
+  }
+}
+
+function parseSingleMargin(value: unknown, fallback: number, state: EvaluationState, loc: SourceLocation): number {
+  if (typeof value === "string") {
+    const twips = tryParseTwips(value);
+    if (twips === undefined) {
+      state.diagnostics.push(
+        createWarning(
+          DiagnosticCode.PARSE_ERROR,
+          `Invalid margin value "${value}", using default`,
+          loc,
+        ),
+      );
+      return fallback;
+    }
+    return twips;
+  }
+  if (typeof value === "number") return value;
+  state.diagnostics.push(
+    createWarning(
+      DiagnosticCode.PARSE_ERROR,
+      `Margin value must be a string or number, got ${typeof value}`,
+      loc,
+    ),
+  );
+  return fallback;
+}
+
+function tryParseTwips(value: string): number | undefined {
+  try {
+    return parseLengthToTwips(value);
+  } catch {
+    return undefined;
+  }
+}
+
 function alignmentFromRegion(name: "left" | "center" | "right"): HorizontalAlign {
   return name;
+}
+
+/**
+ * Resolve @style(ref: ...) from @def bindings (Spec §10.4).
+ * Returns merged r/p channels and whether a def was found.
+ */
+function resolveStyleRef(
+  args: ArgsObject,
+  state: EvaluationState,
+  loc: SourceLocation,
+): { runChannel: unknown; pChannel: unknown; refResolved: boolean } {
+  let runChannel: unknown = args.r;
+  let pChannel: unknown = args.p;
+  let refResolved = false;
+
+  if (typeof args.ref === "string") {
+    const def = state.defs[args.ref];
+    if (def && typeof def === "object") {
+      refResolved = true;
+      const defObj = def as Record<string, unknown>;
+      // Merge r channel: def provides the base, call-site overrides win
+      if (defObj.r && typeof defObj.r === "object" && runChannel && typeof runChannel === "object") {
+        runChannel = { ...(defObj.r as Record<string, unknown>), ...(runChannel as Record<string, unknown>) };
+      } else {
+        runChannel = defObj.r ?? runChannel;
+      }
+      // Inherit p channel from def if not overridden at call site
+      if (defObj.p && !pChannel) {
+        pChannel = defObj.p;
+      }
+    } else if (def === undefined) {
+      state.diagnostics.push(
+        createWarning(DiagnosticCode.PARSE_ERROR, `@style ref "${args.ref}" not found in @def bindings`, loc),
+      );
+    }
+  }
+
+  return { runChannel, pChannel, refResolved };
 }
 
 function isHeaderFooterRegionDirective(node: CST.Block): node is Directive & { name: "left" | "center" | "right" } {
@@ -509,9 +674,40 @@ async function evaluateInline(node: CST.Inline, state: EvaluationState): Promise
     }
     case "InlineDirective":
       return evaluateInlineDirective(node, state);
+
     default:
       return [];
   }
+}
+
+/**
+ * Recursively extract plain text from inline nodes.
+ * Walks into Bold, Italic, Underline, Strikethrough, Highlight, Styled, Link
+ * and extracts Text.value and Code.value.
+ */
+function flattenInlineText(inlines: Inline[]): string {
+  const parts: string[] = [];
+  for (const node of inlines) {
+    switch (node.type) {
+      case "Text":
+        parts.push(node.value);
+        break;
+      case "Code":
+        parts.push(node.value);
+        break;
+      case "Bold":
+      case "Italic":
+      case "Underline":
+      case "Strikethrough":
+      case "Highlight":
+      case "Styled":
+      case "Link":
+        parts.push(flattenInlineText(node.content));
+        break;
+      // FootnoteRef, CrossRef, Bookmark, HardBreak, Tab, Field, Image, StyleRef — no text
+    }
+  }
+  return parts.join("");
 }
 
 async function evaluateInlineDirective(node: CST.InlineDirective, state: EvaluationState): Promise<Inline[]> {
@@ -522,12 +718,36 @@ async function evaluateInlineDirective(node: CST.InlineDirective, state: Evaluat
     }
   }
 
+  if (node.name === "ref") {
+    const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+    const id = typeof args.id === "string" ? args.id : undefined;
+    if (!id) {
+      state.diagnostics.push(
+        createWarning(DiagnosticCode.PARSE_ERROR, `@ref requires id argument`, node.loc),
+      );
+      return bodyInlines;
+    }
+    const text = bodyInlines.length > 0
+      ? flattenInlineText(bodyInlines)
+      : undefined;
+    return [{
+      type: "CrossRef",
+      target: id,
+      text: text || undefined,
+      loc: node.loc,
+    }];
+  }
+
   if (node.name !== "style") {
     return bodyInlines;
   }
 
   const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
-  const inlineStyle = inlineStyleFromRunChannel(args.r);
+
+  // Resolve ref from @def bindings (Spec §10.4)
+  const { runChannel } = resolveStyleRef(args, state, node.loc);
+
+  const inlineStyle = inlineStyleFromRunChannel(runChannel);
   if (Object.keys(inlineStyle).length === 0) {
     return bodyInlines;
   }
@@ -603,12 +823,30 @@ async function evaluateListRun(blocks: CST.Block[], start: number, state: Evalua
     index += 1;
   }
 
+  // Parse list marker args (start, continue) from first item
+  const args = parseDirectiveArgs(first.argsRaw, state, first.loc);
+  const listStart = typeof args.start === "number" ? args.start : undefined;
+  const listContinue = typeof args.continue === "boolean" ? args.continue : undefined;
+
+  // Spec §11.3: start and continue are mutually exclusive
+  if (listStart !== undefined && listContinue !== undefined) {
+    state.diagnostics.push(
+      createWarning(
+        DiagnosticCode.PARSE_ERROR,
+        "List args 'start' and 'continue' are mutually exclusive (Spec §11.3)",
+        first.loc,
+      ),
+    );
+  }
+
   return {
     list: {
       type: "List",
       ordered: first.ordered,
       items,
       numberFormat: "decimal",
+      start: listStart,
+      continue: listContinue,
       loc: first.loc,
     },
     nextIndex: index,
@@ -740,6 +978,25 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
       if (typeof args.title === "string") state.metadata.title = args.title;
       if (typeof args.author === "string") state.metadata.author = args.author;
       if (typeof args.date === "string") state.metadata.date = args.date;
+
+      // Parse page layout config (Spec §6)
+      const layout = parseDocumentLayout(args, state, node.loc);
+      if (layout) {
+        state.metadata.layout = layout;
+      }
+
+      // Parse numbering mode (Spec §11.2)
+      const numbering = args.numbering;
+      if (numbering && typeof numbering === "object") {
+        const mode = (numbering as Record<string, unknown>).mode;
+        if (typeof mode === "string") {
+          state.metadata.custom.numberingMode = mode;
+        }
+      } else if (typeof numbering === "string") {
+        // String shorthand: @document(numbering: "legal")
+        state.metadata.custom.numberingMode = numbering;
+      }
+
       for (const [key, value] of Object.entries(args)) {
         state.metadata.custom[key] = value;
       }
@@ -758,6 +1015,22 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
     }
     case "pagebreak":
       return [{ type: "PageBreak", loc: node.loc }];
+    case "anchor": {
+      const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+      const id = typeof args.id === "string" ? args.id : undefined;
+      if (!id) {
+        state.diagnostics.push(
+          createWarning(DiagnosticCode.PARSE_ERROR, '@anchor requires id: "..."', node.loc),
+        );
+        return [];
+      }
+      // Bookmark is an Inline node; wrap in an empty paragraph to anchor it in block flow
+      return [{
+        type: "Paragraph",
+        content: [{ type: "Bookmark", name: id, loc: node.loc }],
+        loc: node.loc,
+      }];
+    }
     case "break":
       return [{ type: "ColumnBreak", loc: node.loc }];
     case "columns": {
@@ -812,7 +1085,22 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
     case "style": {
       const inner = node.body ? await evaluateBlocks(node.body.children, state) : [];
       const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
-      const styleRef = paragraphStyleRefFromArgs(args);
+
+      // Resolve ref from @def bindings (Spec §10.4)
+      const { runChannel, pChannel, refResolved } = resolveStyleRef(args, state, node.loc);
+
+      // Build the StyleRef with resolved channels.
+      // When ref resolved to a @def, omit ref so p.use can provide the style name.
+      // When ref didn't resolve (no def found), keep it as a named style reference.
+      const resolvedArgs: ArgsObject = {
+        ...args,
+        r: runChannel as JSON5Value,
+        p: pChannel as JSON5Value,
+      };
+      if (refResolved) {
+        delete resolvedArgs.ref;
+      }
+      const styleRef = paragraphStyleRefFromArgs(resolvedArgs);
       if (!styleRef) {
         return inner;
       }

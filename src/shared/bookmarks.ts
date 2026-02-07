@@ -25,24 +25,4 @@ export function bookmarkSafeName(label: string): string {
   return prefixed.slice(0, 40);
 }
 
-/**
- * Normalize a label for ref-key lookup.
- * Trims, collapses whitespace, normalizes quotes, and lowercases.
- */
-export function normalizeRefKey(label: string): string {
-  return label
-    .trim()
-    .replace(/\s+/g, " ")
-    .replace(/[""]/g, '"')
-    .toLowerCase();
-}
 
-/**
- * Generate a unique bookmark name with suffix.
- */
-export function uniqueBookmark(base: string, index: number): string {
-  const safe = bookmarkSafeName(base);
-  const suffix = `_${index}`;
-  const maxBase = 40 - suffix.length;
-  return safe.slice(0, maxBase) + suffix;
-}

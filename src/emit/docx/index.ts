@@ -9,14 +9,14 @@ import { Document, Packer, Paragraph, Footer, Header } from "docx";
 import type { IPropertiesOptions, ISectionOptions, Table, IStylesOptions } from "docx";
 
 import type { StyledDocument, NumberingDefinition } from "../../types/styled.ts";
-import type { Block, Document as DocIR, Section, HeaderFooter } from "../../types/document-ir.ts";
+import type { Block, Inline, Document as DocIR, Section, HeaderFooter } from "../../types/document-ir.ts";
 import type { Diagnostic } from "../../types/diagnostics.ts";
 
-import { createNumberingConfig } from "./numbering.ts";
+import { createNumberingConfig, ensureDefaultNumberingDefs } from "./numbering.ts";
 import { toStyleDefinition } from "./styles.ts";
 import { emitBlocks, type EmitContext, type DocxBlock } from "./nodes.ts";
 import { SectionBuilder, compileHeader, compileFooter } from "./sections.ts";
-import { sanitizeBookmarkName } from "./utils.ts";
+import { bookmarkSafeName } from "../../shared/bookmarks.ts";
 
 // =============================================================================
 // Public API
@@ -49,16 +49,7 @@ export async function emit(
   styledDocument: StyledDocument,
   options: EmitOptions = {}
 ): Promise<EmitResult> {
-  const diagnostics: Diagnostic[] = [];
-  
-  // Create emit context
-  const ctx = createEmitContext(styledDocument, options, diagnostics);
-  
-  // First pass: collect bookmarks from headings with anchors
-  collectBookmarks(styledDocument.document, ctx);
-  
-  // Compile the document
-  const docx = compileDocument(styledDocument, ctx);
+  const { document: docx, diagnostics } = buildDocument(styledDocument, options);
   
   // Generate DOCX binary
   const buffer = await Packer.toBuffer(docx);
@@ -76,18 +67,27 @@ export function emitSync(
   styledDocument: StyledDocument,
   options: EmitOptions = {}
 ): { document: Document; diagnostics: Diagnostic[] } {
-  const diagnostics: Diagnostic[] = [];
-  const ctx = createEmitContext(styledDocument, options, diagnostics);
-  
-  collectBookmarks(styledDocument.document, ctx);
-  const document = compileDocument(styledDocument, ctx);
-  
-  return { document, diagnostics };
+  return buildDocument(styledDocument, options);
 }
 
 // =============================================================================
 // Internal Implementation
 // =============================================================================
+
+/**
+ * Shared orchestration for emit() and emitSync():
+ * create context → collect bookmarks → compile document.
+ */
+function buildDocument(
+  styledDocument: StyledDocument,
+  options: EmitOptions
+): { document: Document; diagnostics: Diagnostic[] } {
+  const diagnostics: Diagnostic[] = [];
+  const ctx = createEmitContext(styledDocument, options, diagnostics);
+  collectBookmarks(styledDocument.document, ctx);
+  const document = compileDocument(styledDocument, ctx);
+  return { document, diagnostics };
+}
 
 /**
  * Create the emit context with initial state.
@@ -97,6 +97,13 @@ function createEmitContext(
   options: EmitOptions,
   diagnostics: Diagnostic[]
 ): EmitContext {
+  const numberingMode = styledDocument.document.metadata?.custom?.numberingMode as string | undefined;
+  
+  // Ensure default numbering definitions exist before emission starts.
+  // emitList() needs to look up base definitions (e.g. "ordered-legal") to create
+  // dynamic start-override clones, but createNumberingConfig() runs AFTER emission.
+  ensureDefaultNumberingDefs(styledDocument.numberingDefinitions);
+  
   return {
     resolveStyle: styledDocument.resolveStyle,
     numberingDefinitions: styledDocument.numberingDefinitions,
@@ -107,17 +114,41 @@ function createEmitContext(
     diagnostics,
     basePath: options.basePath,
     listLevel: 0,
+    numberingMode,
+    numberingInstances: new Map(),
+    lastNumberingInstance: new Map(),
+    lastNumberingReference: new Map(),
   };
 }
 
 /**
  * First pass: collect all bookmark/anchor names.
- * This allows cross-references to work even if target is after reference.
+ * This allows cross-references to work even if target appears after reference.
+ * Scans both heading anchors and inline Bookmark nodes (from @anchor directives).
  */
 function collectBookmarks(doc: DocIR, ctx: EmitContext): void {
+  function visitInline(inline: Inline): void {
+    if (inline.type === "Bookmark") {
+      ctx.bookmarks.add(bookmarkSafeName(inline.name));
+    }
+    // Recurse into inline containers
+    if ("content" in inline && Array.isArray(inline.content)) {
+      for (const child of inline.content as Inline[]) {
+        visitInline(child);
+      }
+    }
+  }
+
   function visitBlock(block: Block): void {
     if (block.type === "Heading" && block.anchor) {
-      ctx.bookmarks.add(sanitizeBookmarkName(block.anchor));
+      ctx.bookmarks.add(bookmarkSafeName(block.anchor));
+    }
+
+    // Scan inline content for Bookmark nodes
+    if (block.type === "Paragraph" || block.type === "Heading") {
+      for (const inline of block.content) {
+        visitInline(inline);
+      }
     }
     
     // Recurse into nested structures
@@ -128,6 +159,9 @@ function collectBookmarks(doc: DocIR, ctx: EmitContext): void {
     }
     if (block.type === "List") {
       for (const item of block.items) {
+        for (const inline of item.content) {
+          visitInline(inline);
+        }
         for (const child of item.children) {
           visitBlock(child);
         }

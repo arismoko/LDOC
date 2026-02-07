@@ -11,4 +11,3 @@
  */
 
 export { evaluate, type EvaluateOptions, type SourceLoader } from "./evaluator.ts";
-export { parseDocumentConfig, configToPageLayout, type DocumentConfig, type StyleConfig } from "./document-config.ts";

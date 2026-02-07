@@ -47,7 +47,7 @@ export interface DocumentMetadata {
 
 export interface PageLayout {
   pageSize?: { width: number; height: number }; // in twips
-  margins?: { top: number; bottom: number; left: number; right: number };
+  margins?: { top?: number; bottom?: number; left?: number; right?: number };
   orientation?: "portrait" | "landscape";
 }
 
@@ -148,6 +148,8 @@ export interface List extends IRBase {
   numberFormat?: "decimal" | "lowerLetter" | "upperLetter" | "lowerRoman" | "upperRoman";
   /** Starting number */
   start?: number;
+  /** Continue numbering from previous list */
+  continue?: boolean;
 }
 
 export interface ListItem extends IRBase {
