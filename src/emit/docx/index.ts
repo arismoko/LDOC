@@ -49,16 +49,7 @@ export async function emit(
   styledDocument: StyledDocument,
   options: EmitOptions = {}
 ): Promise<EmitResult> {
-  const diagnostics: Diagnostic[] = [];
-  
-  // Create emit context
-  const ctx = createEmitContext(styledDocument, options, diagnostics);
-  
-  // First pass: collect bookmarks from headings with anchors
-  collectBookmarks(styledDocument.document, ctx);
-  
-  // Compile the document
-  const docx = compileDocument(styledDocument, ctx);
+  const { document: docx, diagnostics } = buildDocument(styledDocument, options);
   
   // Generate DOCX binary
   const buffer = await Packer.toBuffer(docx);
@@ -76,18 +67,27 @@ export function emitSync(
   styledDocument: StyledDocument,
   options: EmitOptions = {}
 ): { document: Document; diagnostics: Diagnostic[] } {
-  const diagnostics: Diagnostic[] = [];
-  const ctx = createEmitContext(styledDocument, options, diagnostics);
-  
-  collectBookmarks(styledDocument.document, ctx);
-  const document = compileDocument(styledDocument, ctx);
-  
-  return { document, diagnostics };
+  return buildDocument(styledDocument, options);
 }
 
 // =============================================================================
 // Internal Implementation
 // =============================================================================
+
+/**
+ * Shared orchestration for emit() and emitSync():
+ * create context → collect bookmarks → compile document.
+ */
+function buildDocument(
+  styledDocument: StyledDocument,
+  options: EmitOptions
+): { document: Document; diagnostics: Diagnostic[] } {
+  const diagnostics: Diagnostic[] = [];
+  const ctx = createEmitContext(styledDocument, options, diagnostics);
+  collectBookmarks(styledDocument.document, ctx);
+  const document = compileDocument(styledDocument, ctx);
+  return { document, diagnostics };
+}
 
 /**
  * Create the emit context with initial state.

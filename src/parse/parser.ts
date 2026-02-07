@@ -94,18 +94,26 @@ function advanceToken(ctx: ParseContext): Token | undefined {
 }
 
 /**
- * Parse a complete document (top-level blocks).
+ * Shared dispatch loop for document-level and structural body contexts.
+ * Parses children until `terminator` is consumed or EOF is reached.
+ *
+ * @param terminator - Token type that closes the block (e.g. RBRACE), or null for document level.
+ * @returns The parsed children.
  */
-function parseDocument(ctx: ParseContext): Document {
-  const startLoc = loc(1, 1);
+function parseStructuralChildren(ctx: ParseContext, terminator: TokenType | null): any[] {
   const children: any[] = [];
 
   while (!ctx.incomplete && ctx.pos < ctx.tokens.length) {
     const token = peekToken(ctx);
-
     if (!token) break;
 
-    // Skip blank lines, comments, and whitespace (trivia)
+    // Terminator — consume and stop
+    if (terminator !== null && token.type === terminator) {
+      ctx.pos++;
+      break;
+    }
+
+    // Skip trivia (blank lines, comments, whitespace)
     if (token.type === TokenType.BLANK_LINE || token.type === TokenType.COMMENT || token.type === TokenType.TEXT) {
       ctx.pos++;
       continue;
@@ -125,19 +133,19 @@ function parseDocument(ctx: ParseContext): Document {
       continue;
     }
 
-    // Parse paragraph block (only at top level)
+    // Parse paragraph block
     if (token.type === TokenType.PARA_OPEN) {
       const para = parseParagraphBlock(ctx);
       if (para) children.push(para);
       continue;
     }
 
-    // EOF — stop parsing
+    // EOF — stop parsing (structural body will detect unterminated below)
     if (token.type === TokenType.EOF) {
       break;
     }
 
-    // Unknown token - emit error and continue
+    // Unknown token — emit error and skip
     ctx.diagnostics.push(
       error(
         DiagnosticCode.UNEXPECTED_TOKEN,
@@ -147,6 +155,16 @@ function parseDocument(ctx: ParseContext): Document {
     );
     ctx.pos++;
   }
+
+  return children;
+}
+
+/**
+ * Parse a complete document (top-level blocks).
+ */
+function parseDocument(ctx: ParseContext): Document {
+  const startLoc = loc(1, 1);
+  const children = parseStructuralChildren(ctx, null);
 
   return {
     kind: "Document",
@@ -262,55 +280,15 @@ function parseStructuralBody(ctx: ParseContext): StructuralBody | null {
 
   const startLoc = loc(startToken.line, startToken.column);
   ctx.pos++; // consume LBRACE
-  const children: any[] = [];
 
-  while (ctx.pos < ctx.tokens.length) {
-    const token = peekToken(ctx);
-    if (!token) break;
+  const posBefore = ctx.pos;
+  const children = parseStructuralChildren(ctx, TokenType.RBRACE);
 
-    if (token.type === TokenType.RBRACE) {
-      ctx.pos++; // consume RBRACE
-      break;
-    }
-
-    // Skip trivia
-    if (token.type === TokenType.BLANK_LINE || token.type === TokenType.COMMENT || token.type === TokenType.TEXT) {
-      ctx.pos++;
-      continue;
-    }
-
-    // Parse directive
-    if (token.type === TokenType.DIRECTIVE) {
-      const directive = parseDirective(ctx);
-      if (directive) children.push(directive);
-      continue;
-    }
-
-    // Parse list marker
-    if (token.type === TokenType.LIST_BULLET || token.type === TokenType.LIST_ORDERED || token.type === TokenType.LIST_CONTINUATION) {
-      const item = parseListItemMarker(ctx);
-      if (item) children.push(item);
-      continue;
-    }
-
-    // Parse paragraph block
-    if (token.type === TokenType.PARA_OPEN) {
-      const para = parseParagraphBlock(ctx);
-      if (para) children.push(para);
-      continue;
-    }
-
-    // EOF in structural body — handled by unterminated check below
-    if (token.type === TokenType.EOF) {
-      break;
-    }
-
-    // Unknown - skip
-    ctx.pos++;
-  }
-
-  // Unterminated - EOF-close recovery
-  if (ctx.pos >= ctx.tokens.length) {
+  // Unterminated — parseStructuralChildren stopped without consuming RBRACE.
+  // This happens when EOF is reached before finding the closing brace.
+  // Detect by checking if the token just before current pos is NOT RBRACE.
+  const prevToken = ctx.pos > posBefore ? ctx.tokens[ctx.pos - 1] : undefined;
+  if (!prevToken || prevToken.type !== TokenType.RBRACE) {
     ctx.incomplete = true;
     ctx.diagnostics.push(
       error(
@@ -743,5 +721,3 @@ function parseLuaExpr(ctx: ParseContext): LuaExpr | null {
     expr,
   };
 }
-
-
