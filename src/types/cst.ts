@@ -7,6 +7,7 @@
 
 import type { Diagnostic } from "./diagnostics.ts";
 import type { SourceLocation } from "./source-location.ts";
+import type { ArgsObject } from "../shared/args.ts";
 
 // =============================================================================
 // Core Document Structure
@@ -46,7 +47,8 @@ export interface Directive {
   kind: "Directive";
   loc: SourceLocation;
   name: string;
-  argsRaw?: string; // raw argument text or undefined
+  argsRaw?: string; // raw argument text (preserved for diagnostics/LSP)
+  args?: ArgsObject; // structured parsed args (populated by parser)
   body?: StructuralBody; // optional structural body
 }
 
@@ -57,6 +59,7 @@ export interface ListItemMarker {
   ordered: boolean; // true for @#, false for @-
   depth: number; // number of leading @ symbols
   argsRaw?: string; // optional marker args like @#(start: 5)
+  args?: ArgsObject; // structured parsed args (populated by parser)
   body?: StructuralBody; // optional multi-paragraph body
 }
 
@@ -184,6 +187,7 @@ export interface InlineDirective {
   loc: SourceLocation;
   name: string;
   argsRaw?: string;
+  args?: ArgsObject; // structured parsed args (populated by parser)
   body?: Inline[]; // optional inline body inside directive
 }
 

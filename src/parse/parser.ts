@@ -19,6 +19,7 @@ import type {
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { error, warning, DiagnosticCode } from "../types/diagnostics.ts";
 import { loc } from "../types/source-location.ts";
+import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
 
 /**
  * Current parsing context.
@@ -29,6 +30,26 @@ interface ParseContext {
   diagnostics: Diagnostic[];
   /** EOF-close recovery flag */
   incomplete?: boolean;
+}
+
+/**
+ * Parse raw args string into structured ArgsObject.
+ * Strips parens, wraps in braces for JSON5 parsing (Spec §6.1).
+ * On failure: emits a diagnostic, returns empty object (Spec §6.4 recovery).
+ */
+function parseArgsToObject(argsRaw: string, location: ReturnType<typeof loc>, diagnostics: Diagnostic[]): ArgsObject {
+  const inner = argsRaw.slice(1, -1); // strip parens
+  const wrapped = `{${inner}}`;
+  const result = parseArgsObject(wrapped, location);
+  if (isArgsParseError(result)) {
+    diagnostics.push(result.error);
+    return {};
+  }
+  return result;
+}
+
+function isArgsParseError(result: ArgsObject | ParseArgsResult): result is ParseArgsResult {
+  return "ok" in result && (result as ParseArgsResult).ok === false;
 }
 
 /**
@@ -201,6 +222,7 @@ function parseDirective(ctx: ParseContext): Directive | null {
   ctx.pos++;
 
   let argsRaw: string | undefined;
+  let args: ArgsObject | undefined;
   let body: StructuralBody | undefined;
 
   // Skip whitespace between name and args/body (Spec §5.1)
@@ -210,6 +232,7 @@ function parseDirective(ctx: ParseContext): Directive | null {
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
+    args = parseArgsToObject(argsRaw, loc(startToken.line, startToken.column), ctx.diagnostics);
     skipWhitespaceText(ctx);
   }
 
@@ -230,6 +253,7 @@ function parseDirective(ctx: ParseContext): Directive | null {
         loc: loc(startToken.line, startToken.column),
         name,
         argsRaw,
+        args,
         body: {
           kind: "StructuralBody",
           loc: loc(startToken.line, startToken.column),
@@ -244,6 +268,7 @@ function parseDirective(ctx: ParseContext): Directive | null {
     loc: loc(startToken.line, startToken.column),
     name,
     argsRaw,
+    args,
     body,
   };
 }
@@ -338,6 +363,7 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
   ctx.pos++;
 
   let argsRaw: string | undefined;
+  let args: ArgsObject | undefined;
   let body: StructuralBody | undefined;
 
   // Skip whitespace between marker and args/body (Spec §5.1)
@@ -347,6 +373,7 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
+    args = parseArgsToObject(argsRaw, loc(startToken.line, startToken.column), ctx.diagnostics);
     skipWhitespaceText(ctx);
   }
 
@@ -376,6 +403,7 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
     ordered,
     depth,
     argsRaw,
+    args,
     body,
   };
 }
@@ -602,6 +630,7 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
   ctx.pos++; // consume DIRECTIVE
 
   let argsRaw: string | undefined;
+  let args: ArgsObject | undefined;
   let body: any[] | undefined;
 
   // Skip whitespace between name and args/body only if followed by a delimiter (Spec §5.1).
@@ -612,6 +641,7 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
+    args = parseArgsToObject(argsRaw, startLoc, ctx.diagnostics);
     skipWhitespaceBeforeDelimiter(ctx, TokenType.LBRACE);
   }
 
@@ -715,6 +745,7 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
     loc: startLoc,
     name,
     argsRaw,
+    args,
     body,
   };
 }
