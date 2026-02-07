@@ -62,8 +62,8 @@ export interface BoundCrossRef {
 export interface BindResult {
   /** The original CST (unmodified) */
   cst: Document;
-  /** Symbol table with all definitions */
-  symbols: SymbolTable;
+  /** Frozen symbol table — immutable after bind phase */
+  symbols: Readonly<SymbolTable>;
   /** Binding diagnostics (undefined refs, cycles, etc.) */
   diagnostics: Diagnostic[];
 }
@@ -77,4 +77,23 @@ export function createSymbolTable(): SymbolTable {
     defs: new Map(),
     anchors: new Map(),
   };
+}
+
+/**
+ * Freeze a symbol table so downstream phases cannot mutate it.
+ *
+ * Maps are sealed by replacing mutating methods (`set`, `delete`, `clear`)
+ * with throwing stubs. The table object itself is frozen.
+ */
+export function freezeSymbolTable(symbols: SymbolTable): Readonly<SymbolTable> {
+  freezeMap(symbols.defs);
+  freezeMap(symbols.anchors);
+  return Object.freeze(symbols);
+}
+
+function freezeMap<K, V>(map: Map<K, V>): void {
+  const name = "SymbolTable";
+  map.set = () => { throw new Error(`Cannot mutate frozen ${name}`); };
+  map.delete = () => { throw new Error(`Cannot mutate frozen ${name}`); };
+  map.clear = () => { throw new Error(`Cannot mutate frozen ${name}`); };
 }

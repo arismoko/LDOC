@@ -14,7 +14,7 @@ import type { Document, Block, Directive, Inline, ParseResult } from "../types/c
 import type { SymbolTable, BindResult } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { error as diagError, warning as diagWarning, DiagnosticCode } from "../types/diagnostics.ts";
-import { createSymbolTable } from "../types/symbols.ts";
+import { createSymbolTable, freezeSymbolTable } from "../types/symbols.ts";
 import { validate } from "./validator.ts";
 import { resolveImports } from "./resolver.ts";
 import type { ArgsObject } from "../shared/args.ts";
@@ -69,7 +69,7 @@ export class Binder {
     collectSymbols(doc.children, symbols, diagnostics);
     validateRefs(doc.children, symbols, diagnostics);
 
-    return { cst, symbols, diagnostics };
+    return { cst, symbols: freezeSymbolTable(symbols), diagnostics };
   }
 
   /**
@@ -89,7 +89,7 @@ export class Binder {
     // Pass 3: Validate @ref targets against collected anchors
     validateRefs(doc.children, symbols, diagnostics);
 
-    return { cst, symbols, diagnostics };
+    return { cst, symbols: freezeSymbolTable(symbols), diagnostics };
   }
 }
 

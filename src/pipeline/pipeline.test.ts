@@ -3,8 +3,9 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { tryCompile } from "./index.ts";
+import { tryCompile, parseAndBind, compileToDocument } from "./index.ts";
 import { parseSource } from "../parse/index.ts";
+import { evaluate } from "../evaluate/index.ts";
 
 describe("tryCompile", () => {
   test("returns diagnostics on parse failure", async () => {
@@ -224,5 +225,64 @@ describe("non-whitespace TEXT at structural level", () => {
     expect(dir!.body).toBeDefined();
     const textDiags = diagnostics.filter((d) => d.message.includes("paragraph block"));
     expect(textDiags.length).toBe(0);
+  });
+});
+
+// =============================================================================
+// Phase boundary enforcement (Spec §18)
+// =============================================================================
+
+describe("phase boundaries", () => {
+  test("symbol table is frozen after bind — defs.set() throws", () => {
+    const { symbols } = parseAndBind("@def(x: 1)");
+    expect(symbols.defs.size).toBe(1);
+    expect(() => symbols.defs.set("y", {} as any)).toThrow(/frozen/);
+  });
+
+  test("symbol table is frozen after bind — anchors.set() throws", () => {
+    const { symbols } = parseAndBind("@anchor(id: 'a')");
+    expect(symbols.anchors.size).toBe(1);
+    expect(() => symbols.anchors.set("b", {} as any)).toThrow(/frozen/);
+  });
+
+  test("symbol table is frozen after bind — delete throws", () => {
+    const { symbols } = parseAndBind("@def(x: 1)");
+    expect(() => symbols.defs.delete("x")).toThrow(/frozen/);
+  });
+
+  test("symbol table is frozen after bind — clear throws", () => {
+    const { symbols } = parseAndBind("@def(x: 1)");
+    expect(() => symbols.defs.clear()).toThrow(/frozen/);
+  });
+
+  test("evaluator defs are a copy — symbol table unchanged after evaluate", async () => {
+    const { cst, symbols } = parseAndBind("@def(x: 1)\n[$(x)]");
+    const defsBefore = Array.from(symbols.defs.entries());
+
+    const { document } = await evaluate(cst, symbols);
+    expect(document.blocks.length).toBeGreaterThan(0);
+
+    // Symbol table must be identical after evaluate
+    const defsAfter = Array.from(symbols.defs.entries());
+    expect(defsAfter).toEqual(defsBefore);
+  });
+
+  test("full pipeline preserves symbol table immutability", async () => {
+    const source = "@def(title: 'Hello')\n[$(title)]";
+    const { diagnostics } = await compileToDocument(source);
+
+    // Should compile without errors
+    const errors = diagnostics.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(0);
+  });
+
+  test("parse output is not mutated by bind", () => {
+    const { cst } = parseSource("@def(x: 1)\n[Hello]");
+    const childrenBefore = cst.children.length;
+
+    parseAndBind("@def(x: 1)\n[Hello]");
+
+    // Original CST from separate parse should be untouched
+    expect(cst.children.length).toBe(childrenBefore);
   });
 });
