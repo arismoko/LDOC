@@ -88,6 +88,8 @@ export interface EmitContext {
   basePath?: string;
   /** Current list nesting level */
   listLevel: number;
+  /** Numbering mode (e.g., "tiered" or "legal") */
+  numberingMode?: string;
 }
 
 /**
@@ -188,7 +190,8 @@ function emitList(node: List, ctx: EmitContext): DocxBlock[] {
   const reference = getNumberingReference(
     node.ordered,
     node.numberFormat,
-    ctx.numberingDefinitions
+    ctx.numberingDefinitions,
+    ctx.numberingMode
   );
   
   // Save current level and increment

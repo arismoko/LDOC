@@ -11,7 +11,10 @@ import type { NumberingDefinition, NumberingLevel } from "../../types/styled.ts"
 /**
  * Convert NumberingDefinition array to docx numbering options.
  */
-export function createNumberingConfig(definitions: NumberingDefinition[]): INumberingOptions {
+export function createNumberingConfig(
+  definitions: NumberingDefinition[],
+  numberingMode?: string
+): INumberingOptions {
   const config = definitions.map((def) => ({
     reference: def.id,
     levels: def.levels.map((level) => levelToDocx(level)),
@@ -26,12 +29,18 @@ export function createNumberingConfig(definitions: NumberingDefinition[]): INumb
     });
   }
 
-  // Add default ordered list if not present
+  // Add default ordered lists if not present
   const hasOrdered = definitions.some((d) => d.levels[0]?.format === "decimal");
   if (!hasOrdered) {
+    // Always add tiered decimal as default
     config.push({
       reference: "ordered-decimal",
-      levels: createOrderedLevels("decimal"),
+      levels: createOrderedLevels(),
+    });
+    // Always add legal format as well
+    config.push({
+      reference: "ordered-legal",
+      levels: createLegalLevels(),
     });
   }
 
@@ -103,9 +112,42 @@ function createBulletLevels(): ILevelsOptions[] {
 }
 
 /**
- * Create default ordered list levels.
+ * Create default ordered list levels (tiered decimal: 1., 1.1., 1.1.1., etc).
  */
-function createOrderedLevels(format: "decimal" | "lowerLetter"): ILevelsOptions[] {
+function createOrderedLevels(): ILevelsOptions[] {
+  const levels: ILevelsOptions[] = [];
+  
+  for (let i = 0; i < 9; i++) {
+    // Build tiered text pattern: %1., %1.%2., %1.%2.%3., etc.
+    const textParts: string[] = [];
+    for (let j = 0; j <= i; j++) {
+      textParts.push(`%${j + 1}`);
+    }
+    const text = textParts.join(".") + ".";
+    
+    levels.push({
+      level: i,
+      format: LevelFormat.DECIMAL,
+      text,
+      alignment: AlignmentType.START,
+      style: {
+        paragraph: {
+          indent: {
+            left: convertInchesToTwip(0.25 + 0.5 * i),
+            hanging: convertInchesToTwip(0.25),
+          },
+        },
+      },
+    });
+  }
+
+  return levels;
+}
+
+/**
+ * Create legal-style ordered list levels (alternating: 1., (a), (i), (A)).
+ */
+function createLegalLevels(): ILevelsOptions[] {
   const levels: ILevelsOptions[] = [];
   
   // Legal-style: 1., (a), (i), (A)
@@ -144,7 +186,8 @@ function createOrderedLevels(format: "decimal" | "lowerLetter"): ILevelsOptions[
 export function getNumberingReference(
   ordered: boolean,
   numberFormat: string | undefined,
-  definitions: NumberingDefinition[]
+  definitions: NumberingDefinition[],
+  numberingMode?: string
 ): string {
   if (!ordered) {
     // Find a bullet definition or use default
@@ -159,5 +202,10 @@ export function getNumberingReference(
     return firstLevel && firstLevel.format === format;
   });
 
-  return matchingDef?.id ?? "ordered-decimal";
+  if (matchingDef) {
+    return matchingDef.id;
+  }
+
+  // Use legal or tiered based on mode
+  return numberingMode === "legal" ? "ordered-legal" : "ordered-decimal";
 }

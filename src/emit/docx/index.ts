@@ -97,6 +97,7 @@ function createEmitContext(
   options: EmitOptions,
   diagnostics: Diagnostic[]
 ): EmitContext {
+  const numberingMode = styledDocument.document.metadata?.custom?.numberingMode as string | undefined;
   return {
     resolveStyle: styledDocument.resolveStyle,
     numberingDefinitions: styledDocument.numberingDefinitions,
@@ -107,6 +108,7 @@ function createEmitContext(
     diagnostics,
     basePath: options.basePath,
     listLevel: 0,
+    numberingMode,
   };
 }
 
@@ -162,7 +164,8 @@ function compileDocument(styledDocument: StyledDocument, ctx: EmitContext): Docu
   const styles = compileStyles(styleDefinitions);
   
   // Build numbering configuration
-  const numbering = createNumberingConfig(numberingDefinitions);
+  const numberingMode = styledDocument.document.metadata?.custom?.numberingMode as string | undefined;
+  const numbering = createNumberingConfig(numberingDefinitions, numberingMode);
   
   // Build footnotes
   const footnotes = compileFootnotes(ctx);
