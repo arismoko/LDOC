@@ -580,11 +580,19 @@ Headers/footers use structural content with region directives:
 
 ### 15.2 References
 
-Implementations MAY support `[[id]]` references in paragraph context:
+Cross-references use the `@ref` inline directive:
 
 ```ldoc
-[See [[payment-terms]] for details.]
+[See @ref(id: "payment-terms") for details.]
 ```
+
+With optional display text:
+
+```ldoc
+[See @ref(id: "payment-terms"){Payment Terms} for details.]
+```
+
+When no body is provided, implementations SHOULD generate display text from the anchor context (e.g., heading text or anchor ID).
 
 Resolution rules are implementation-defined (heading-text references and/or explicit IDs).
 

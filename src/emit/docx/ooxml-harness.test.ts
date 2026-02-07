@@ -40,7 +40,7 @@ describe("ooxml harness", () => {
   });
 
   test("forward cross-reference resolves without warning", async () => {
-    const source = `[See [[sec1]] for details.]
+    const source = `[See @ref(id: "sec1") for details.]
 @anchor(id: "sec1")
 `;
 

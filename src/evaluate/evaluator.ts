@@ -616,12 +616,7 @@ async function evaluateInline(node: CST.Inline, state: EvaluationState): Promise
     }
     case "InlineDirective":
       return evaluateInlineDirective(node, state);
-    case "InlineCrossRef":
-      return [{
-        type: "CrossRef",
-        target: node.target,
-        loc: node.loc,
-      }];
+
     default:
       return [];
   }
@@ -633,6 +628,26 @@ async function evaluateInlineDirective(node: CST.InlineDirective, state: Evaluat
     for (const child of node.body) {
       bodyInlines.push(...(await evaluateInline(child, state)));
     }
+  }
+
+  if (node.name === "ref") {
+    const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+    const id = typeof args.id === "string" ? args.id : undefined;
+    if (!id) {
+      state.diagnostics.push(
+        createWarning(DiagnosticCode.PARSE_ERROR, `@ref requires id argument`, node.loc),
+      );
+      return bodyInlines;
+    }
+    const text = bodyInlines.length > 0
+      ? bodyInlines.map((i) => i.type === "Text" ? i.value : "").join("")
+      : undefined;
+    return [{
+      type: "CrossRef",
+      target: id,
+      text: text || undefined,
+      loc: node.loc,
+    }];
   }
 
   if (node.name !== "style") {

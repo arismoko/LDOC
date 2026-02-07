@@ -73,25 +73,9 @@ export class Lexer {
       return;
     }
 
-    // Cross-reference open (Spec §15.2) — must check before single [
-    if (char === "[" && this.peek(1) === "[") {
-      this.emit(TokenType.CROSS_REF_OPEN, "[[");
-      this.advance();
-      this.advance();
-      return;
-    }
-
     // Paragraph block open
     if (char === "[") {
       this.emit(TokenType.PARA_OPEN, "[");
-      this.advance();
-      return;
-    }
-
-    // Cross-reference close — must check before single ]
-    if (char === "]" && this.peek(1) === "]") {
-      this.emit(TokenType.CROSS_REF_CLOSE, "]]");
-      this.advance();
       this.advance();
       return;
     }

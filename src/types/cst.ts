@@ -170,8 +170,7 @@ export type Inline =
   | InlineText
   | InlineDirective
   | LuaExpr
-  | InlineHardBreak
-  | InlineCrossRef;
+  | InlineHardBreak;
 
 /** Plain text content */
 export interface InlineText {
@@ -200,13 +199,6 @@ export interface LuaExpr {
 export interface InlineHardBreak {
   kind: "InlineHardBreak";
   loc: SourceLocation;
-}
-
-/** Cross-reference - [[id]] (Spec §15.2) */
-export interface InlineCrossRef {
-  kind: "InlineCrossRef";
-  loc: SourceLocation;
-  target: string;
 }
 
 // =============================================================================

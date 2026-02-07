@@ -165,6 +165,12 @@ const DIRECTIVES: DirectiveContract[] = [
     hasArgs: "required",
     hasBody: "none",
   },
+  {
+    name: "ref",
+    allowedIn: ["inline"],
+    hasArgs: "required",
+    hasBody: "optional",
+  },
 
   // Composition (Spec §16)
   {

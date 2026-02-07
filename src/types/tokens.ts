@@ -46,10 +46,6 @@ export enum TokenType {
   PARA_OPEN = "PARA_OPEN",             // [
   PARA_CLOSE = "PARA_CLOSE",           // ]
 
-  // Cross-references (Spec §15.2)
-  CROSS_REF_OPEN = "CROSS_REF_OPEN",   // [[
-  CROSS_REF_CLOSE = "CROSS_REF_CLOSE", // ]]
-
   // Lua evaluation
   LUA_EXPR_OPEN = "LUA_EXPR_OPEN",     // $(
   LUA_BLOCK_OPEN = "LUA_BLOCK_OPEN",   // @lua{

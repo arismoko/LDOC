@@ -26,7 +26,6 @@ import type {
   InlineDirective,
   LuaExpr,
   InlineHardBreak,
-  InlineCrossRef,
   Anchor,
   Def,
   Style,
@@ -533,22 +532,6 @@ function parseParagraphBlock(ctx: ParseContext): ParagraphBlock | null {
       continue;
     }
 
-    // Parse cross-reference: [[id]] (Spec §15.2)
-    if (token.type === TokenType.CROSS_REF_OPEN) {
-      if (textBuffer) {
-        inlines.push({
-          kind: "InlineText",
-          loc: startLoc,
-          text: textBuffer,
-        });
-        textBuffer = "";
-      }
-
-      const xref = parseCrossRef(ctx);
-      if (xref) inlines.push(xref);
-      continue;
-    }
-
     // Handle inline directives (Spec §5.3 — in paragraph context, @name{...} is inline)
     if (token.type === TokenType.DIRECTIVE) {
       // Flush any buffered text
@@ -665,20 +648,6 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
         continue;
       }
 
-      if (token.type === TokenType.CROSS_REF_OPEN) {
-        if (textBuffer) {
-          body.push({
-            kind: "InlineText",
-            loc: startLoc,
-            text: textBuffer,
-          });
-          textBuffer = "";
-        }
-        const xref = parseCrossRef(ctx);
-        if (xref) body.push(xref);
-        continue;
-      }
-
       if (token.type === TokenType.DIRECTIVE) {
         if (textBuffer) {
           body.push({
@@ -775,56 +744,4 @@ function parseLuaExpr(ctx: ParseContext): LuaExpr | null {
   };
 }
 
-/**
- * Parse a cross-reference: [[target]].
- * Consumes CROSS_REF_OPEN, content tokens, and CROSS_REF_CLOSE.
- */
-function parseCrossRef(ctx: ParseContext): InlineCrossRef | null {
-  const startToken = peekToken(ctx);
-  if (!startToken || startToken.type !== TokenType.CROSS_REF_OPEN) return null;
 
-  const startLoc = loc(startToken.line, startToken.column);
-  ctx.pos++; // consume CROSS_REF_OPEN
-
-  let content = "";
-
-  while (ctx.pos < ctx.tokens.length) {
-    const token = peekToken(ctx);
-    if (!token) break;
-
-    if (token.type === TokenType.CROSS_REF_CLOSE) {
-      ctx.pos++; // consume CROSS_REF_CLOSE
-      const target = content.trim();
-      if (!target) {
-        ctx.diagnostics.push(
-          warning(
-            DiagnosticCode.PARSE_ERROR,
-            "Empty cross-reference [[]]",
-            startLoc,
-          ),
-        );
-        return null;
-      }
-      return {
-        kind: "InlineCrossRef",
-        loc: startLoc,
-        target,
-      };
-    }
-
-    content += token.value;
-    ctx.pos++;
-  }
-
-  // Unterminated — EOF-close recovery
-  ctx.incomplete = true;
-  ctx.diagnostics.push(
-    error(
-      DiagnosticCode.UNCLOSED_DELIMITER,
-      `Unterminated cross-reference at line ${startLoc.line}`,
-      startLoc,
-    ),
-  );
-
-  return null;
-}
