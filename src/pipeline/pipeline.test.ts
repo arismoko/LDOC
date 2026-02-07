@@ -68,3 +68,70 @@ describe("unterminated inline directive body", () => {
     expect(para).toBeDefined();
   });
 });
+
+describe("whitespace between directive name/args/body (Spec §5.1)", () => {
+  test("structural: @style (ref: 'h1') parses args with space before parens", () => {
+    const { cst } = parseSource("@style (ref: 'h1')");
+    const dir = (cst.children as any[]).find((c) => c.kind === "Directive");
+    expect(dir).toBeDefined();
+    expect(dir!.argsRaw).toContain("ref");
+  });
+
+  test("structural: @section (title: 'x') { } parses args and body with spaces", () => {
+    const { cst } = parseSource("@section (title: 'x') {}");
+    const dir = (cst.children as any[]).find((c) => c.kind === "Directive");
+    expect(dir).toBeDefined();
+    expect(dir!.argsRaw).toContain("title");
+    expect(dir!.body).toBeDefined();
+  });
+
+  test("list marker: @# (start: 5) [Item] parses args + body with spaces", () => {
+    const { cst } = parseSource("@# (start: 5) [Item]");
+    const marker = (cst.children as any[]).find((c) => c.kind === "ListItemMarker");
+    expect(marker).toBeDefined();
+    expect(marker!.argsRaw).toContain("start");
+    expect(marker!.body).toBeDefined();
+  });
+
+  test("inline: [@bold {text}] parses body with space before brace", () => {
+    const { cst } = parseSource("[@bold {text}]");
+    const para = (cst.children as any[]).find((c) => c.kind === "ParagraphBlock");
+    expect(para).toBeDefined();
+    const inlineDir = para!.inlines.find((i: any) => i.kind === "InlineDirective");
+    expect(inlineDir).toBeDefined();
+    expect(inlineDir!.body).toBeDefined();
+    expect(inlineDir!.body.length).toBeGreaterThan(0);
+  });
+
+  test("newline between name and args does NOT bind (conservative)", () => {
+    const { cst } = parseSource("@style\n(ref: 'h1')");
+    const dir = (cst.children as any[]).find((c) => c.kind === "Directive");
+    expect(dir).toBeDefined();
+    // Args should NOT be attached — newline separates them
+    expect(dir!.argsRaw).toBeUndefined();
+  });
+});
+
+describe("non-whitespace TEXT at structural level", () => {
+  test("bare text at structural level emits diagnostic", () => {
+    const { diagnostics } = parseSource("hello world");
+    // Should warn about text outside paragraph block
+    expect(diagnostics.some((d) => d.message.includes("paragraph block"))).toBe(true);
+  });
+
+  test("whitespace-only text at structural level does not emit diagnostic", () => {
+    const { diagnostics } = parseSource("  @document(title: 'x')");
+    // Indentation should not produce diagnostics
+    const textDiags = diagnostics.filter((d) => d.message.includes("paragraph block"));
+    expect(textDiags.length).toBe(0);
+  });
+
+  test("indented directives still parse cleanly", () => {
+    const { cst, diagnostics } = parseSource("  @section {\n    [Hello]\n  }");
+    const dir = (cst.children as any[]).find((c) => c.kind === "Directive");
+    expect(dir).toBeDefined();
+    expect(dir!.body).toBeDefined();
+    const textDiags = diagnostics.filter((d) => d.message.includes("paragraph block"));
+    expect(textDiags.length).toBe(0);
+  });
+});

@@ -305,6 +305,8 @@ Review of PR #3 revealed that `@anchor` is modeled as an inline `Bookmark` wrapp
 - Typed include params (`SG-001`)
 - Direct expression args (`SG-002`)
 - Markdown emphasis sugar (`SG-004`)
+- `@lua{...}` raw-chunk body parsing — Lua-aware balanced-brace scanning that respects Lua strings/comments (Spec §7.2). Current: `@lua{...}` goes through generic structural body parser, which works for simple cases but mangles Lua code containing `}` in strings or `--` comments. Needs dedicated body parser.
+- List marker SOL gating — Spec §11.1 says markers SHOULD be recognized only at start-of-line; currently `@-`/`@#` are recognized anywhere in structural context
 - Table of contents generation
 - Section-specific header/footer variants (first page, odd/even)
 - Images/logo embedding API

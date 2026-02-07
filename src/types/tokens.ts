@@ -71,9 +71,6 @@ export enum TokenType {
   // Content / Literals
   TEXT = "TEXT",                       // Plain text content
   STRING = "STRING",                   // "..." or '...'
-  NUMBER = "NUMBER",                   // 123, 3.14
-  LENGTH = "LENGTH",                   // 1in, 12pt, 2.5cm
-  BOOLEAN = "BOOLEAN",                 // true, false
   IDENTIFIER = "IDENTIFIER",           // bareword identifier
 
   // Comments
