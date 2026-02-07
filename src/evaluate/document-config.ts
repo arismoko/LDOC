@@ -2,8 +2,7 @@
  * Parser for @document YAML-like configuration.
  * 
  * Parses the opaque body of @document directive into structured settings.
- * This is a simplified YAML parser that handles the specific format used
- * by the decompiler.
+ * This is a simplified YAML parser that handles indentation-based config.
  * 
  * Example input:
  *   margins:
@@ -57,7 +56,7 @@ export interface StyleConfig {
 /**
  * Parse a YAML-like opaque body into document configuration.
  * 
- * Handles the indentation-based structure used by the decompiler.
+ * Handles the indentation-based structure.
  */
 export function parseDocumentConfig(opaqueBody: string): DocumentConfig {
   const config: DocumentConfig = {};

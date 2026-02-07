@@ -52,47 +52,15 @@
 
 ### Commit 9 — `feat(v3-desugar): desugar @name[...] into @name{[...]}` ✅
 
-**Status**: ✅ Complete (Handled in Commit 7 parser logic)
+**Status**: ✅ Complete
 
 ### Commit 9.1 — `fix(build): align binder/evaluator imports with v3 CST` ✅
 
 **Status**: ✅ Complete
 
-**Changes**
-
-- Update `src/bind/binder.ts`, `src/bind/validator.ts`, and `src/evaluate/evaluator.ts` to import the NEW type names (`Document`, `Directive`, `Block`) instead of old ones (`CSTDocument`).
-- **Do not rewrite logic yet**—just fix imports and cast types/comment out broken code so `bun run smoke` compiles (even if it throws runtime errors).
-- Fix `src/parse/parser.ts` to prevent nested `[...]` blocks (Spec 4.2).
-
-**Files**
-
-- `src/bind/binder.ts`
-- `src/bind/validator.ts`
-- `src/bind/resolver.ts`
-- `src/evaluate/evaluator.ts`
-- `src/parse/parser.ts`
-
-**Done when**
-
-- `bun run smoke` runs (it may fail logic, but TS must compile).
-
 ### Commit 10 — `feat(v3-contracts): add directive registry + validator` ✅
 
 **Status**: ✅ Complete
-
-**Changes**
-
-- Introduce “known directives” registry.
-- Rewrite `src/bind/validator.ts` to check against registry (e.g. `@document` allowed only at top, `@row` only in `@table`).
-
-**Files**
-
-- `src/bind/validator.ts`
-- `src/bind/contracts.ts` (new)
-
-**Done when**
-
-- Unknown directives produce warnings in the smoke test output.
 
 ---
 
@@ -102,39 +70,9 @@
 
 **Status**: ✅ Complete
 
-**Changes**
-
-- Rewrite `src/types/symbols.ts`:
-  - Remove `macros` map.
-  - Add `defs: Map<string, DefSymbol>`.
-  - Update `SymbolTable` interface.
-
-**Files**
-
-- `src/types/symbols.ts`
-
-**Done when**
-
-- `macros` are gone from the codebase.
-
 ### Commit 12 — `feat(v3-bind): implement binder for @def scope` ✅
 
 **Status**: ✅ Complete
-
-**Changes**
-
-- Rewrite `src/bind/binder.ts` to:
-  - Walk v3 CST.
-  - Collect `@def(...)` entries into SymbolTable.
-  - Handle duplicate definitions diagnostics.
-
-**Files**
-
-- `src/bind/binder.ts`
-
-**Done when**
-
-- `parseAndBind` returns symbols containing definitions from `fixtures/minimal.ldoc` (if any).
 
 ---
 
@@ -144,17 +82,37 @@
 
 **Status**: ✅ Complete
 
+### Commit 13.1 — `chore: delete legacy decompiler and evaluator code` ✅
+
+**Status**: ✅ Complete
+
 ---
 
-# Phase F — Lua evaluator (sandboxed)
+# Phase F — Lua evaluator (Real Wasmoon Integration)
 
-### Commit 14 — `feat(v3-lua): add lua runtime interface + timeout`
+### Commit 14 — `feat(v3-lua): integrate wasmoon runtime`
 
 **Changes**
 
-- Create `src/evaluate/lua/runtime.ts` (wrapper around a wasm lua or mock for now, or use a JS-Lua VM like `wasmoon` or `fengari` if available, otherwise mock with simple JS eval restricted for prototype).
-- **Note:** For this environment (Node/Bun), we might need a JS-based Lua interpreter. If adding a dependency is too heavy, we can mock expressions for now or use `Function` sandbox as a placeholder if spec allows (Spec says "Lua Evaluation", but for a TS prototype, a simplified expression parser or JS-eval-as-Lua might suffice for Step 1).
-- _Decision:_ Use a mock runtime or simple JS eval that simulates Lua syntax for the prototype.
+- Install dependency: `bun add wasmoon`
+- Create `src/evaluate/lua/runtime.ts`.
+- **Implementation Requirements:**
+  - Import `LuaFactory` from `wasmoon`.
+  - **Factory Setup:** You MUST pass the location of the WASM file explicitly for Bun/Node compatibility.
+
+    ```typescript
+    // Hint for the agent:
+    const factory = new LuaFactory();
+    // wasmoon automatically resolves the wasm binary in Node-like envs,
+    // but if it fails, point it to require.resolve('wasmoon/dist/glue.wasm')
+    ```
+
+  - **Interface:**
+    - `createEnv(data: any, defs: any, styles: any): Promise<LuaEngine>`
+    - Expose globals using `lua.global.set('data', data)`, etc.
+    - `evaluate(engine: LuaEngine, expression: string): Promise<any>`
+    - `execute(engine: LuaEngine, chunk: string): Promise<void>`
+  - **Sandboxing:** Ensure `defs` is passed by reference so Lua modifications persist.
 
 **Files**
 
@@ -162,35 +120,43 @@
 
 **Done when**
 
-- `runLua("return 1 + 1")` returns 2.
+- Unit test: `evaluate("return 1 + 1")` returns `2` (async).
+- Unit test: `execute("defs.x = 10")` updates the `defs` object passed in.
 
-### Commit 15 — `feat(v3-eval): rewrite evaluator to produce Document IR from v3 CST`
+### Commit 15 — `feat(v3-eval): rewrite evaluator to produce Document IR`
 
 **Changes**
 
-- Rewrite `src/evaluate/evaluator.ts`.
-- Walk v3 CST `Document`.
-- Execute `@lua{}` blocks.
-- Evaluate `$()` expressions using Runtime.
-- Output `Document` (IR).
+- Rewrite `src/evaluate/evaluator.ts` completely.
+- Input: v3 `Document` CST + `SymbolTable`.
+- **Async Requirement:** Since `wasmoon` is async, the `evaluate()` function must now return `Promise<EvaluateResult>`.
+- **Core Loop**:
+  - Initialize Lua engine _once_ per document.
+  - Populate `data` (from options), `defs` (from symbols), `styles` (from symbols).
+  - Walk CST:
+    - `LuaExpr` (`$(...)`) -> `await runtime.evaluate(...)`.
+    - `@lua{...}` -> `await runtime.execute(...)`.
+    - `@def` -> ensure values are accessible in `defs` global.
+- **Output:** `Document` IR.
 
 **Files**
 
 - `src/evaluate/evaluator.ts`
+- `src/pipeline/index.ts` (update to await the evaluator)
 
 **Done when**
 
-- Smoke test produces a valid IR object with evaluated text.
+- `ldoc parse fixtures/minimal.ldoc` produces valid IR with `$()` resolved.
 
 ---
 
 # Phase G — DOCX emitter adaptation
 
-### Commit 16 — `feat(v3-emit): wire v3 pipeline parse->bind->eval->style->emit`
+### Commit 16 — `feat(v3-emit): wire v3 pipeline parse->bind->eval->emit`
 
 **Changes**
 
-- Update `src/pipeline/index.ts` to connect new Evaluator output to Emitter.
+- Update `src/pipeline/index.ts` to handle the `async` nature of the new Evaluator.
 - Ensure `src/emit/docx` handles the IR produced by v3 evaluator.
 
 **Files**
@@ -199,13 +165,13 @@
 
 **Done when**
 
-- `ldoc compile` produces a valid `.docx` file from v3 source.
+- `ldoc compile fixtures/minimal.ldoc` produces a valid `.docx`.
 
 ### Commit 17 — `fix(docx): list items support multi-paragraph bodies`
 
 **Changes**
 
-- Ensure emitter handles `ListItem` blocks that contain multiple paragraphs.
+- Update `src/emit/docx/nodes.ts` (specifically `emitListItem`) to handle `ListItem` nodes that contain multiple child blocks.
 
 **Files**
 
@@ -215,8 +181,8 @@
 
 **Changes**
 
-- Ensure Evaluator transforms `@table` CST -> Table IR.
-- Ensure Emitter handles Table IR correctly.
+- Ensure `src/evaluate/evaluator.ts` transforms `@table` directives into `Table` IR nodes.
+- Update `src/emit/docx/tables.ts` to handle the specific structure of v3 tables.
 
 **Files**
 
@@ -235,14 +201,21 @@
 
 ### Commit 20 — `feat(lsp): emit v3 diagnostics from pipeline`
 
+**Changes**
+
+- Update `src/lsp/server.ts` to use the new pipeline functions.
+- Ensure diagnostics from Parse/Bind/Eval phases are forwarded to the client.
+
 **Files**
 
 - `src/lsp/server.ts`
 
 ### Commit 21 — `feat(lsp): go-to-definition for @def keys`
 
+**Changes**
+
+- Update `src/lsp/navigation.ts` to resolve symbols using the new `defs` map in `SymbolTable`.
+
 **Files**
 
 - `src/lsp/navigation.ts`
-
----
