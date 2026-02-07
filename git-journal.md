@@ -169,7 +169,7 @@ Spec §7.4 requires limits. Infinite loop in `$(...)` or `@lua{...}` freezes the
 
 ### Review Disposition (PR #3)
 
-All review comments across 3 Codex review rounds have been triaged. New sessions should skip re-verification and only act on items marked 🔴 or ⏭️.
+All review comments across 5 Codex review rounds have been triaged. New sessions should skip re-verification and only act on items marked 🔴 or ⏭️.
 
 | Comment | Issue | Sev | Status | Commit |
 | ------- | ----- | --- | ------ | ------ |
@@ -186,6 +186,9 @@ All review comments across 3 Codex review rounds have been triaged. New sessions
 | R4-1 | Dynamic list ref when baseDef missing | P1 | ✅ Fixed | `876b8c5` |
 | R4-2 | Continuation instances not scoped by nesting level | P1 | ✅ Fixed | `876b8c5` |
 | R4-3 | Document orientation not wired to style/emission | P2 | ⏭️ Deferred | PR #4 |
+| R5-1 | Start override applied at level 0 instead of active nesting level | P1 | ✅ Fixed | `a4f3fbf` |
+| R5-2 | Default numbering defs missing during emission (baseDef lookup fails) | P1 | ✅ Fixed | `a4f3fbf` |
+| R5-3 | @ref display text drops non-Text inlines (Styled, Bold, Code) | P1 | ✅ Fixed | `a4f3fbf` |
 
 ---
 
