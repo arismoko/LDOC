@@ -387,19 +387,33 @@ function parseStructuralBody(ctx: ParseContext): StructuralBody | null {
 }
 
 /**
- * Convert (line, column) to absolute source offset.
+ * Precompute line start offsets for O(1) line/column -> absolute offset lookup.
  * Lines are 1-based, columns are 0-based (matching lexer convention).
  */
-function sourceOffset(source: string, line: number, column: number): number {
-  let currentLine = 1;
-  let offset = 0;
-  while (currentLine < line && offset < source.length) {
-    if (source[offset] === "\n") {
-      currentLine++;
+function buildLineStartOffsets(source: string): number[] {
+  const lineStarts = [0];
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] === "\n") {
+      lineStarts.push(i + 1);
     }
-    offset++;
   }
-  return offset + column;
+  return lineStarts;
+}
+
+function sourceOffset(
+  source: string,
+  lineStarts: number[],
+  line: number,
+  column: number,
+): number {
+  if (line <= 0) {
+    return column;
+  }
+  const start = lineStarts[line - 1];
+  if (start === undefined) {
+    return source.length + column;
+  }
+  return start + column;
 }
 
 /**
@@ -418,9 +432,10 @@ function parseRawBody(ctx: ParseContext, format: "lua"): RawBody | null {
 
   const startLoc = loc(startToken.line, startToken.column);
   const source = ctx.source;
+  const lineStarts = buildLineStartOffsets(source);
 
   // Find the absolute offset of the opening brace in source
-  const openOffset = sourceOffset(source, startToken.line, startToken.column);
+  const openOffset = sourceOffset(source, lineStarts, startToken.line, startToken.column);
 
   // Scan source from after the opening brace with Lua-aware balanced brace counting
   let depth = 1;
@@ -482,7 +497,7 @@ function parseRawBody(ctx: ParseContext, format: "lua"): RawBody | null {
         ctx.pos++; // skip the opening LBRACE token
         while (ctx.pos < ctx.tokens.length) {
           const tok = ctx.tokens[ctx.pos]!;
-          const tokOffset = sourceOffset(source, tok.line, tok.column);
+          const tokOffset = sourceOffset(source, lineStarts, tok.line, tok.column);
           // Stop at any token at or beyond the closing brace offset
           if (tokOffset >= i) {
             // Exact match: consume the closing RBRACE token

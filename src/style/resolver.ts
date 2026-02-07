@@ -10,8 +10,6 @@
 import type { StyleRef } from "../types/document-ir.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import type { ComputedStyle, StyleResolver } from "../types/styled.ts";
-import { loc as createLoc, type SourceLocation } from "../types/source-location.ts";
-import { DiagnosticCode, error } from "../types/diagnostics.ts";
 import { DEFAULT_STYLE, getBuiltInStyle } from "./defaults.ts";
 import { applyInlineStyles } from "../types/styled.ts";
 
@@ -20,29 +18,19 @@ import { applyInlineStyles } from "../types/styled.ts";
  * The resolver caches computed styles for efficiency.
  */
 export function createStyleResolver(
-  diagnostics: Diagnostic[]
+  _diagnostics: Diagnostic[]
 ): StyleResolver {
   // Cache for resolved named styles
   const cache = new Map<string, ComputedStyle>();
   
   /**
-   * Resolve a named style, following inheritance chain.
+   * Resolve a named style by looking up built-in styles.
    */
-  function resolveByName(name: string, visited: Set<string>, loc?: SourceLocation): ComputedStyle {
+  function resolveByName(name: string): ComputedStyle {
     // Check cache first
     const cached = cache.get(name);
     if (cached) {
       return cached;
-    }
-    
-    // Check for cycle
-    if (visited.has(name)) {
-      diagnostics.push(error(
-        DiagnosticCode.STYLE_CYCLE,
-        `Style inheritance cycle detected: ${[...visited, name].join(" -> ")}`,
-        loc ?? createLoc(1, 0)
-      ));
-      return DEFAULT_STYLE;
     }
     
     // Check built-in first
@@ -65,7 +53,7 @@ export function createStyleResolver(
     
     // Resolve named style
     if (styleRef.name) {
-      style = resolveByName(styleRef.name, new Set());
+      style = resolveByName(styleRef.name);
       // Pass through unknown style names — they may exist in the DOCX template.
       // Even if resolveByName fell back to DEFAULT_STYLE, preserve the style ID
       // so the emitter can write it to the output paragraph.
