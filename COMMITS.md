@@ -211,7 +211,9 @@
 
 - `src/cli/index.ts`
 
-### Commit 20 — `feat(lsp): emit v3 diagnostics from pipeline`
+### Commit 20 — `feat(lsp): emit v3 diagnostics from pipeline` ✅
+
+**Status**: ✅ Complete
 
 **Changes**
 

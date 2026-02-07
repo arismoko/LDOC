@@ -7,7 +7,6 @@
  * - LSP handlers (completion, definition, references)
  */
 
-import { readFile } from "node:fs/promises";
 import {
   createConnection,
   TextDocuments,
@@ -17,12 +16,12 @@ import {
   type InitializeResult,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { URI } from "vscode-uri";
 
 import type { CSTDocument, CSTDirective, ParseResult } from "../types/cst.ts";
 import type { SymbolTable } from "../types/symbols.ts";
 import { parseSource } from "../parse/index.ts";
-import { bind } from "../bind/binder.ts";
+import { bindSync } from "../bind/index.ts";
+import { compileToDocument, parseAndBind } from "../pipeline/index.ts";
 import { toLspDiagnostics } from "./diagnostics.ts";
 import { getCompletionContext, getCompletionItems } from "./completion.ts";
 import { getDefinition, getReferences } from "./navigation.ts";
@@ -37,37 +36,6 @@ interface DocumentCache {
 }
 
 const cache = new Map<string, DocumentCache>();
-
-// =============================================================================
-// Import Detection
-// =============================================================================
-
-/**
- * Check if a CST contains @import directives.
- */
-function hasImports(cst: CSTDocument): boolean {
-  for (const node of cst.children) {
-    if (node.kind === "Directive" && (node as CSTDirective).name === "import") {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Convert a document URI to a file system path.
- */
-function uriToPath(uri: string): string {
-  return URI.parse(uri).fsPath;
-}
-
-/**
- * Load and parse a file for import resolution.
- */
-async function loadFile(path: string): Promise<ParseResult> {
-  const content = await readFile(path, "utf-8");
-  return parseSource(content);
-}
 
 // =============================================================================
 // Server Setup
@@ -100,25 +68,41 @@ connection.onInitialize((_params: InitializeParams): InitializeResult => {
 documents.onDidChangeContent(async (change) => {
   const uri = change.document.uri;
   const text = change.document.getText();
+  let cst: CSTDocument | undefined;
+  let symbols: SymbolTable | undefined;
+  let diagnostics = [] as ReturnType<typeof parseSource>["diagnostics"];
 
-  // Parse the document
-  const { cst, diagnostics: parseDiags } = parseSource(text);
+  try {
+    const parseBind = parseAndBind(text);
+    cst = parseBind.cst;
+    symbols = parseBind.symbols;
 
-  // Bind symbols - use import resolution if @import directives are present
-  const binderOptions = hasImports(cst)
-    ? { sourcePath: uriToPath(uri), loadFile }
-    : undefined;
-  
-  const { symbols, diagnostics: bindDiags } = await bind(cst, binderOptions);
+    const evalResult = await compileToDocument(text);
+    diagnostics = evalResult.diagnostics;
+  } catch {
+    const parseResult = parseSource(text);
+    diagnostics = [...parseResult.diagnostics];
 
-  // Update cache
-  cache.set(uri, { cst, symbols });
+    const parseErrors = parseResult.diagnostics.filter((diag) => diag.severity === "error");
+    if (parseErrors.length === 0) {
+      const bindResult = bindSync(parseResult.cst);
+      diagnostics.push(...bindResult.diagnostics);
 
-  // Send diagnostics
-  connection.sendDiagnostics({
-    uri,
-    diagnostics: toLspDiagnostics([...parseDiags, ...bindDiags]),
-  });
+      const bindErrors = bindResult.diagnostics.filter((diag) => diag.severity === "error");
+      if (bindErrors.length === 0) {
+        cst = parseResult.cst;
+        symbols = bindResult.symbols;
+      }
+    }
+  }
+
+  if (cst && symbols) {
+    cache.set(uri, { cst, symbols });
+  } else {
+    cache.delete(uri);
+  }
+
+  connection.sendDiagnostics({ uri, diagnostics: toLspDiagnostics(diagnostics) });
 });
 
 documents.onDidClose((event) => {
