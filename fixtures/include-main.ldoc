@@ -1,0 +1,6 @@
+[Execution page]
+
+@include(
+  path: "include-child.ldoc",
+  args: { name: "Michael Powell", title: "Grantor" }
+)

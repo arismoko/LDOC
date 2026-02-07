@@ -254,7 +254,7 @@
 
 ---
 
-### Commit 27 - `test(pipeline): add evaluator + include regression fixtures`
+### Commit 27 - `test(pipeline): add evaluator + include regression fixtures` ✅
 
 **Context**: evaluator behavior for layout/include currently has no targeted tests.
 

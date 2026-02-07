@@ -1,0 +1,3 @@
+@params(names: ["name", "title"])
+
+[Signed by $(data.name), $(data.title)]

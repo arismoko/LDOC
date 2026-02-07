@@ -1,0 +1,22 @@
+@header{
+  @left[Confidential Draft]
+  @right[Page $(page) of $(pages)]
+}
+
+@footer{
+  @center[Attorney Work Product]
+}
+
+[Intro paragraph before columns.]
+
+@columns(count: 2, gap: "0.5in"){
+  [Left column paragraph.]
+  @break
+  [Right column paragraph.]
+}
+
+@box{
+  @align(value: "center"){
+    [Important notice]
+  }
+}

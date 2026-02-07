@@ -25,7 +25,13 @@ async function runSmokeTests(): Promise<TestResult[]> {
   
   await mkdir(outputDir, { recursive: true });
 
-  const fixtureFiles = ["minimal.ldoc", "lists.ldoc", "table.ldoc"];
+  const fixtureFiles = [
+    "minimal.ldoc",
+    "lists.ldoc",
+    "table.ldoc",
+    "layout.ldoc",
+    "include-main.ldoc",
+  ];
 
   for (const filename of fixtureFiles) {
     const inputPath = join(fixturesDir, filename);
