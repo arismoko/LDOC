@@ -29,6 +29,8 @@ export interface DirectiveContract {
   hasBody: "required" | "optional" | "none";
   /** If set, this directive may only appear as a child of the given parent */
   parentDirective?: string;
+  /** If set, this directive may appear as a child of any listed parent */
+  parentDirectives?: string[];
 }
 
 // =============================================================================
@@ -139,21 +141,21 @@ const DIRECTIVES: DirectiveContract[] = [
     allowedIn: ["structural"],
     hasArgs: "none",
     hasBody: "optional",
-    parentDirective: "header",
+    parentDirectives: ["header", "footer"],
   },
   {
     name: "center",
     allowedIn: ["structural"],
     hasArgs: "none",
     hasBody: "optional",
-    parentDirective: "header",
+    parentDirectives: ["header", "footer"],
   },
   {
     name: "right",
     allowedIn: ["structural"],
     hasArgs: "none",
     hasBody: "optional",
-    parentDirective: "header",
+    parentDirectives: ["header", "footer"],
   },
 
   // Cross-references (Spec §15)

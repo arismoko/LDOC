@@ -28,6 +28,7 @@ import type {
   Document,
   DocumentMetadata,
   EvaluateResult,
+  HeaderFooter,
   Inline,
   InlineStyleProps,
   List,
@@ -41,6 +42,7 @@ import type {
 } from "../types/document-ir.ts";
 import type { SymbolTable } from "../types/symbols.ts";
 import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
+import { parseLengthToTwips } from "../shared/units.ts";
 import { createEnv, evaluate as evaluateLua, execute as executeLua } from "./lua/runtime.ts";
 
 interface EvaluationState {
@@ -121,6 +123,154 @@ function paragraphStyleRefFromArgs(args: ArgsObject): StyleRef | undefined {
   }
 
   return styleRef;
+}
+
+type HorizontalAlign = "left" | "center" | "right";
+
+const DEFAULT_COLUMNS_COUNT = 2;
+const DEFAULT_COLUMN_GAP_TWIPS = 720;
+
+function withTextAlign(styleRef: StyleRef | undefined, align: HorizontalAlign): StyleRef {
+  return {
+    ...(styleRef ?? {}),
+    inline: {
+      ...(styleRef?.inline ?? {}),
+      textAlign: align,
+    },
+  };
+}
+
+function applyAlignmentToBlock(block: Block, align: HorizontalAlign): Block {
+  switch (block.type) {
+    case "Paragraph":
+      return { ...block, style: withTextAlign(block.style, align) };
+    case "Heading":
+      return { ...block, style: withTextAlign(block.style, align) };
+    case "Blockquote":
+      return {
+        ...block,
+        content: block.content.map((child) => applyAlignmentToBlock(child, align)),
+      };
+    case "Section":
+      return {
+        ...block,
+        content: block.content.map((child) => applyAlignmentToBlock(child, align)),
+      };
+    case "List":
+      return {
+        ...block,
+        style: withTextAlign(block.style, align),
+        items: block.items.map((item) => ({
+          ...item,
+          style: withTextAlign(item.style, align),
+          children: item.children.map((child) => applyAlignmentToBlock(child, align)),
+        })),
+      };
+    case "Table":
+      return {
+        ...block,
+        rows: block.rows.map((row) => ({
+          ...row,
+          cells: row.cells.map((cell) => ({
+            ...cell,
+            content: cell.content.map((child) => applyAlignmentToBlock(child, align)),
+          })),
+        })),
+      };
+    default:
+      return block;
+  }
+}
+
+function applyAlignmentToBlocks(blocks: Block[], align: HorizontalAlign): Block[] {
+  return blocks.map((block) => applyAlignmentToBlock(block, align));
+}
+
+function parseColumnsArgs(args: ArgsObject, state: EvaluationState, loc: Directive["loc"]): { count: number; space: number } {
+  let count = DEFAULT_COLUMNS_COUNT;
+  if (typeof args.count === "number" && Number.isFinite(args.count) && args.count >= 1) {
+    count = Math.floor(args.count);
+  } else if (args.count !== undefined) {
+    state.diagnostics.push(
+      createWarning(
+        DiagnosticCode.PARSE_ERROR,
+        "@columns count must be a positive number",
+        loc,
+      ),
+    );
+  }
+
+  let space = DEFAULT_COLUMN_GAP_TWIPS;
+  const rawGap = args.gap ?? args.space;
+  if (typeof rawGap === "number" && Number.isFinite(rawGap) && rawGap >= 0) {
+    space = Math.round(rawGap);
+  } else if (typeof rawGap === "string") {
+    try {
+      space = parseLengthToTwips(rawGap);
+    } catch {
+      state.diagnostics.push(
+        createWarning(
+          DiagnosticCode.PARSE_ERROR,
+          "@columns gap must be a valid length string (for example \"0.5in\")",
+          loc,
+        ),
+      );
+    }
+  } else if (rawGap !== undefined) {
+    state.diagnostics.push(
+      createWarning(
+        DiagnosticCode.PARSE_ERROR,
+        "@columns gap must be a number (twips) or length string",
+        loc,
+      ),
+    );
+  }
+
+  return { count, space };
+}
+
+function alignmentFromRegion(name: "left" | "center" | "right"): HorizontalAlign {
+  return name;
+}
+
+function isHeaderFooterRegionDirective(node: CSTBlock): node is Directive & { name: "left" | "center" | "right" } {
+  return node.kind === "Directive" && (node.name === "left" || node.name === "center" || node.name === "right");
+}
+
+async function evaluateHeaderFooter(node: Directive, kind: HeaderFooter["kind"], state: EvaluationState): Promise<void> {
+  const content: Block[] = [];
+
+  if (node.body) {
+    for (const child of node.body.children) {
+      if (isHeaderFooterRegionDirective(child)) {
+        const regionBlocks = child.body ? await evaluateBlocks(child.body.children, state) : [];
+        content.push(...applyAlignmentToBlocks(regionBlocks, alignmentFromRegion(child.name)));
+        continue;
+      }
+
+      content.push(...(await evaluateBlock(child, state)));
+    }
+  }
+
+  const headerFooter: HeaderFooter = {
+    type: "HeaderFooter",
+    kind,
+    content,
+    loc: node.loc,
+  };
+
+  if (kind === "header") {
+    state.metadata.headers = {
+      ...(state.metadata.headers ?? {}),
+      default: headerFooter,
+    };
+    return;
+  }
+
+  state.metadata.footers = {
+    ...(state.metadata.footers ?? {}),
+    default: headerFooter,
+  };
 }
 
 async function evaluateInline(node: CSTInline, state: EvaluationState): Promise<Inline[]> {
@@ -398,6 +548,51 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
       return [{ type: "PageBreak", loc: node.loc }];
     case "break":
       return [{ type: "ColumnBreak", loc: node.loc }];
+    case "columns": {
+      const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+      const { count, space } = parseColumnsArgs(args, state, node.loc);
+      const content = node.body ? await evaluateBlocks(node.body.children, state) : [];
+      return [{
+        type: "Section",
+        columns: { count, space },
+        content,
+        loc: node.loc,
+      }];
+    }
+    case "box": {
+      const content = node.body ? await evaluateBlocks(node.body.children, state) : [];
+      return [{
+        type: "Blockquote",
+        content,
+        loc: node.loc,
+      }];
+    }
+    case "align": {
+      const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+      const value = args.value;
+      const align: HorizontalAlign = value === "left" || value === "center" || value === "right"
+        ? value
+        : "left";
+
+      if (value !== undefined && value !== "left" && value !== "center" && value !== "right") {
+        state.diagnostics.push(
+          createWarning(
+            DiagnosticCode.PARSE_ERROR,
+            "@align value must be one of: left, center, right",
+            node.loc,
+          ),
+        );
+      }
+
+      const inner = node.body ? await evaluateBlocks(node.body.children, state) : [];
+      return applyAlignmentToBlocks(inner, align);
+    }
+    case "header":
+      await evaluateHeaderFooter(node, "header", state);
+      return [];
+    case "footer":
+      await evaluateHeaderFooter(node, "footer", state);
+      return [];
     case "style": {
       const inner = node.body ? await evaluateBlocks(node.body.children, state) : [];
       const args = parseDirectiveArgs(node.argsRaw, state, node.loc);

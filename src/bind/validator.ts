@@ -126,13 +126,14 @@ function validateDirective(dir: Directive, state: ValidationState): void {
   }
 
   // Check parent directive constraint
-  if (contract.parentDirective) {
+  if (contract.parentDirective || contract.parentDirectives) {
     const parent = state.parentStack[state.parentStack.length - 1];
-    if (parent !== contract.parentDirective) {
+    const allowedParents = contract.parentDirectives ?? [contract.parentDirective!];
+    if (!allowedParents.includes(parent ?? "")) {
       state.diagnostics.push(
         warning(
           MISPLACED_DIRECTIVE,
-          `'@${dir.name}' must appear inside '@${contract.parentDirective}'`,
+          `'@${dir.name}' must appear inside ${allowedParents.map((name) => `'@${name}'`).join(" or ")}`,
           dir.loc,
         ),
       );

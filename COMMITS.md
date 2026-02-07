@@ -1,237 +1,273 @@
 # Commit-by-commit plan (LDOC v3)
 
-## 0) Prep: branch + guardrails
+## Planning rules
 
-### Commit 0.1 — `chore: create v3 branch and add smoke fixtures` ✅
-
-**Status**: ✅ Complete
-
----
-
-# Phase A — cut legacy scope (YAGNI deletion)
-
-### Commit 1 — `chore: remove decompiler from public API` ✅
-
-**Status**: ✅ Complete
-
-### Commit 2 — `chore(cli): remove decompile command + update help text` ✅
-
-**Status**: ✅ Complete
-
-### Commit 3 — `chore: delete markdown/control-flow surface from v3 build` ✅
-
-**Status**: ✅ Complete
+- Keep commits small and testable.
+- Prefer correctness gates over feature breadth.
+- Do not promote deferred sugar into core without spec updates.
+- Fix semantic correctness bugs immediately; schedule DRY/YAGNI refactors separately.
 
 ---
 
-# Phase B — establish v3 syntax & CST (the big reset)
+## ✅ History (v3.0 Alpha - Completed)
 
-### Commit 4 — `feat(v3): define v3 token model` ✅
-
-**Status**: ✅ Complete
-
-### Commit 5 — `feat(v3): define v3 CST shapes` ✅
-
-**Status**: ✅ Complete
-
-### Commit 6 — `feat(v3-lex): rewrite lexer for v3 delimiters + markers` ✅
-
-**Status**: ✅ Complete
-
-### Commit 7 — `feat(v3-parse): rewrite parser for directives + paragraph blocks` ✅
-
-**Status**: ✅ Complete
-
-### Commit 8 — `feat(v3): implement newline normalization inside paragraph blocks` ✅
-
-**Status**: ✅ Complete
+- **0.1 - 3**: Prep and YAGNI cleanup ✅
+- **4 - 8**: Core syntax and parser ✅
+- **9 - 10**: Desugaring and contracts ✅
+- **11 - 12**: Binding and symbols ✅
+- **13**: Args parsing ✅
+- **14 - 15**: Lua evaluator ✅
+- **16 - 18**: DOCX emitter and lists/tables ✅
+- **19 - 21**: CLI and LSP basics ✅
 
 ---
 
-# Phase C — desugar + directive contracts
+## Immediate triage policy (agreed)
 
-### Commit 9 — `feat(v3-desugar): desugar @name[...] into @name{[...]}` ✅
+**Fix now (next implementation commits):**
 
-**Status**: ✅ Complete
+- footer region parent rules (`@left/@center/@right` inside `@footer`)
+- evaluator mappings for layout directives (`@columns`, `@box`, `@header`, `@footer`, `@align`)
+- DOCX section wiring so Section IR is emitted as real sections
+- regression tests (IR + OOXML) for touched semantics
 
-### Commit 9.1 — `fix(build): align binder/evaluator imports with v3 CST` ✅
+**Plan, do not mix into same correctness commit:**
 
-**Status**: ✅ Complete
-
-### Commit 10 — `feat(v3-contracts): add directive registry + validator` ✅
-
-**Status**: ✅ Complete
-
----
-
-# Phase D — binding (`@def`) + symbols
-
-### Commit 11 — `feat(v3-symbols): replace macro symbols with def symbols` ✅
-
-**Status**: ✅ Complete
-
-### Commit 12 — `feat(v3-bind): implement binder for @def scope` ✅
-
-**Status**: ✅ Complete
+- DRY cleanup (args parsing dedupe, length parsing dedupe)
+- dead-surface/YAGNI cleanup (unused exports/helpers)
+- completion/reference polish unrelated to layout correctness
 
 ---
 
-# Phase E — args parsing via JSON5 object (KISS)
+# Phase I - Layout correctness (must-fix semantics)
 
-### Commit 13 — `feat(v3-args): parse directive args as JSON5 object` ✅
+### Commit 22 - `feat(v3-layout): implement section and column evaluation`
 
-**Status**: ✅ Complete
-
-### Commit 13.1 — `chore: delete legacy decompiler and evaluator code` ✅
-
-**Status**: ✅ Complete
-
----
-
-# Phase F — Lua evaluator (Real Wasmoon Integration)
-
-### Commit 14 — `feat(v3-lua): integrate wasmoon runtime` ✅
-
-**Status**: ✅ Complete
+**Context**: evaluator currently flattens layout directives into normal body blocks.
 
 **Changes**
 
-- Install dependency: `bun add wasmoon`
-- Create `src/evaluate/lua/runtime.ts`.
-- **Implementation Requirements:**
-  - Import `LuaFactory` from `wasmoon`.
-  - **Factory Setup:** You MUST pass the location of the WASM file explicitly for Bun/Node compatibility.
+- Update `src/bind/contracts.ts` and `src/bind/validator.ts`:
+  - allow `@left/@center/@right` in both `@header` and `@footer` contexts.
+- Update `src/evaluate/evaluator.ts`:
+  - map `@columns(...)` to IR `Section` with `columns: { count, space }`.
+  - map `@box{...}` to IR `Blockquote`.
+  - map `@align(value: ...)` to style-aligned block output (without flattening semantics).
+  - parse `@header/@footer` region directives into `document.metadata.headers/footers`.
+  - ensure header/footer definition blocks do not leak into body output.
 
-    ```typescript
-    // Hint for the agent:
-    const factory = new LuaFactory();
-    // wasmoon automatically resolves the wasm binary in Node-like envs,
-    // but if it fails, point it to require.resolve('wasmoon/dist/glue.wasm')
-    ```
+**Non-goals (explicitly deferred from this commit):**
 
-  - **Interface:**
-    - `createEnv(data: any, defs: any, styles: any): Promise<LuaEngine>`
-    - Expose globals using `lua.global.set('data', data)`, etc.
-    - `evaluate(engine: LuaEngine, expression: string): Promise<any>`
-    - `execute(engine: LuaEngine, chunk: string): Promise<void>`
-  - **Sandboxing:** Ensure `defs` is passed by reference so Lua modifications persist.
+- no args parser refactor
+- no length parser consolidation
+- no LSP completion/refactor work
+- no decompiler/HTML work
 
 **Files**
 
-- `src/evaluate/lua/runtime.ts`
-
-**Done when**
-
-- Unit test: `evaluate("return 1 + 1")` returns `2` (async).
-- Unit test: `execute("defs.x = 10")` updates the `defs` object passed in.
-
-### Commit 15 — `feat(v3-eval): rewrite evaluator to produce Document IR`
-
-**Status**: ✅ Complete
-
-**Changes**
-
-- Rewrite `src/evaluate/evaluator.ts` completely.
-- Input: v3 `Document` CST + `SymbolTable`.
-- **Async Requirement:** Since `wasmoon` is async, the `evaluate()` function must now return `Promise<EvaluateResult>`.
-- **Core Loop**:
-  - Initialize Lua engine _once_ per document.
-  - Populate `data` (from options), `defs` (from symbols), `styles` (from symbols).
-  - Walk CST:
-    - `LuaExpr` (`$(...)`) -> `await runtime.evaluate(...)`.
-    - `@lua{...}` -> `await runtime.execute(...)`.
-    - `@def` -> ensure values are accessible in `defs` global.
-- **Output:** `Document` IR.
-
-**Files**
-
+- `src/bind/contracts.ts`
+- `src/bind/validator.ts`
 - `src/evaluate/evaluator.ts`
-- `src/pipeline/index.ts` (update to await the evaluator)
+- `src/types/document-ir.ts` (only if structure extension is required)
 
 **Done when**
 
-- `ldoc parse fixtures/minimal.ldoc` produces valid IR with `$()` resolved.
+- `compileToDocument` on a columns fixture produces a `Section` node.
+- `@footer{ @center[...] }` produces no misplaced-directive warning.
+- header/footer content appears in metadata, not in `document.blocks`.
 
----
+### Commit 22.1 - `test(v3-layout): add evaluator regression tests for layout mappings`
 
-# Phase G — DOCX emitter adaptation
-
-### Commit 16 — `feat(v3-emit): wire v3 pipeline parse->bind->eval->emit` ✅
-
-**Status**: ✅ Complete
+**Context**: prevent semantic regressions while wiring emit and imports.
 
 **Changes**
 
-- Update `src/pipeline/index.ts` to handle the `async` nature of the new Evaluator.
-- Ensure `src/emit/docx` handles the IR produced by v3 evaluator.
+- Add evaluator tests for:
+  - `@columns` -> `Section`
+  - `@box` -> `Blockquote`
+  - `@header/@footer` metadata extraction
+  - no header/footer content leakage into body blocks
+- Add contract validation test for footer regions (`@footer { @center[...] }`).
 
 **Files**
 
+- `src/evaluate/*.test.ts` (new)
+- `src/bind/*.test.ts` (new or existing test location)
+
+**Done when**
+
+- regressions in layout semantics fail before DOCX emit stage.
+
+---
+
+### Commit 23 - `feat(v3-data): implement includes and params names validation`
+
+**Context**: include resolution is stubbed; params contracts are not enforced.
+
+**Changes**
+
+- Implement import resolution in `src/bind/resolver.ts`:
+  - resolve relative include paths from source path.
+  - parse included files and collect diagnostics.
+  - detect import cycles and emit diagnostics.
+- Update pipeline wiring in `src/pipeline/index.ts` to use resolver path for compile flows.
+- Update `src/evaluate/evaluator.ts` include behavior:
+  - evaluate `@include(path: ..., args: {...})` by loading and evaluating child CST.
+  - enforce v3-core params contract using `@params(names: [...])` only.
+  - validate required names in `args` and emit diagnostics for missing keys.
+  - isolate scope so included definitions do not mutate caller scope unless explicitly intended.
+
+**Files**
+
+- `src/bind/resolver.ts`
 - `src/pipeline/index.ts`
+- `src/evaluate/evaluator.ts`
 
 **Done when**
 
-- `ldoc compile fixtures/minimal.ldoc` produces a valid `.docx`.
-
-### Commit 17 — `fix(docx): list items support multi-paragraph bodies` ✅
-
-**Status**: ✅ Complete
-
-**Changes**
-
-- Update `src/emit/docx/nodes.ts` (specifically `emitListItem`) to handle `ListItem` nodes that contain multiple child blocks.
-
-**Files**
-
-- `src/emit/docx/nodes.ts`
-
-### Commit 18 — `feat(v3-table): implement @table/@row emission path` ✅
-
-**Status**: ✅ Complete
-
-**Changes**
-
-- Ensure `src/evaluate/evaluator.ts` transforms `@table` directives into `Table` IR nodes.
-- Update `src/emit/docx/tables.ts` to handle the specific structure of v3 tables.
-
-**Files**
-
-- `src/evaluate/evaluator.ts`
-- `src/emit/docx/tables.ts`
+- included content renders in parent output.
+- missing required include arg (from `@params(names: [...])`) emits an error diagnostic.
+- simple import cycle is reported once with stable diagnostic output.
 
 ---
 
-# Phase H — CLI refresh & LSP MVP
+# Phase J - LSP parity for v3 directives
 
-### Commit 19 — `chore(cli): update init template to v3 syntax` ✅
+### Commit 24 - `feat(lsp): implement directive autocompletion from contracts`
 
-**Status**: ✅ Complete
-
-**Files**
-
-- `src/cli/index.ts`
-
-### Commit 20 — `feat(lsp): emit v3 diagnostics from pipeline` ✅
-
-**Status**: ✅ Complete
+**Context**: completion currently uses local hardcoded list and stub behavior.
 
 **Changes**
 
-- Update `src/lsp/server.ts` to use the new pipeline functions.
-- Ensure diagnostics from Parse/Bind/Eval phases are forwarded to the client.
+- Update `src/lsp/completion.ts`:
+  - source directive names from `knownDirectiveNames()`.
+  - keep snippet support for structural directives (`@table`, `@columns`, `@header`, `@footer`).
+  - preserve prefix filtering and non-directive fallback behavior.
 
 **Files**
 
-- `src/lsp/server.ts`
+- `src/lsp/completion.ts`
+- `src/bind/contracts.ts` (only if completion metadata needs extension)
 
-### Commit 21 — `feat(lsp): go-to-definition for @def keys` ✅
+**Done when**
 
-**Status**: ✅ Complete
+- typing `@` shows contract-backed completion list.
+- new directive added to contracts appears in completion without extra wiring.
+
+---
+
+# Phase K - DOCX layout emission correctness
+
+### Commit 25 - `fix(docx-layout): compile Section IR into real DOCX sections`
+
+**Context**: section/columns data is not fully wired through emit path.
 
 **Changes**
 
-- Update `src/lsp/navigation.ts` to resolve symbols using the new `defs` map in `SymbolTable`.
+- Update `src/emit/docx/index.ts` and `src/emit/docx/sections.ts`:
+  - convert IR `Section` nodes into DOCX sections using `SectionBuilder.addColumns`.
+  - apply metadata headers/footers to section builder correctly.
+  - avoid flattening section boundaries during `emitBlocks` pass.
+- Update `src/emit/docx/nodes.ts` to keep section emission behavior consistent with document-level section construction.
 
 **Files**
 
-- `src/lsp/navigation.ts`
+- `src/emit/docx/index.ts`
+- `src/emit/docx/sections.ts`
+- `src/emit/docx/nodes.ts`
+- `src/types/document-ir.ts` (if footer config shape needs explicit separation)
+
+**Done when**
+
+- columns fixture creates DOCX with section column config in `word/document.xml`.
+- header/footer fixture emits corresponding header/footer references in section properties.
+
+---
+
+# Phase L - Validation harness (prevent regressions)
+
+### Commit 26 - `test(docx): add OOXML assertion harness`
+
+**Context**: current smoke checks build success only, not structural correctness.
+
+**Changes**
+
+- Add test helpers to unzip DOCX and inspect OOXML parts.
+- Add assertions for:
+  - section/column properties in `word/document.xml`.
+  - numbering schema in `word/numbering.xml`.
+  - style declarations in `word/styles.xml`.
+  - header/footer part linkage.
+
+**Files**
+
+- `src/emit/docx/*.test.ts` (new)
+- optional helper under `src/emit/docx/test-utils.ts`
+
+**Done when**
+
+- failing layout regressions are caught by automated tests without manual Word inspection.
+
+---
+
+### Commit 27 - `test(pipeline): add evaluator + include regression fixtures`
+
+**Context**: evaluator behavior for layout/include currently has no targeted tests.
+
+**Changes**
+
+- Add evaluator tests for:
+  - `@columns`, `@box`, `@header`, `@footer`, `@align` mappings.
+  - include + params names validation.
+- Extend fixture set with minimal layout/include fixtures.
+- Keep `dev-smoke` focused on end-to-end compile sanity (not replacing structural tests).
+
+**Files**
+
+- `src/evaluate/*.test.ts` (new)
+- `fixtures/*.ldoc` (additions)
+- `src/cli/dev-smoke.ts` (optional fixture list update)
+
+**Done when**
+
+- regressions in IR semantics fail tests before reaching emit.
+
+---
+
+# Phase M - DX and diagnostics polish
+
+### Commit 28 - `feat(lsp): reference lookup for @def usages`
+
+**Context**: references provider is still stubbed.
+
+**Changes**
+
+- Implement `getReferences` in `src/lsp/navigation.ts` for `@def` keys in args/style refs.
+- Ensure include-declaration toggle works for LSP clients.
+
+**Done when**
+
+- find-references returns declaration and usage locations consistently.
+
+---
+
+### Commit 29 - `feat(diagnostics): add directive suggestions and fix-it hints`
+
+**Context**: diagnostics are correct but not always actionable.
+
+**Changes**
+
+- add did-you-mean suggestions for unknown directives.
+- add targeted guidance for misplaced header/footer region directives.
+
+**Done when**
+
+- common authoring mistakes produce actionable diagnostics with stable suggestion ordering.
+
+---
+
+## Deferred to sugar backlog (not in v3 core path)
+
+- typed include params (`SG-001`)
+- direct expression args (`SG-002`)
+- markdown emphasis sugar (`SG-004`)

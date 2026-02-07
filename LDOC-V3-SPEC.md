@@ -669,6 +669,26 @@ Recommended stages:
 - Markdown headings (`#`) and inline emphasis (`**bold**`, etc.) are deferred (may be added as pure sugar later).
 - Dynamic “Lua-defined directives” (metamethod directives, user-defined directive surfaces) are deferred; directives are static/registered for LSP and diagnostics quality.
 - Control flow directives (`@if`, `@for`) are deferred until scoping + evaluation semantics are finalized (they can be reintroduced later powered by Lua).
+- Typed include params (e.g. `@params(name: "string")`) are deferred; v3 core uses name-list params only (`@params(names: [...])`).
+- Expression-valued args (direct `$(...)` inside directive args objects) are deferred for v3 core.
+
+### 19.1 Tracking deferred sugar and UX ideas
+
+Implementations SHOULD keep a separate backlog document (for example, `SUGAR_BACKLOG.md`) for non-normative sugar/UX proposals.
+
+Rules:
+
+- The spec defines what is guaranteed now.
+- The backlog tracks what may be added later.
+- Backlog items MUST include desugaring target and diagnostic behavior before graduation to core.
+
+### 19.2 Candidate sugar/UX backlog categories (non-normative)
+
+- Directive aliases (for example `@center{...}` sugar for `@align(value: "center"){...}`).
+- Inline emphasis sugar mapped to existing style channels.
+- Typed include param contracts and optionality (`?`) semantics.
+- Expression args wrappers and evaluation timing rules.
+- Quality-of-life diagnostics (unknown directive suggestions, fix-it hints for misplaced region directives).
 
 ---
 
@@ -705,18 +725,8 @@ Recommended stages:
 
 @include(
   path: "clauses/signature.ldoc",
-  args: { name: $(data.party_a.name), title: $(data.party_a.title) }
+  args: { name: "Michael Powell", title: "Grantor" }
 )
 ```
 
-> Note: the last include shows `$(...)` as a value in args. Implementations MAY allow expression nodes in args values directly, or require string templating / a typed expression wrapper. If you want this in v3 core, we can standardize it as: **args values may be either JSON5 values or embedded expressions `$(...)`**, evaluated in value context.
-
----
-
-If you want the spec to be _fully_ closed on that last point (expressions inside args values), tell me which of these you want as the v3 rule and I’ll lock it in everywhere:
-
-1. **Allow `$(...)` directly as an args value** (most ergonomic, slightly more parsing)
-2. **Only allow strings + interpolation** (simplest parsing, stringly)
-3. **Allow a typed wrapper** like `{ $expr: "..." }` (pure JSON5, more verbose)
-
-Next, once you say which one, we can do the integration plan doc (Neovim-only LSP + tree-sitter injection + Lua runtime stubs) and a “what code gets binned vs reused” checklist.
+For v3 core, directive args are JSON5 values only. Direct `$(...)` values inside args are deferred and tracked as future sugar (see §19).
