@@ -76,18 +76,17 @@ async function initCommand(args: string[]): Promise<void> {
   const targetDir = args[0] || ".";
   const { join } = await import("node:path");
 
-  const template = `@document
-  title: "Untitled Document"
-  author: "Author Name"
-@end
+  const template = `@document(
+  title: "Untitled Document",
+  author: "Author Name",
+)
 
-# Introduction
+@style(p: { use: "Heading1" })[Introduction]
 
-This is a new LDOC document.
+[This is a new LDOC v3 document.]
 
-## Section 1
-
-Start writing here.
+@#[First numbered item.]
+@#[Second numbered item.]
 `;
 
   const filename = "document.ldoc";

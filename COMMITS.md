@@ -203,7 +203,9 @@
 
 # Phase H — CLI refresh & LSP MVP
 
-### Commit 19 — `chore(cli): update init template to v3 syntax`
+### Commit 19 — `chore(cli): update init template to v3 syntax` ✅
+
+**Status**: ✅ Complete
 
 **Files**
 
