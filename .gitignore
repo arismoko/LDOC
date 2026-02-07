@@ -35,3 +35,11 @@ fidelity/.env
 ~$*
 .~lock.*#
 references/
+
+# Local planning/notes (kept out of remote)
+RALPH.bak
+COMMITS.md
+YAGNI.md
+SUGAR_BACKLOG.md
+LSP.md
+package-lock.json
