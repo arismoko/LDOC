@@ -10,5 +10,5 @@
  * Output: Document IR with NO DIRECTIVES remaining - only content.
  */
 
-export { evaluate, type EvaluateOptions, type EvaluatorContext } from "./evaluator.ts";
+export { evaluate, type EvaluateOptions } from "./evaluator.ts";
 export { parseDocumentConfig, configToPageLayout, type DocumentConfig, type StyleConfig } from "./document-config.ts";

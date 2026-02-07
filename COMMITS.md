@@ -127,6 +127,8 @@
 
 ### Commit 15 — `feat(v3-eval): rewrite evaluator to produce Document IR`
 
+**Status**: ✅ Complete
+
 **Changes**
 
 - Rewrite `src/evaluate/evaluator.ts` completely.

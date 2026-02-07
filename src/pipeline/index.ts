@@ -76,11 +76,11 @@ type PipelineStage = "parse" | "bind" | "evaluate" | "style";
  * Run pipeline up to (and including) the specified stage.
  * Throws on errors in parse/bind stages.
  */
-function runPipelineTo(
+async function runPipelineTo(
   source: string,
   stopAt: PipelineStage,
   options: CompileOptions = {}
-): PipelineState {
+): Promise<PipelineState> {
   const state: PipelineState = { diagnostics: [] };
 
   // Phase 1: Parse
@@ -108,7 +108,7 @@ function runPipelineTo(
   if (stopAt === "bind") return state;
 
   // Phase 3: Evaluate
-  const evalResult = evaluate(state.cst, state.symbols, {
+  const evalResult = await evaluate(state.cst, state.symbols, {
     variables: options.variables,
   });
   state.diagnostics.push(...evalResult.diagnostics);
@@ -147,7 +147,7 @@ export async function compile(
   options: CompileOptions = {}
 ): Promise<CompileResult> {
   // Run pipeline through style phase
-  const state = runPipelineTo(source, "style", options);
+  const state = await runPipelineTo(source, "style", options);
   
   // Phase 5: Emit (async)
   const emitResult = await emit(state.styledDocument!, options.emit);
@@ -190,7 +190,26 @@ export async function tryCompile(
 export function parseAndBind(
   source: string
 ): { cst: CSTDocument; symbols: SymbolTable; diagnostics: Diagnostic[] } {
-  const state = runPipelineTo(source, "bind");
+  const state: PipelineState = { diagnostics: [] };
+
+  const parseResult = parseSource(source);
+  state.diagnostics.push(...parseResult.diagnostics);
+  state.cst = parseResult.cst;
+
+  const parseErrors = parseResult.diagnostics.filter((d) => d.severity === "error");
+  if (parseErrors.length > 0) {
+    throw new Error(`Parse failed: ${parseErrors[0]?.message ?? "unknown error"}`);
+  }
+
+  const bindResult = bindSync(state.cst);
+  state.diagnostics.push(...bindResult.diagnostics);
+  state.symbols = bindResult.symbols;
+
+  const bindErrors = bindResult.diagnostics.filter((d) => d.severity === "error");
+  if (bindErrors.length > 0) {
+    throw new Error(`Binding failed: ${bindErrors[0]?.message ?? "unknown error"}`);
+  }
+
   return {
     cst: state.cst!,
     symbols: state.symbols!,
@@ -202,11 +221,11 @@ export function parseAndBind(
  * Full pipeline up to Document IR (no DOCX generation).
  * Synchronous - useful for testing and tooling.
  */
-export function compileToDocument(
+export async function compileToDocument(
   source: string,
   options: CompileOptions = {}
-): { document: Document; diagnostics: Diagnostic[] } {
-  const state = runPipelineTo(source, "evaluate", options);
+): Promise<{ document: Document; diagnostics: Diagnostic[] }> {
+  const state = await runPipelineTo(source, "evaluate", options);
   return {
     document: state.document!,
     diagnostics: state.diagnostics,
@@ -217,11 +236,11 @@ export function compileToDocument(
  * Full pipeline up to StyledDocument (no DOCX packing).
  * Synchronous - useful for testing style resolution.
  */
-export function compileToStyledDocument(
+export async function compileToStyledDocument(
   source: string,
   options: CompileOptions = {}
-): { styledDocument: StyledDocument; diagnostics: Diagnostic[] } {
-  const state = runPipelineTo(source, "style", options);
+): Promise<{ styledDocument: StyledDocument; diagnostics: Diagnostic[] }> {
+  const state = await runPipelineTo(source, "style", options);
   return {
     styledDocument: state.styledDocument!,
     diagnostics: state.diagnostics,
