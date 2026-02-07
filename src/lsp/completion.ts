@@ -14,6 +14,7 @@ import {
 } from "vscode-languageserver";
 import type { CSTDocument } from "../types/cst.ts";
 import type { SymbolTable } from "../types/symbols.ts";
+import { knownDirectiveNames } from "../bind/contracts.ts";
 
 // =============================================================================
 // Completion Context Types
@@ -85,15 +86,19 @@ function completeDirectives(prefix: string, options: CompletionOptions): Complet
   const items: CompletionItem[] = [];
   const snippet = options.snippetSupport;
 
-  for (const d of DIRECTIVES) {
-    if (prefix && !d.name.startsWith(prefix)) continue;
+  for (const name of knownDirectiveNames()) {
+    if (prefix && !name.startsWith(prefix)) continue;
+    const metadata = DIRECTIVE_INFO[name];
+    const kind = metadata?.kind ?? CompletionItemKind.Keyword;
+    const detail = metadata?.detail ?? "LDOC directive";
+    const directiveSnippet = metadata?.snippet;
 
-    const useSnippet = d.snippet && snippet;
+    const useSnippet = Boolean(directiveSnippet && snippet);
     items.push({
-      label: `@${d.name}`,
-      kind: d.kind,
-      detail: d.detail,
-      insertText: useSnippet ? d.snippet : `@${d.name}`,
+      label: `@${name}`,
+      kind,
+      detail,
+      insertText: useSnippet ? directiveSnippet : `@${name}`,
       insertTextFormat: useSnippet ? InsertTextFormat.Snippet : InsertTextFormat.PlainText,
     });
   }
@@ -106,28 +111,45 @@ function completeDirectives(prefix: string, options: CompletionOptions): Complet
 // =============================================================================
 
 interface DirectiveInfo {
-  name: string;
   kind: CompletionItemKind;
   detail: string;
   snippet?: string;
 }
 
-const DIRECTIVES: DirectiveInfo[] = [
-  // Structure
-  { name: "document", kind: CompletionItemKind.Struct, detail: "Document configuration" },
-  { name: "def", kind: CompletionItemKind.Function, detail: "Define bindings" },
-  { name: "include", kind: CompletionItemKind.Module, detail: "Include another .ldoc file" },
-  { name: "style", kind: CompletionItemKind.Operator, detail: "Apply styling" },
-  { name: "lua", kind: CompletionItemKind.Keyword, detail: "Lua statement block" },
-
-  // Layout
-  { name: "pagebreak", kind: CompletionItemKind.Keyword, detail: "Page break" },
-  { name: "columns", kind: CompletionItemKind.Keyword, detail: "Columns region" },
-  { name: "break", kind: CompletionItemKind.Keyword, detail: "Column break" },
-  { name: "header", kind: CompletionItemKind.Keyword, detail: "Page header" },
-  { name: "footer", kind: CompletionItemKind.Keyword, detail: "Page footer" },
-  { name: "anchor", kind: CompletionItemKind.Reference, detail: "Cross-reference anchor" },
-  { name: "table", kind: CompletionItemKind.Keyword, detail: "Table block" },
-  { name: "box", kind: CompletionItemKind.Keyword, detail: "Box block" },
-  { name: "align", kind: CompletionItemKind.Keyword, detail: "Alignment block" },
-];
+const DIRECTIVE_INFO: Record<string, DirectiveInfo> = {
+  document: { kind: CompletionItemKind.Struct, detail: "Document configuration" },
+  def: { kind: CompletionItemKind.Function, detail: "Define bindings" },
+  include: { kind: CompletionItemKind.Module, detail: "Include another .ldoc file" },
+  style: { kind: CompletionItemKind.Operator, detail: "Apply styling" },
+  lua: { kind: CompletionItemKind.Keyword, detail: "Lua statement block" },
+  pagebreak: { kind: CompletionItemKind.Keyword, detail: "Page break" },
+  columns: {
+    kind: CompletionItemKind.Keyword,
+    detail: "Columns region",
+    snippet: '@columns(count: ${1:2}, gap: "${2:0.5in}"){\n  $0\n}',
+  },
+  break: { kind: CompletionItemKind.Keyword, detail: "Column break" },
+  header: {
+    kind: CompletionItemKind.Keyword,
+    detail: "Page header",
+    snippet: "@header{\n  @left[$1]\n}",
+  },
+  footer: {
+    kind: CompletionItemKind.Keyword,
+    detail: "Page footer",
+    snippet: "@footer{\n  @center[$1]\n}",
+  },
+  anchor: { kind: CompletionItemKind.Reference, detail: "Cross-reference anchor" },
+  table: {
+    kind: CompletionItemKind.Keyword,
+    detail: "Table block",
+    snippet: "@table{\n  @row(cells: [\"$1\"])\n}",
+  },
+  box: { kind: CompletionItemKind.Keyword, detail: "Box block" },
+  align: { kind: CompletionItemKind.Keyword, detail: "Alignment block" },
+  params: { kind: CompletionItemKind.Keyword, detail: "Declare include parameters" },
+  row: { kind: CompletionItemKind.Keyword, detail: "Table row" },
+  left: { kind: CompletionItemKind.Keyword, detail: "Header/footer left region" },
+  center: { kind: CompletionItemKind.Keyword, detail: "Header/footer center region" },
+  right: { kind: CompletionItemKind.Keyword, detail: "Header/footer right region" },
+};

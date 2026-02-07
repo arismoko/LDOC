@@ -170,7 +170,7 @@
 
 # Phase J - LSP parity for v3 directives
 
-### Commit 24 - `feat(lsp): implement directive autocompletion from contracts`
+### Commit 24 - `feat(lsp): implement directive autocompletion from contracts` ✅
 
 **Context**: completion currently uses local hardcoded list and stub behavior.
 
@@ -198,6 +198,13 @@
 ### Commit 25 - `fix(docx-layout): compile Section IR into real DOCX sections`
 
 **Context**: section/columns data is not fully wired through emit path.
+
+**Issues found while planning (must fix in this commit):**
+
+- `emitSection` currently flattens section content and drops section semantics.
+- `SectionBuilder.addColumns` is implemented but not called from document compilation path.
+- header/footer config lookup is split between metadata and section fallback with dead helper imports.
+- column breaks can be emitted even when no real section columns are emitted, producing invalid layout intent.
 
 **Changes**
 
