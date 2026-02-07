@@ -15,24 +15,20 @@ async function executeLuaDirective(node: Directive, ctx: EvalContext): Promise<v
     return;
   }
 
-  let chunk: string;
-
-  if (node.body.kind === "RawBody") {
-    // Raw body — text was extracted by balanced-brace scanner (Spec §7.2)
-    chunk = node.body.text;
-  } else {
-    // Structural body fallback (shouldn't happen with registry-driven parsing,
-    // but handle gracefully for forward compatibility)
-    if (
-      node.body.children.length !== 1 ||
-      node.body.children[0]?.kind !== "ParagraphBlock"
-    ) {
-      return;
-    }
-    chunk = node.body.children[0].inlines
-      .map((inline) => (inline.kind === "InlineText" ? inline.text : ""))
-      .join("");
+  if (node.body.kind !== "RawBody") {
+    // Parser rejects @lua[...] sugar and always produces RawBody for @lua{...}.
+    // If we somehow get a non-RawBody, it's a pipeline invariant violation.
+    ctx.diagnostics.push(
+      createError(
+        DiagnosticCode.PARSE_ERROR,
+        `Internal invariant violation: @lua body must be RawBody, got ${node.body.kind}. Lua block was not executed.`,
+        node.loc,
+      ),
+    );
+    return;
   }
+
+  const chunk = node.body.text;
 
   if (!chunk.trim()) {
     return;

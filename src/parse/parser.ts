@@ -20,7 +20,7 @@ import type {
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { error, warning, DiagnosticCode } from "../types/diagnostics.ts";
 import { loc } from "../types/source-location.ts";
-import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
+import { parseArgsObject, type ArgsObject } from "../shared/args.ts";
 import { getDirectiveContract } from "../bind/contracts.ts";
 
 /**
@@ -45,15 +45,11 @@ function parseArgsToObject(argsRaw: string, location: ReturnType<typeof loc>, di
   const inner = argsRaw.slice(1, -1); // strip parens
   const wrapped = `{${inner}}`;
   const result = parseArgsObject(wrapped, location);
-  if (isArgsParseError(result)) {
+  if (!result.ok) {
     diagnostics.push(result.error);
     return {};
   }
-  return result;
-}
-
-function isArgsParseError(result: ArgsObject | ParseArgsResult): result is ParseArgsResult {
-  return "ok" in result && (result as ParseArgsResult).ok === false;
+  return result.value;
 }
 
 /**
@@ -237,15 +233,17 @@ function parseDirective(ctx: ParseContext): Directive | null {
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
-    args = parseArgsToObject(argsRaw, loc(startToken.line, startToken.column), ctx.diagnostics);
+    args = parseArgsToObject(argsRaw, loc(nextToken.line, nextToken.column), ctx.diagnostics);
     skipWhitespaceText(ctx);
   }
+
+  // Look up directive contract once for body-syntax decisions
+  const contract = getDirectiveContract(name);
 
   // Parse body if present and it's a structural opener
   const bodyToken = peekToken(ctx);
   if (bodyToken && bodyToken.type === TokenType.LBRACE) {
     // Check if this directive uses raw body syntax (e.g. @lua — Spec §7.2)
-    const contract = getDirectiveContract(name);
     if (contract?.bodySyntax === "raw") {
       const rawBody = parseRawBody(ctx, contract.rawFormat ?? "lua");
       return {
@@ -264,6 +262,25 @@ function parseDirective(ctx: ParseContext): Directive | null {
   // Sugar form @name[...]
   const paraToken = peekToken(ctx);
   if (paraToken && paraToken.type === TokenType.PARA_OPEN) {
+    // Raw-body directives must use brace syntax — paragraph sugar is invalid (Spec §7.2)
+    if (contract?.bodySyntax === "raw") {
+      ctx.diagnostics.push(
+        warning(
+          DiagnosticCode.INVALID_DIRECTIVE,
+          `@${name} requires brace syntax {...}, not paragraph sugar [...]`,
+          loc(startToken.line, startToken.column),
+        ),
+      );
+      // Skip the paragraph block to avoid misinterpreting raw content
+      parseParagraphBlock(ctx);
+      return {
+        kind: "Directive",
+        loc: loc(startToken.line, startToken.column),
+        name,
+        argsRaw,
+        args,
+      };
+    }
     const para = parseParagraphBlock(ctx);
     if (para) {
       return {
@@ -594,7 +611,7 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
-    args = parseArgsToObject(argsRaw, loc(startToken.line, startToken.column), ctx.diagnostics);
+    args = parseArgsToObject(argsRaw, loc(nextToken.line, nextToken.column), ctx.diagnostics);
     skipWhitespaceText(ctx);
   }
 
@@ -862,7 +879,7 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
-    args = parseArgsToObject(argsRaw, startLoc, ctx.diagnostics);
+    args = parseArgsToObject(argsRaw, loc(nextToken.line, nextToken.column), ctx.diagnostics);
     skipWhitespaceBeforeDelimiter(ctx, TokenType.LBRACE);
   }
 

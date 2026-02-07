@@ -1,12 +1,19 @@
-import { error } from '../types/diagnostics';
+import { error, DiagnosticCode } from '../types/diagnostics';
 import type { Diagnostic } from '../types/diagnostics';
 import type { SourceLocation } from '../types/source-location.ts';
 
-export interface ParseArgsResult {
+export interface ParseArgsError {
   ok: false;
   raw: string;
   error: Diagnostic;
 }
+
+export interface ParseArgsSuccess {
+  ok: true;
+  value: ArgsObject;
+}
+
+export type ParseArgsResult = ParseArgsSuccess | ParseArgsError;
 
 export interface ArgsObject {
   [key: string]: JSON5Value;
@@ -14,41 +21,56 @@ export interface ArgsObject {
 
 export type JSON5Value = string | number | boolean | null | ArgsObject | ArgsObject[];
 
-export function parseArgsObject(argsRaw: string, location: SourceLocation): ArgsObject | ParseArgsResult {
+export function parseArgsObject(argsRaw: string, location: SourceLocation): ParseArgsResult {
   try {
     let trimmed = argsRaw.trim();
     if (trimmed === '') {
-      return {};
+      return { ok: true, value: {} };
     }
 
     if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
       return {
         ok: false,
         raw: argsRaw,
-        error: error('PARSE_ERROR', `Args must be enclosed in { }`, location),
+        error: error(DiagnosticCode.PARSE_ERROR, `Args must be enclosed in { }`, location),
       };
     }
 
-    trimmed = trimmed.slice(1, -1).trim();
+    const inner = trimmed.slice(1, -1);
+    const innerLeadingWS = inner.length - inner.trimStart().length;
+    trimmed = inner.trim();
     if (trimmed === '') {
-      return {};
+      return { ok: true, value: {} };
     }
 
     const result = parseJSON5Object(trimmed);
     if (!result.ok) {
+      // Rebase inner parser location to source coordinates.
+      // location points at the opening delimiter (LPAREN); inner column offsets
+      // are relative to the trimmed content after stripping delimiters and whitespace.
+      // Offset = 1 (opening paren) + leading whitespace inside parens.
+      const innerLoc = result.error?.location;
+      const rebasedLoc: SourceLocation = innerLoc
+        ? {
+            line: location.line,
+            column: location.column + 1 + innerLeadingWS + innerLoc.column,
+            endLine: location.line,
+            endColumn: location.column + 1 + innerLeadingWS + innerLoc.endColumn,
+          }
+        : location;
       return {
         ok: false,
         raw: argsRaw,
-        error: result.error || error('PARSE_ERROR', 'Failed to parse args', location),
+        error: error(result.error?.code ?? DiagnosticCode.PARSE_ERROR, result.error?.message ?? 'Failed to parse args', rebasedLoc),
       };
     }
 
-    return result.value || {};
+    return { ok: true, value: result.value || {} };
   } catch (err) {
     return {
       ok: false,
       raw: argsRaw,
-      error: error('PARSE_ERROR', err instanceof Error ? err.message : 'Failed to parse args', location),
+      error: error(DiagnosticCode.PARSE_ERROR, err instanceof Error ? err.message : 'Failed to parse args', location),
     };
   }
 }
@@ -81,7 +103,7 @@ interface ParseArrayResult extends ParseResultBase {
 }
 
 function parseJSON5Object(input: string): ParseJSON5Result {
-  const result: ArgsObject = {};
+  const result: ArgsObject = Object.create(null) as ArgsObject;
   let i = 0;
   const length = input.length;
 
@@ -110,17 +132,17 @@ function parseJSON5Object(input: string): ParseJSON5Result {
     if (!member) {
       return {
         ok: false,
-        error: error('PARSE_ERROR', 'Invalid member', { line: 1, column: 0, endLine: 1, endColumn: i }),
+        error: error(DiagnosticCode.PARSE_ERROR, 'Invalid member', { line: 1, column: 0, endLine: 1, endColumn: i }),
         end: i,
       };
     }
 
     const key = member.key;
     const keyText = key.text;
-    if (result.hasOwnProperty(keyText)) {
+    if (keyText in result) {
       return {
         ok: false,
-        error: error('DUPLICATE_DEFINITION', `Duplicate key "${keyText}"`, { line: 1, column: key.column, endLine: 1, endColumn: key.endColumn }),
+        error: error(DiagnosticCode.DUPLICATE_DEFINITION, `Duplicate key "${keyText}"`, { line: 1, column: key.column, endLine: 1, endColumn: key.endColumn }),
         end: i,
       };
     }
@@ -159,7 +181,7 @@ function parseMember(input: string, start: number): ParseMemberResult {
   if (i >= input.length || input[i] !== ':') {
     return {
       ok: false,
-      error: error('PARSE_ERROR', `Expected ":" after key "${keyResult.value.text}"`, { line: 1, column: keyResult.value.column, endLine: 1, endColumn: keyResult.value.endColumn }),
+      error: error(DiagnosticCode.PARSE_ERROR, `Expected ":" after key "${keyResult.value.text}"`, { line: 1, column: keyResult.value.column, endLine: 1, endColumn: keyResult.value.endColumn }),
       end: i,
       value: undefined,
     };
@@ -189,7 +211,7 @@ function parseKey(input: string, start: number): ParseKeyResult {
   if (i >= input.length) {
     return {
       ok: false,
-      error: error('PARSE_ERROR', 'Expected key name', { line: 1, column: start, endLine: 1, endColumn: start }),
+      error: error(DiagnosticCode.PARSE_ERROR, 'Expected key name', { line: 1, column: start, endLine: 1, endColumn: start }),
       end: i,
       value: { text: '', column: start, endColumn: start },
     };
@@ -214,7 +236,7 @@ function parseKey(input: string, start: number): ParseKeyResult {
     if (!foundEnd) {
       return {
         ok: false,
-        error: error('PARSE_ERROR', 'Unterminated quoted key', { line: 1, column: startPos, endLine: 1, endColumn: i }),
+        error: error(DiagnosticCode.PARSE_ERROR, 'Unterminated quoted key', { line: 1, column: startPos, endLine: 1, endColumn: i }),
         end: i,
         value: { text: '', column: startPos, endColumn: i },
       };
@@ -223,7 +245,7 @@ function parseKey(input: string, start: number): ParseKeyResult {
     if (!keyStr) {
       return {
         ok: false,
-        error: error('PARSE_ERROR', 'Empty key name', { line: 1, column: startPos + 1, endLine: 1, endColumn: i - 1 }),
+        error: error(DiagnosticCode.PARSE_ERROR, 'Empty key name', { line: 1, column: startPos + 1, endLine: 1, endColumn: i - 1 }),
         end: i,
         value: { text: '', column: startPos, endColumn: i },
       };
@@ -245,7 +267,7 @@ function parseKey(input: string, start: number): ParseKeyResult {
     if (keyStr === 'true' || keyStr === 'false' || keyStr === 'null') {
       return {
         ok: false,
-        error: error('PARSE_ERROR', `Unexpected literal "${keyStr}" as key name`, { line: 1, column: startPos, endLine: 1, endColumn: i }),
+        error: error(DiagnosticCode.PARSE_ERROR, `Unexpected literal "${keyStr}" as key name`, { line: 1, column: startPos, endLine: 1, endColumn: i }),
         end: i,
         value: { text: '', column: startPos, endColumn: i },
       };
@@ -259,7 +281,7 @@ function parseKey(input: string, start: number): ParseKeyResult {
 
   return {
     ok: false,
-    error: error('PARSE_ERROR', 'Expected quoted or unquoted key name', { line: 1, column: i, endLine: 1, endColumn: i + 1 }),
+    error: error(DiagnosticCode.PARSE_ERROR, 'Expected quoted or unquoted key name', { line: 1, column: i, endLine: 1, endColumn: i + 1 }),
     end: i,
     value: { text: '', column: i, endColumn: i + 1 },
   };
@@ -271,7 +293,7 @@ function parseValue(input: string, start: number): ParseValueResult {
   if (i >= input.length) {
     return {
       ok: false,
-      error: error('PARSE_ERROR', 'Expected value', { line: 1, column: start, endLine: 1, endColumn: start }),
+      error: error(DiagnosticCode.PARSE_ERROR, 'Expected value', { line: 1, column: start, endLine: 1, endColumn: start }),
       end: i,
       value: undefined,
     };
@@ -297,7 +319,7 @@ function parseValue(input: string, start: number): ParseValueResult {
     if (!foundEnd) {
       return {
         ok: false,
-        error: error('PARSE_ERROR', 'Unterminated string value', { line: 1, column: start, endLine: 1, endColumn: i }),
+        error: error(DiagnosticCode.PARSE_ERROR, 'Unterminated string value', { line: 1, column: start, endLine: 1, endColumn: i }),
         end: i,
         value: undefined,
       };
@@ -367,7 +389,7 @@ function parseValue(input: string, start: number): ParseValueResult {
     if (isNaN(num)) {
       return {
         ok: false,
-        error: error('PARSE_ERROR', 'Invalid number', { line: 1, column: numStart, endLine: 1, endColumn: i }),
+        error: error(DiagnosticCode.PARSE_ERROR, 'Invalid number', { line: 1, column: numStart, endLine: 1, endColumn: i }),
         end: i,
         value: undefined,
       };
@@ -377,7 +399,7 @@ function parseValue(input: string, start: number): ParseValueResult {
 
   return {
     ok: false,
-    error: error('PARSE_ERROR', 'Expected value', { line: 1, column: i, endLine: 1, endColumn: i + 1 }),
+    error: error(DiagnosticCode.PARSE_ERROR, 'Expected value', { line: 1, column: i, endLine: 1, endColumn: i + 1 }),
     end: i,
     value: undefined,
   };
@@ -428,7 +450,7 @@ function parseArray(input: string, start: number): ParseArrayResult {
 
   return {
     ok: false,
-    error: error('PARSE_ERROR', 'Unexpected end of array', { line: 1, column: start, endLine: 1, endColumn: length }),
+    error: error(DiagnosticCode.PARSE_ERROR, 'Unexpected end of array', { line: 1, column: start, endLine: 1, endColumn: length }),
     end: i,
     value: undefined,
   };

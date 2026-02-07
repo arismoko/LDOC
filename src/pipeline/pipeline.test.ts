@@ -410,3 +410,124 @@ describe("cross-file ref validation", () => {
     expect(diagnostics.some((d) => d.code === "B020")).toBe(true);
   });
 });
+
+// =============================================================================
+// Regression: isArgsParseError type guard (PR #4 Codex review)
+// =============================================================================
+
+describe("args parsing edge cases", () => {
+  test("@foo(ok: false) is valid args, not a parse error", () => {
+    const { cst, diagnostics } = parseSource("@foo(ok: false)");
+    const dir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "foo"
+    );
+    expect(dir).toBeDefined();
+    // args.ok should be the boolean false, not treated as parse failure
+    expect(dir!.args).toBeDefined();
+    expect(dir!.args!.ok).toBe(false);
+    // No parse diagnostics from args parsing itself
+    const parseDiags = diagnostics.filter((d) => d.code === "P006");
+    expect(parseDiags).toHaveLength(0);
+  });
+
+  test("@bar(ok: false, raw: 'test') is valid args with both keys", () => {
+    const { cst, diagnostics } = parseSource("@bar(ok: false, raw: 'test')");
+    const dir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "bar"
+    );
+    expect(dir).toBeDefined();
+    expect(dir!.args).toBeDefined();
+    expect(dir!.args!.ok).toBe(false);
+    expect(dir!.args!.raw).toBe("test");
+    const parseDiags = diagnostics.filter((d) => d.code === "P006");
+    expect(parseDiags).toHaveLength(0);
+  });
+});
+
+// =============================================================================
+// Regression: raw-body directives reject paragraph sugar (PR #4 Codex review)
+// =============================================================================
+
+describe("raw-body directive sugar rejection", () => {
+  test("@lua[...] emits P005 warning and drops body", () => {
+    const { cst, diagnostics } = parseSource("@lua[print('hello')]");
+    const luaDir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "lua"
+    );
+    expect(luaDir).toBeDefined();
+    // Body should NOT be attached — sugar form rejected
+    expect(luaDir!.body).toBeUndefined();
+    // Should have a P005 diagnostic about brace syntax
+    const sugarDiags = diagnostics.filter(
+      (d) => d.code === "P005" && d.message.includes("brace syntax")
+    );
+    expect(sugarDiags).toHaveLength(1);
+  });
+
+  test("@lua{...} still parses as RawBody (no regression)", () => {
+    const { cst, diagnostics } = parseSource("@lua{ print('hello') }");
+    const luaDir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "lua"
+    );
+    expect(luaDir).toBeDefined();
+    expect(luaDir!.body).toBeDefined();
+    expect(luaDir!.body.kind).toBe("RawBody");
+    // No P005 warnings
+    expect(diagnostics.filter((d) => d.code === "P005")).toHaveLength(0);
+  });
+
+  test("@lua(args)[...] rejects sugar and preserves args", () => {
+    const { cst, diagnostics } = parseSource("@lua(x: 1)[print('hello')]");
+    const luaDir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "lua"
+    );
+    expect(luaDir).toBeDefined();
+    // Args should still be parsed
+    expect(luaDir!.args).toBeDefined();
+    // Body should be dropped (sugar rejected)
+    expect(luaDir!.body).toBeUndefined();
+    // Should have P005 warning
+    expect(diagnostics.some((d) => d.code === "P005" && d.message.includes("brace syntax"))).toBe(true);
+  });
+
+  test("unknown directive with [...] sugar is not rejected as raw-body", () => {
+    const { cst, diagnostics } = parseSource("@custom[Hello]");
+    const dir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "custom"
+    );
+    expect(dir).toBeDefined();
+    // Body SHOULD be attached — unknown directives don't have raw-body contract
+    expect(dir!.body).toBeDefined();
+    expect(dir!.body.kind).toBe("StructuralBody");
+    // No P005 warnings
+    expect(diagnostics.filter((d) => d.code === "P005")).toHaveLength(0);
+  });
+});
+
+// =============================================================================
+// Regression: args parse error location rebased to args span (PR #4 oracle review)
+// =============================================================================
+
+describe("args parse error location precision", () => {
+  test("error column points into args span, not at directive start", () => {
+    // Source: @foo(a: a: 1)
+    // The duplicate colon makes "a: a: 1" fail — key "a" parsed, value "a" parsed,
+    // then remaining ": 1" is unexpected. The error column must be past the LPAREN,
+    // not at the directive start (@).
+    const { diagnostics } = parseSource("@foo(a: a: 1)");
+    const parseDiags = diagnostics.filter((d) => d.code === "P006");
+    expect(parseDiags).toHaveLength(1);
+    // LPAREN is at col 4 (0-based). Error must point past it into the args content.
+    expect(parseDiags[0]!.location.column).toBeGreaterThan(4);
+  });
+
+  test("duplicate key error points at the duplicate key position", () => {
+    // Source: @foo(x: 1, x: 2)
+    // "x" first defined, "x" duplicate — error should point at second "x"
+    const { diagnostics } = parseSource("@foo(x: 1, x: 2)");
+    const dupDiags = diagnostics.filter((d) => d.code === "B004");
+    expect(dupDiags).toHaveLength(1);
+    // Second "x" is at col 11 (0-based). Error must be past LPAREN (col 4).
+    expect(dupDiags[0]!.location.column).toBeGreaterThan(4);
+  });
+});

@@ -81,6 +81,56 @@ Full architectural audit landed 7 issues covering every compiler phase. Evaluato
 
 **Done when**: All 10 success criteria in `PRESCRIPTION.md` are met (109+ tests, 0 type errors, all architectural invariants enforced).
 
+### Review fix rounds (post-prescription)
+
+#### Round 1 — `1a0e845` (Codex review)
+- Cross-file anchor resolution: `src/bind/resolver.ts` exposes `parsedDocuments`, binder collects anchors from included files.
+- Emitter fallback: `src/emit/docx/nodes.ts` restored `ctx.bookmarks.has(anchorId)` guard in `emitCrossRef`.
+- Removed dead `ArgsObject` import from `src/bind/binder.ts`.
+
+#### Round 2 — `04f88dc` (oracle pre-review)
+- Removed dead `symbols` field from `ResolveResult`/`ImportResolver`.
+- Added recursive `deepFreeze` for `DefSymbol.value` in `src/types/symbols.ts`.
+- Validate refs for included docs too in `src/bind/binder.ts`.
+- Malformed `@anchor` emits warning instead of silent skip.
+- Cross-file ref regression tests + nested def-value freeze test.
+
+#### Round 3 — `fbc5121` (oracle pre-review)
+- Removed unused CST variants from `src/types/cst.ts` (Table, TableRow, LayoutDirective, etc.).
+- Added `BinderOptions` flags (`validateDirectives`, `validateRefs`) to `src/bind/binder.ts`.
+- Fixed nested-include false B009 warnings in `src/evaluate/directives/block-include.ts`.
+- Added tests for include-file directive validation (B020) and nested include false warnings.
+
+#### Round 4 — pending commit (Codex review + oracle pre-review)
+
+**Tagged union for `ParseArgsResult`** (P1 — Codex review):
+- `isArgsParseError` type guard checked `"ok" in result` which false-positived on user args like `@foo(ok: false)`.
+- Replaced untagged `ArgsObject | ParseArgsResult` return with proper discriminated union `ParseArgsSuccess | ParseArgsError` on `ok` field.
+- Removed dead `isArgsParseError` function.
+
+**Raw-body sugar rejection** (P1 — Codex review):
+- `@lua[...]` paragraph sugar bypassed the raw parser entirely — Lua code silently treated as structural body.
+- Parser now rejects `@lua[...]` with P005 warning and drops body. `@lua{...}` unchanged.
+- Hoisted `getDirectiveContract(name)` above both body branches (DRY fix).
+
+**Dead code removal** (P0):
+- Removed unreachable StructuralBody fallback in `block-lua.ts` — parser always produces RawBody for `@lua{...}` and rejects `@lua[...]`.
+- Non-RawBody path now emits diagnostic error for pipeline invariant violation instead of silent return.
+
+**Prototype safety** (P1 — oracle pre-review):
+- `parseJSON5Object` uses `Object.create(null)` — prevents prototype pollution / `hasOwnProperty` shadowing.
+- `hasOwnProperty(keyText)` replaced with `keyText in result`.
+
+**Diagnostic location rebasing** (P1 — oracle pre-review):
+- All 3 `parseArgsToObject` callsites now pass LPAREN token location instead of directive start.
+- Inner JSON5 parser column offsets rebased to source-file coordinates.
+- Inner error code preserved through rebase (`result.error?.code ?? DiagnosticCode.PARSE_ERROR`).
+
+**Bare string diagnostic codes** (P1 — discovered during fix):
+- All 16 bare `'PARSE_ERROR'`/`'DUPLICATE_DEFINITION'` strings in `args.ts` replaced with `DiagnosticCode.X` constants.
+
+**Tests**: 8 new regression tests (151 total, 346 expect() calls).
+
 ---
 
 # 5. PR: Professional output polish
@@ -125,6 +175,7 @@ Deferred from PR #3 review. `@document(orientation: "landscape")` is parsed but 
 
 ## Deferred (not in v3 core path)
 
+- **Multiline args diagnostic locations**: args error rebasing hardcodes `line: location.line` — for multiline args spanning newlines, inner diagnostics may point to the wrong line. Single-line args (the 99% case) are correct. Needs a `advanceLocation` helper that walks the source text to map offset → line:column.
 - Typed include params (`SG-001`)
 - Direct expression args (`SG-002`)
 - Markdown emphasis sugar (`SG-004`)
