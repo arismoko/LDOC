@@ -20,7 +20,7 @@ import type { Diagnostic } from "../types/diagnostics.ts";
 import { warning, DiagnosticCode } from "../types/diagnostics.ts";
 import {
   getDirectiveContract,
-  isKnownDirective,
+  knownDirectiveNames,
   type DirectiveContext,
 } from "./contracts.ts";
 
@@ -94,14 +94,7 @@ function validateDirective(dir: Directive, state: ValidationState): void {
   const contract = getDirectiveContract(dir.name);
 
   if (!contract) {
-    // Unknown directive — produce a warning (Spec §5.4)
-    state.diagnostics.push(
-      warning(
-        UNKNOWN_DIRECTIVE,
-        `Unknown directive '@${dir.name}'`,
-        dir.loc,
-      ),
-    );
+    state.diagnostics.push(unknownDirectiveDiagnostic(dir.name, dir.loc));
     // Still validate body if present (recover and continue)
     if (dir.body) {
       const childState: ValidationState = {
@@ -116,13 +109,7 @@ function validateDirective(dir: Directive, state: ValidationState): void {
 
   // Check context constraints
   if (!contract.allowedIn.includes(state.context)) {
-    state.diagnostics.push(
-      warning(
-        MISPLACED_DIRECTIVE,
-        `'@${dir.name}' is not allowed in ${state.context} context`,
-        dir.loc,
-      ),
-    );
+    state.diagnostics.push(misplacedDirectiveDiagnostic(dir.name, state.context, dir.loc));
   }
 
   // Check parent directive constraint
@@ -131,11 +118,7 @@ function validateDirective(dir: Directive, state: ValidationState): void {
     const allowedParents = contract.parentDirectives ?? [contract.parentDirective!];
     if (!allowedParents.includes(parent ?? "")) {
       state.diagnostics.push(
-        warning(
-          MISPLACED_DIRECTIVE,
-          `'@${dir.name}' must appear inside ${allowedParents.map((name) => `'@${name}'`).join(" or ")}`,
-          dir.loc,
-        ),
+        misplacedParentDiagnostic(dir.name, allowedParents, dir.loc),
       );
     }
   }
@@ -174,13 +157,7 @@ function validateInlineDirective(dir: InlineDirective, state: ValidationState): 
   const contract = getDirectiveContract(dir.name);
 
   if (!contract) {
-    state.diagnostics.push(
-      warning(
-        UNKNOWN_DIRECTIVE,
-        `Unknown directive '@${dir.name}'`,
-        dir.loc,
-      ),
-    );
+    state.diagnostics.push(unknownDirectiveDiagnostic(dir.name, dir.loc));
     // Still validate body inlines
     if (dir.body) {
       validateParagraphInlines(dir.body, state);
@@ -203,4 +180,95 @@ function validateInlineDirective(dir: InlineDirective, state: ValidationState): 
   if (dir.body) {
     validateParagraphInlines(dir.body, state);
   }
+}
+
+function levenshtein(a: string, b: string): number {
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const dp: number[][] = Array.from({ length: rows }, (_, i) =>
+    Array.from({ length: cols }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+
+  for (let i = 1; i < rows; i++) {
+    for (let j = 1; j < cols; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i]![j] = Math.min(
+        dp[i - 1]![j]! + 1,
+        dp[i]![j - 1]! + 1,
+        dp[i - 1]![j - 1]! + cost,
+      );
+    }
+  }
+
+  return dp[rows - 1]![cols - 1]!;
+}
+
+function suggestDirectiveName(input: string): string | null {
+  const candidates = knownDirectiveNames()
+    .map((name) => ({ name, distance: levenshtein(input, name) }))
+    .sort((a, b) => a.distance - b.distance || a.name.localeCompare(b.name));
+
+  const best = candidates[0];
+  if (!best || best.distance > 2) {
+    return null;
+  }
+  return best.name;
+}
+
+function unknownDirectiveDiagnostic(name: string, location: Directive["loc"]): Diagnostic {
+  const suggestion = suggestDirectiveName(name);
+  const message = suggestion
+    ? `Unknown directive '@${name}'. Did you mean '@${suggestion}'?`
+    : `Unknown directive '@${name}'`;
+  const diag = warning(UNKNOWN_DIRECTIVE, message, location);
+
+  if (suggestion) {
+    diag.suggestions = [{ message: `Replace with @${suggestion}`, replacement: `@${suggestion}` }];
+  }
+
+  return diag;
+}
+
+function misplacedDirectiveDiagnostic(
+  name: string,
+  context: DirectiveContext,
+  location: Directive["loc"],
+): Diagnostic {
+  const diag = warning(
+    MISPLACED_DIRECTIVE,
+    `'@${name}' is not allowed in ${context} context`,
+    location,
+  );
+
+  if (name === "left" || name === "center" || name === "right") {
+    diag.message = `'@${name}' is a header/footer region and must be inside '@header' or '@footer'`;
+    diag.suggestions = [{
+      message: `Wrap '@${name}' inside @header{...} or @footer{...}`,
+      replacement: `@header{\n  @${name}[]\n}`,
+    }];
+  }
+
+  return diag;
+}
+
+function misplacedParentDiagnostic(
+  name: string,
+  allowedParents: string[],
+  location: Directive["loc"],
+): Diagnostic {
+  const parentList = allowedParents.map((value) => `@${value}`).join(" or ");
+  const diag = warning(
+    MISPLACED_DIRECTIVE,
+    `'@${name}' must appear inside ${parentList}`,
+    location,
+  );
+
+  if (name === "left" || name === "center" || name === "right") {
+    diag.suggestions = [{
+      message: `Move '@${name}' into @header{...} or @footer{...}`,
+      replacement: `@header{\n  @${name}[]\n}`,
+    }];
+  }
+
+  return diag;
 }

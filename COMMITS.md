@@ -280,7 +280,7 @@
 
 # Phase M - DX and diagnostics polish
 
-### Commit 28 - `feat(lsp): reference lookup for @def usages`
+### Commit 28 - `feat(lsp): reference lookup for @def usages` ✅
 
 **Context**: references provider is still stubbed.
 
@@ -295,7 +295,7 @@
 
 ---
 
-### Commit 29 - `feat(diagnostics): add directive suggestions and fix-it hints`
+### Commit 29 - `feat(diagnostics): add directive suggestions and fix-it hints` ✅
 
 **Context**: diagnostics are correct but not always actionable.
 
