@@ -78,6 +78,20 @@ function skipWhitespaceText(ctx: ParseContext): void {
 }
 
 /**
+ * Skip whitespace-only TEXT tokens only if followed by a directive delimiter.
+ * Used in inline/paragraph context where whitespace is meaningful content —
+ * we must not consume spaces that precede literal text.
+ */
+function skipWhitespaceBeforeDelimiter(ctx: ParseContext, ...delimiters: TokenType[]): void {
+  const saved = ctx.pos;
+  skipWhitespaceText(ctx);
+  const next = peekToken(ctx);
+  if (!next || !delimiters.includes(next.type)) {
+    ctx.pos = saved; // restore — whitespace is content, not trivia
+  }
+}
+
+/**
  * Shared dispatch loop for document-level and structural body contexts.
  * Parses children until `terminator` is consumed or EOF is reached.
  *
@@ -590,14 +604,15 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
   let argsRaw: string | undefined;
   let body: any[] | undefined;
 
-  // Skip whitespace between name and args/body (Spec §5.1)
-  skipWhitespaceText(ctx);
+  // Skip whitespace between name and args/body only if followed by a delimiter (Spec §5.1).
+  // In paragraph context, whitespace is literal content — don't consume it blindly.
+  skipWhitespaceBeforeDelimiter(ctx, TokenType.LPAREN, TokenType.LBRACE);
 
   // Parse args if present
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
-    skipWhitespaceText(ctx);
+    skipWhitespaceBeforeDelimiter(ctx, TokenType.LBRACE);
   }
 
   // Parse inline body if present: { ... } in paragraph context → inline content

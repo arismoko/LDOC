@@ -110,6 +110,29 @@ describe("whitespace between directive name/args/body (Spec §5.1)", () => {
     // Args should NOT be attached — newline separates them
     expect(dir!.argsRaw).toBeUndefined();
   });
+
+  test("inline: space before non-delimiter is preserved as content", () => {
+    const { cst } = parseSource("[@foo bar]");
+    const para = (cst.children as any[]).find((c) => c.kind === "ParagraphBlock");
+    expect(para).toBeDefined();
+    // The space between @foo and bar must be preserved as inline text
+    const texts = para!.inlines
+      .filter((i: any) => i.kind === "InlineText")
+      .map((i: any) => i.text);
+    const joined = texts.join("");
+    expect(joined).toContain(" bar");
+  });
+
+  test("inline: space after args before non-delimiter is preserved", () => {
+    const { cst } = parseSource("[@foo(x: 1) bar]");
+    const para = (cst.children as any[]).find((c) => c.kind === "ParagraphBlock");
+    expect(para).toBeDefined();
+    const texts = para!.inlines
+      .filter((i: any) => i.kind === "InlineText")
+      .map((i: any) => i.text);
+    const joined = texts.join("");
+    expect(joined).toContain(" bar");
+  });
 });
 
 describe("non-whitespace TEXT at structural level", () => {
