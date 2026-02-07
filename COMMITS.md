@@ -195,7 +195,7 @@
 
 # Phase K - DOCX layout emission correctness
 
-### Commit 25 - `fix(docx-layout): compile Section IR into real DOCX sections`
+### Commit 25 - `fix(docx-layout): compile Section IR into real DOCX sections` ✅
 
 **Context**: section/columns data is not fully wired through emit path.
 
@@ -230,7 +230,7 @@
 
 # Phase L - Validation harness (prevent regressions)
 
-### Commit 26 - `test(docx): add OOXML assertion harness`
+### Commit 26 - `test(docx): add OOXML assertion harness` ✅
 
 **Context**: current smoke checks build success only, not structural correctness.
 

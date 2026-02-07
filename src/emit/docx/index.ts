@@ -15,7 +15,7 @@ import type { Diagnostic } from "../../types/diagnostics.ts";
 import { createNumberingConfig } from "./numbering.ts";
 import { toStyleDefinition } from "./styles.ts";
 import { emitBlocks, type EmitContext, type DocxBlock } from "./nodes.ts";
-import { SectionBuilder, buildSectionHeaders, buildSectionFooters, compileHeader, compileFooter } from "./sections.ts";
+import { SectionBuilder, compileHeader, compileFooter } from "./sections.ts";
 import { sanitizeBookmarkName } from "./utils.ts";
 
 // =============================================================================
@@ -216,17 +216,38 @@ function compileSections(
     footers
   );
   
-  // Emit main content blocks
-  const mainBlocks = docIR.blocks.filter((block) => {
-    // Skip standalone header/footer definitions
-    if (block.type === "Section" && block.headers) {
-      return true; // But include sections with content
+  const flushPending = (pendingBlocks: Block[]): void => {
+    if (pendingBlocks.length === 0) {
+      return;
     }
-    return true;
-  });
-  
-  const children = emitBlocks(mainBlocks, ctx);
-  builder.addChildren(children);
+    builder.addChildren(emitBlocks(pendingBlocks, ctx));
+  };
+
+  let pending: Block[] = [];
+
+  for (const block of docIR.blocks) {
+    if (block.type !== "Section") {
+      pending.push(block);
+      continue;
+    }
+
+    flushPending(pending);
+    pending = [];
+
+    const sectionChildren = emitBlocks(block.content, ctx);
+    if (block.columns) {
+      builder.addColumns(
+        sectionChildren,
+        Math.max(1, block.columns.count),
+        block.columns.space ?? 720,
+      );
+      continue;
+    }
+
+    builder.addChildren(sectionChildren);
+  }
+
+  flushPending(pending);
   
   return builder.finish();
 }
