@@ -224,7 +224,9 @@
 
 - `src/lsp/server.ts`
 
-### Commit 21 — `feat(lsp): go-to-definition for @def keys`
+### Commit 21 — `feat(lsp): go-to-definition for @def keys` ✅
+
+**Status**: ✅ Complete
 
 **Changes**
 
