@@ -31,9 +31,9 @@ function createTextCell(value: string, loc: Directive["loc"]): TableCell {
 }
 
 function evaluateTableDirective(node: Directive): Table {
-  const rowNodes = node.body?.children.filter(
+  const rowNodes = (node.body?.kind === "StructuralBody" ? node.body.children : []).filter(
     (child): child is Directive => child.kind === "Directive" && child.name === "row",
-  ) ?? [];
+  );
   const rows: TableRow[] = [];
   const rowColumnOwners: TableCell[][] = [];
 

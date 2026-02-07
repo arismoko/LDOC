@@ -42,6 +42,17 @@ export interface ParagraphBlock {
   inlines: Inline[];
 }
 
+/** Body of a directive: either structural children or raw text (e.g. @lua) */
+export type DirectiveBody = StructuralBody | RawBody;
+
+/** Raw body — verbatim text extracted by balanced-brace scanning (Spec §7.2) */
+export interface RawBody {
+  kind: "RawBody";
+  format: "lua";
+  text: string;
+  loc: SourceLocation;
+}
+
 /** Directive - @name or @name(args) or @name{ body } */
 export interface Directive {
   kind: "Directive";
@@ -49,7 +60,7 @@ export interface Directive {
   name: string;
   argsRaw?: string; // raw argument text (preserved for diagnostics/LSP)
   args?: ArgsObject; // structured parsed args (populated by parser)
-  body?: StructuralBody; // optional structural body
+  body?: DirectiveBody; // optional structural or raw body
 }
 
 /** List marker - @- or @# with optional body */

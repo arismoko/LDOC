@@ -146,7 +146,7 @@ export class ImportResolver {
         }
       }
 
-      if (block.kind === "Directive" && block.body) {
+      if (block.kind === "Directive" && block.body && block.body.kind === "StructuralBody") {
         await this.walkBlocks(block.body.children, sourcePath);
       }
 

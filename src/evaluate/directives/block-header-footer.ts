@@ -15,10 +15,10 @@ function isHeaderFooterRegionDirective(node: CST.Block): node is Directive & { n
 async function evaluateHeaderFooter(node: Directive, kind: HeaderFooter["kind"], ctx: EvalContext): Promise<void> {
   const content: Block[] = [];
 
-  if (node.body) {
+  if (node.body && node.body.kind === "StructuralBody") {
     for (const child of node.body.children) {
       if (isHeaderFooterRegionDirective(child)) {
-        const regionBlocks = child.body ? await ctx.evaluateBlocks(child.body.children) : [];
+        const regionBlocks = child.body && child.body.kind === "StructuralBody" ? await ctx.evaluateBlocks(child.body.children) : [];
         content.push(...applyAlignmentToBlocks(regionBlocks, alignmentFromRegion(child.name)));
         continue;
       }

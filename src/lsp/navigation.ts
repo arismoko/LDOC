@@ -19,7 +19,7 @@ export interface NavigationContext {
 function walkBlock(block: Block, visit: (node: Block) => void): void {
   visit(block);
 
-  if (block.kind === "Directive" && block.body) {
+  if (block.kind === "Directive" && block.body && block.body.kind === "StructuralBody") {
     for (const child of block.body.children) {
       walkBlock(child, visit);
     }

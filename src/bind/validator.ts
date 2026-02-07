@@ -96,7 +96,7 @@ function validateDirective(dir: Directive, state: ValidationState): void {
   if (!contract) {
     state.diagnostics.push(unknownDirectiveDiagnostic(dir.name, dir.loc));
     // Still validate body if present (recover and continue)
-    if (dir.body) {
+    if (dir.body && dir.body.kind === "StructuralBody") {
       const childState: ValidationState = {
         ...state,
         context: "structural",
@@ -124,7 +124,7 @@ function validateDirective(dir: Directive, state: ValidationState): void {
   }
 
   // Validate body if present
-  if (dir.body) {
+  if (dir.body && dir.body.kind === "StructuralBody") {
     const childState: ValidationState = {
       ...state,
       context: "structural",

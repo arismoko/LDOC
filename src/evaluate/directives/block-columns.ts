@@ -60,7 +60,7 @@ function parseColumnsArgs(args: ArgsObject, ctx: EvalContext, loc: Directive["lo
 export const handleColumns: BlockDirectiveHandler = async (node, ctx) => {
   const args = node.args ?? {};
   const { count, space } = parseColumnsArgs(args, ctx, node.loc);
-  const content = node.body ? await ctx.evaluateBlocks(node.body.children) : [];
+  const content = node.body && node.body.kind === "StructuralBody" ? await ctx.evaluateBlocks(node.body.children) : [];
   return [{
     type: "Section",
     columns: { count, space },

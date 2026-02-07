@@ -107,7 +107,7 @@ function collectSymbols(blocks: Block[], symbols: SymbolTable, diagnostics: Diag
     }
 
     // Recurse into structural bodies
-    if (block.kind === "Directive" && block.body) {
+    if (block.kind === "Directive" && block.body && block.body.kind === "StructuralBody") {
       collectSymbols(block.body.children, symbols, diagnostics);
     }
     if (block.kind === "ListItemMarker" && block.body) {
@@ -202,7 +202,7 @@ function validateRefs(blocks: Block[], symbols: SymbolTable, diagnostics: Diagno
     }
 
     // Recurse into structural bodies
-    if (block.kind === "Directive" && block.body) {
+    if (block.kind === "Directive" && block.body && block.body.kind === "StructuralBody") {
       validateRefs(block.body.children, symbols, diagnostics);
     }
     if (block.kind === "ListItemMarker" && block.body) {

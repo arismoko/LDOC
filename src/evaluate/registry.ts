@@ -43,7 +43,7 @@ const inlineHandlers: Record<string, InlineDirectiveHandler> = {
 };
 
 export const blockDefaultHandler: BlockDirectiveHandler = async (node, ctx) => {
-  if (!node.body) return [];
+  if (!node.body || node.body.kind !== "StructuralBody") return [];
   return ctx.evaluateBlocks(node.body.children);
 };
 

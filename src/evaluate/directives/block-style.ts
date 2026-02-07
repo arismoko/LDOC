@@ -9,7 +9,7 @@ import type { BlockDirectiveHandler } from "../handler.ts";
 import { resolveStyleRef, paragraphStyleRefFromArgs } from "./shared/style.ts";
 
 export const handleBlockStyle: BlockDirectiveHandler = async (node, ctx) => {
-  const inner = node.body ? await ctx.evaluateBlocks(node.body.children) : [];
+  const inner = node.body && node.body.kind === "StructuralBody" ? await ctx.evaluateBlocks(node.body.children) : [];
   const args = node.args ?? {};
 
   // Resolve ref from @def bindings (Spec §10.4)

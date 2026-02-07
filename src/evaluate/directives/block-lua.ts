@@ -7,33 +7,36 @@ import type { BlockDirectiveHandler, EvalContext } from "../handler.ts";
 import {
   DiagnosticCode,
   error as createError,
-  warning as createWarning,
 } from "../../types/diagnostics.ts";
 import { execute as executeLua } from "../lua/runtime.ts";
 
 async function executeLuaDirective(node: Directive, ctx: EvalContext): Promise<void> {
-  if (!node.body || node.body.children.length === 0) {
+  if (!node.body) {
     return;
   }
 
-  if (
-    node.body.children.length !== 1 ||
-    node.body.children[0]?.kind !== "ParagraphBlock"
-  ) {
-    ctx.diagnostics.push(
-      createWarning(
-        DiagnosticCode.PARSE_ERROR,
-        "@lua body could not be interpreted as a Lua chunk",
-        node.loc,
-      ),
-    );
-    return;
+  let chunk: string;
+
+  if (node.body.kind === "RawBody") {
+    // Raw body — text was extracted by balanced-brace scanner (Spec §7.2)
+    chunk = node.body.text;
+  } else {
+    // Structural body fallback (shouldn't happen with registry-driven parsing,
+    // but handle gracefully for forward compatibility)
+    if (
+      node.body.children.length !== 1 ||
+      node.body.children[0]?.kind !== "ParagraphBlock"
+    ) {
+      return;
+    }
+    chunk = node.body.children[0].inlines
+      .map((inline) => (inline.kind === "InlineText" ? inline.text : ""))
+      .join("");
   }
 
-  const paragraph = node.body.children[0];
-  const chunk = paragraph.inlines
-    .map((inline) => (inline.kind === "InlineText" ? inline.text : ""))
-    .join("");
+  if (!chunk.trim()) {
+    return;
+  }
 
   try {
     await executeLua(ctx.luaEngine, chunk);

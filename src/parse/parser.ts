@@ -10,6 +10,7 @@ import type {
   Document,
   Directive,
   StructuralBody,
+  RawBody,
   ParagraphBlock,
   ListItemMarker,
   InlineDirective,
@@ -20,6 +21,7 @@ import type { Diagnostic } from "../types/diagnostics.ts";
 import { error, warning, DiagnosticCode } from "../types/diagnostics.ts";
 import { loc } from "../types/source-location.ts";
 import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
+import { getDirectiveContract } from "../bind/contracts.ts";
 
 /**
  * Current parsing context.
@@ -28,6 +30,8 @@ interface ParseContext {
   tokens: Token[];
   pos: number;
   diagnostics: Diagnostic[];
+  /** Original source text — needed for raw body extraction (Spec §7.2) */
+  source: string;
   /** EOF-close recovery flag */
   incomplete?: boolean;
 }
@@ -55,11 +59,12 @@ function isArgsParseError(result: ArgsObject | ParseArgsResult): result is Parse
 /**
  * Main parsing function.
  */
-export function parseSource(tokens: Token[]): ParseResult {
+export function parseSource(tokens: Token[], source: string): ParseResult {
   const ctx: ParseContext = {
     tokens,
     pos: 0,
     diagnostics: [],
+    source,
   };
 
   const cst = parseDocument(ctx);
@@ -223,7 +228,7 @@ function parseDirective(ctx: ParseContext): Directive | null {
 
   let argsRaw: string | undefined;
   let args: ArgsObject | undefined;
-  let body: StructuralBody | undefined;
+  let body: StructuralBody | RawBody | undefined;
 
   // Skip whitespace between name and args/body (Spec §5.1)
   skipWhitespaceText(ctx);
@@ -239,6 +244,19 @@ function parseDirective(ctx: ParseContext): Directive | null {
   // Parse body if present and it's a structural opener
   const bodyToken = peekToken(ctx);
   if (bodyToken && bodyToken.type === TokenType.LBRACE) {
+    // Check if this directive uses raw body syntax (e.g. @lua — Spec §7.2)
+    const contract = getDirectiveContract(name);
+    if (contract?.bodySyntax === "raw") {
+      const rawBody = parseRawBody(ctx, contract.rawFormat ?? "lua");
+      return {
+        kind: "Directive",
+        loc: loc(startToken.line, startToken.column),
+        name,
+        argsRaw,
+        args,
+        body: rawBody ?? undefined,
+      };
+    }
     body = parseStructuralBody(ctx) ?? undefined;
     skipWhitespaceText(ctx);
   }
@@ -349,6 +367,209 @@ function parseStructuralBody(ctx: ParseContext): StructuralBody | null {
     loc: startLoc,
     children,
   };
+}
+
+/**
+ * Convert (line, column) to absolute source offset.
+ * Lines are 1-based, columns are 0-based (matching lexer convention).
+ */
+function sourceOffset(source: string, line: number, column: number): number {
+  let currentLine = 1;
+  let offset = 0;
+  while (currentLine < line && offset < source.length) {
+    if (source[offset] === "\n") {
+      currentLine++;
+    }
+    offset++;
+  }
+  return offset + column;
+}
+
+/**
+ * Parse a raw body for directives like @lua (Spec §7.2).
+ *
+ * Scans the source text with balanced brace counting that respects
+ * Lua strings (single, double, long brackets) and comments (line, long).
+ * This ensures nested {} in Lua tables/code don't prematurely end the block.
+ *
+ * After extracting the raw text, advances ctx.pos past all tokens that
+ * fall within the raw body range.
+ */
+function parseRawBody(ctx: ParseContext, format: "lua"): RawBody | null {
+  const startToken = peekToken(ctx);
+  if (!startToken || startToken.type !== TokenType.LBRACE) return null;
+
+  const startLoc = loc(startToken.line, startToken.column);
+  const source = ctx.source;
+
+  // Find the absolute offset of the opening brace in source
+  const openOffset = sourceOffset(source, startToken.line, startToken.column);
+
+  // Scan source from after the opening brace with Lua-aware balanced brace counting
+  let depth = 1;
+  let i = openOffset + 1; // skip the opening {
+  const len = source.length;
+
+  while (i < len && depth > 0) {
+    const ch = source[i]!;
+
+    // Lua single-line comment: -- (may start long comment --[[ or --[=[ )
+    if (ch === "-" && i + 1 < len && source[i + 1] === "-") {
+      i += 2;
+      // Check for long comment: --[=*[
+      const longLevel = scanLongBracketOpen(source, i);
+      if (longLevel >= 0) {
+        i = skipLongString(source, i, longLevel);
+      } else {
+        // Single-line comment: skip to end of line
+        while (i < len && source[i] !== "\n") i++;
+      }
+      continue;
+    }
+
+    // Lua long string: [=*[
+    if (ch === "[") {
+      const longLevel = scanLongBracketOpen(source, i);
+      if (longLevel >= 0) {
+        i = skipLongString(source, i, longLevel);
+        continue;
+      }
+    }
+
+    // Lua single-quoted string
+    if (ch === "'") {
+      i = skipLuaShortString(source, i, "'");
+      continue;
+    }
+
+    // Lua double-quoted string
+    if (ch === '"') {
+      i = skipLuaShortString(source, i, '"');
+      continue;
+    }
+
+    // Brace counting (only in code context)
+    if (ch === "{") {
+      depth++;
+      i++;
+      continue;
+    }
+
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        // Found the matching close brace
+        const rawText = source.slice(openOffset + 1, i);
+
+        // Advance ctx.pos past all tokens within this range
+        ctx.pos++; // skip the opening LBRACE token
+        while (ctx.pos < ctx.tokens.length) {
+          const tok = ctx.tokens[ctx.pos]!;
+          // Stop when we reach the closing RBRACE at offset i
+          if (tok.type === TokenType.RBRACE) {
+            const tokOffset = sourceOffset(source, tok.line, tok.column);
+            if (tokOffset >= i) {
+              ctx.pos++; // consume the closing RBRACE token
+              break;
+            }
+          }
+          ctx.pos++;
+        }
+
+        return {
+          kind: "RawBody",
+          format,
+          text: rawText,
+          loc: startLoc,
+        };
+      }
+      i++;
+      continue;
+    }
+
+    i++;
+  }
+
+  // Unterminated — EOF-close recovery
+  ctx.pos++; // skip the opening LBRACE token
+  // Advance past all remaining tokens
+  while (ctx.pos < ctx.tokens.length) {
+    const tok = ctx.tokens[ctx.pos]!;
+    if (tok.type === TokenType.EOF) break;
+    ctx.pos++;
+  }
+
+  ctx.incomplete = true;
+  ctx.diagnostics.push(
+    error(
+      DiagnosticCode.UNCLOSED_DELIMITER,
+      `Unterminated raw body at line ${startLoc.line}`,
+      startLoc
+    )
+  );
+
+  return {
+    kind: "RawBody",
+    format,
+    text: source.slice(openOffset + 1),
+    loc: startLoc,
+  };
+}
+
+/**
+ * Check if source at position `i` starts a Lua long bracket opening: [=*[
+ * Returns the level (number of = signs, 0 for [[) or -1 if not a long bracket.
+ */
+function scanLongBracketOpen(source: string, i: number): number {
+  if (i >= source.length || source[i] !== "[") return -1;
+  let j = i + 1;
+  let level = 0;
+  while (j < source.length && source[j] === "=") {
+    level++;
+    j++;
+  }
+  if (j < source.length && source[j] === "[") {
+    return level;
+  }
+  return -1;
+}
+
+/**
+ * Skip past a Lua long string/comment body.
+ * `i` points to the opening `[` of `[=*[`.
+ * Returns position after the closing `]=*]`.
+ */
+function skipLongString(source: string, i: number, level: number): number {
+  // Skip past the opening [=*[
+  i += 2 + level; // [ + =*level + [
+  const closer = "]" + "=".repeat(level) + "]";
+  const end = source.indexOf(closer, i);
+  if (end === -1) return source.length; // unterminated — skip to EOF
+  return end + closer.length;
+}
+
+/**
+ * Skip past a Lua short string (single or double quoted).
+ * `i` points to the opening quote.
+ * Returns position after the closing quote.
+ */
+function skipLuaShortString(source: string, i: number, quote: string): number {
+  i++; // skip opening quote
+  while (i < source.length) {
+    if (source[i] === "\\") {
+      i += 2; // skip escape sequence
+      continue;
+    }
+    if (source[i] === quote) {
+      return i + 1; // skip closing quote
+    }
+    if (source[i] === "\n") {
+      // Lua short strings don't span lines (unless escaped with \)
+      return i; // unterminated — stop at newline
+    }
+    i++;
+  }
+  return i; // unterminated — hit EOF
 }
 
 /**

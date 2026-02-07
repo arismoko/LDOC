@@ -25,25 +25,93 @@ describe("tryCompile", () => {
 });
 
 describe("@lua directive parsing", () => {
-  test("@lua{...} tokenizes as DIRECTIVE + LBRACE (not a special token)", () => {
+  test("@lua{...} parses as RawBody", () => {
     const { cst } = parseSource("@lua{}");
-    // Should produce a directive named "lua" with a structural body
     const luaDir = (cst.children as any[]).find(
-      (c) => c.kind === "Directive" && c.name === "lua"
+      (c: any) => c.kind === "Directive" && c.name === "lua"
     );
     expect(luaDir).toBeDefined();
     expect(luaDir!.body).toBeDefined();
-    expect(luaDir!.body.kind).toBe("StructuralBody");
+    expect(luaDir!.body.kind).toBe("RawBody");
+    expect(luaDir!.body.text).toBe("");
   });
 
-  test("@lua(args){} parses args correctly", () => {
+  test("@lua(args){} parses args correctly with RawBody", () => {
     const { cst } = parseSource("@lua(once){}");
     const luaDir = (cst.children as any[]).find(
-      (c) => c.kind === "Directive" && c.name === "lua"
+      (c: any) => c.kind === "Directive" && c.name === "lua"
     );
     expect(luaDir).toBeDefined();
     expect(luaDir!.argsRaw).toBe("(once)");
     expect(luaDir!.body).toBeDefined();
+    expect(luaDir!.body.kind).toBe("RawBody");
+  });
+
+  test("@lua{ x = { 1, 2 } } handles nested braces in Lua tables", () => {
+    const { cst, diagnostics } = parseSource("@lua{ x = { 1, 2 } }");
+    const luaDir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "lua"
+    );
+    expect(luaDir).toBeDefined();
+    expect(luaDir!.body.kind).toBe("RawBody");
+    expect(luaDir!.body.text).toBe(" x = { 1, 2 } ");
+    expect(diagnostics.filter((d: any) => d.severity === "error")).toHaveLength(0);
+  });
+
+  test('@lua{ s = "}" } handles braces inside Lua strings', () => {
+    const { cst, diagnostics } = parseSource('@lua{ s = "}" }');
+    const luaDir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "lua"
+    );
+    expect(luaDir).toBeDefined();
+    expect(luaDir!.body.kind).toBe("RawBody");
+    expect(luaDir!.body.text).toBe(' s = "}" ');
+    expect(diagnostics.filter((d: any) => d.severity === "error")).toHaveLength(0);
+  });
+
+  test("@lua{ -- }\\nx = 1 } handles braces inside Lua line comments", () => {
+    const src = "@lua{ -- }\nx = 1 }";
+    const { cst, diagnostics } = parseSource(src);
+    const luaDir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "lua"
+    );
+    expect(luaDir).toBeDefined();
+    expect(luaDir!.body.kind).toBe("RawBody");
+    expect(luaDir!.body.text).toBe(" -- }\nx = 1 ");
+    expect(diagnostics.filter((d: any) => d.severity === "error")).toHaveLength(0);
+  });
+
+  test("@lua{ s = [=[}]=] } handles braces inside Lua long strings", () => {
+    const { cst, diagnostics } = parseSource("@lua{ s = [=[}]=] }");
+    const luaDir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "lua"
+    );
+    expect(luaDir).toBeDefined();
+    expect(luaDir!.body.kind).toBe("RawBody");
+    expect(luaDir!.body.text).toBe(" s = [=[}]=] ");
+    expect(diagnostics.filter((d: any) => d.severity === "error")).toHaveLength(0);
+  });
+
+  test("@lua{ s = '}' } handles braces inside single-quoted Lua strings", () => {
+    const { cst, diagnostics } = parseSource("@lua{ s = '}' }");
+    const luaDir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "lua"
+    );
+    expect(luaDir).toBeDefined();
+    expect(luaDir!.body.kind).toBe("RawBody");
+    expect(luaDir!.body.text).toBe(" s = '}' ");
+    expect(diagnostics.filter((d: any) => d.severity === "error")).toHaveLength(0);
+  });
+
+  test("unterminated @lua{ emits diagnostic via EOF recovery", () => {
+    const { cst, diagnostics } = parseSource("@lua{ x = 1");
+    const luaDir = (cst.children as any[]).find(
+      (c: any) => c.kind === "Directive" && c.name === "lua"
+    );
+    expect(luaDir).toBeDefined();
+    expect(luaDir!.body.kind).toBe("RawBody");
+    // Should have a diagnostic about unterminated raw body
+    expect(diagnostics.some((d: any) => d.message.toLowerCase().includes("unterminated"))).toBe(true);
   });
 });
 

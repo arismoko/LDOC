@@ -26,6 +26,6 @@ export const handleAlign: BlockDirectiveHandler = async (node, ctx) => {
     );
   }
 
-  const inner = node.body ? await ctx.evaluateBlocks(node.body.children) : [];
+  const inner = node.body && node.body.kind === "StructuralBody" ? await ctx.evaluateBlocks(node.body.children) : [];
   return applyAlignmentToBlocks(inner, align);
 };
