@@ -3,7 +3,7 @@
  */
 
 import type { Position, Location } from "vscode-languageserver";
-import type { Block, CSTDocument, CSTNode, Directive } from "../types/cst.ts";
+import type { Block, Document, Directive } from "../types/cst.ts";
 import type { SymbolTable } from "../types/symbols.ts";
 import { parseArgsObject } from "../shared/args.ts";
 import { positionInLocation, sourceLocationToRange } from "./position.ts";
@@ -16,12 +16,12 @@ function isArgsParseError(value: ReturnType<typeof parseArgsObject>): value is {
  * Context for navigation operations.
  */
 export interface NavigationContext {
-  cst: CSTDocument;
+  cst: Document;
   symbols: SymbolTable;
   uri: string;
 }
 
-function walkBlock(block: Block, visit: (node: CSTNode) => void): void {
+function walkBlock(block: Block, visit: (node: Block) => void): void {
   visit(block);
 
   if (block.kind === "Directive" && block.body) {
@@ -46,18 +46,18 @@ function walkBlock(block: Block, visit: (node: CSTNode) => void): void {
 }
 
 export function findNodeAtPosition(
-  cst: CSTDocument,
+  cst: Document,
   pos: Position
-): CSTNode | null {
-  let best: CSTNode | null = null;
+): Block | null {
+  let best: Block | null = null;
 
-  const spanSize = (node: CSTNode): number => {
+  const spanSize = (node: Block): number => {
     const lineSpan = node.loc.endLine - node.loc.line;
     const charSpan = node.loc.endColumn - node.loc.column;
     return lineSpan * 10_000 + charSpan;
   };
 
-  const visit = (node: CSTNode): void => {
+  const visit = (node: Block): void => {
     if (!positionInLocation(pos, node.loc)) {
       return;
     }
@@ -224,7 +224,7 @@ export function getReferences(
     });
   };
 
-  const visit = (node: CSTNode): void => {
+  const visit = (node: Block): void => {
     if (node.kind === "Directive") {
       addReference(node);
     }

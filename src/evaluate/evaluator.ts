@@ -15,12 +15,9 @@ import {
   type Diagnostic,
 } from "../types/diagnostics.ts";
 import type { SourceLocation } from "../types/source-location.ts";
+import type * as CST from "../types/cst.ts";
 import type {
-  Block as CSTBlock,
-  CSTDocument,
   Directive,
-  Inline as CSTInline,
-  InlineDirective as CSTInlineDirective,
   ListItemMarker,
   ParagraphBlock,
 } from "../types/cst.ts";
@@ -248,7 +245,7 @@ function alignmentFromRegion(name: "left" | "center" | "right"): HorizontalAlign
   return name;
 }
 
-function isHeaderFooterRegionDirective(node: CSTBlock): node is Directive & { name: "left" | "center" | "right" } {
+function isHeaderFooterRegionDirective(node: CST.Block): node is Directive & { name: "left" | "center" | "right" } {
   return node.kind === "Directive" && (node.name === "left" || node.name === "center" || node.name === "right");
 }
 
@@ -314,7 +311,7 @@ function toIncludeArgs(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function readParamsNames(cst: CSTDocument, state: EvaluationState): string[] {
+function readParamsNames(cst: CST.Document, state: EvaluationState): string[] {
   const paramsDirective = cst.children.find(
     (block): block is Directive => block.kind === "Directive" && block.name === "params",
   );
@@ -488,7 +485,7 @@ async function evaluateIncludeDirective(node: Directive, state: EvaluationState)
   return childResult.document.blocks;
 }
 
-async function evaluateInline(node: CSTInline, state: EvaluationState): Promise<Inline[]> {
+async function evaluateInline(node: CST.Inline, state: EvaluationState): Promise<Inline[]> {
   switch (node.kind) {
     case "InlineText":
       return [{ type: "Text", value: node.text, loc: node.loc }];
@@ -517,7 +514,7 @@ async function evaluateInline(node: CSTInline, state: EvaluationState): Promise<
   }
 }
 
-async function evaluateInlineDirective(node: CSTInlineDirective, state: EvaluationState): Promise<Inline[]> {
+async function evaluateInlineDirective(node: CST.InlineDirective, state: EvaluationState): Promise<Inline[]> {
   const bodyInlines: Inline[] = [];
   if (node.body) {
     for (const child of node.body) {
@@ -588,7 +585,7 @@ async function evaluateListItem(marker: ListItemMarker, state: EvaluationState):
   };
 }
 
-async function evaluateListRun(blocks: CSTBlock[], start: number, state: EvaluationState): Promise<{ list: List; nextIndex: number }> {
+async function evaluateListRun(blocks: CST.Block[], start: number, state: EvaluationState): Promise<{ list: List; nextIndex: number }> {
   const first = blocks[start] as ListItemMarker;
   const items: ListItem[] = [];
   let index = start;
@@ -841,7 +838,7 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
   }
 }
 
-async function evaluateBlock(node: CSTBlock, state: EvaluationState): Promise<Block[]> {
+async function evaluateBlock(node: CST.Block, state: EvaluationState): Promise<Block[]> {
   switch (node.kind) {
     case "ParagraphBlock":
       return [await evaluateParagraph(node, state)];
@@ -857,7 +854,7 @@ async function evaluateBlock(node: CSTBlock, state: EvaluationState): Promise<Bl
   }
 }
 
-async function evaluateBlocks(nodes: CSTBlock[], state: EvaluationState): Promise<Block[]> {
+async function evaluateBlocks(nodes: CST.Block[], state: EvaluationState): Promise<Block[]> {
   const output: Block[] = [];
   let index = 0;
 
@@ -898,7 +895,7 @@ function stylesFromSymbols(symbols: SymbolTable): Record<string, unknown> {
 }
 
 export async function evaluate(
-  cst: CSTDocument,
+  cst: CST.Document,
   symbols: SymbolTable,
   options: EvaluateOptions = {},
 ): Promise<EvaluateResult> {

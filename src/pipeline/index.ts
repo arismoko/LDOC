@@ -10,7 +10,7 @@ import { evaluate, type SourceLoader } from "../evaluate/index.ts";
 import { defaultIncludeRoot } from "../shared/include-path.ts";
 import { style, type StyleOptions } from "../style/index.ts";
 import { emit, type EmitOptions } from "../emit/index.ts";
-import type { CSTDocument } from "../types/cst.ts";
+import type * as CST from "../types/cst.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import type { Document } from "../types/document-ir.ts";
 import type { StyledDocument } from "../types/styled.ts";
@@ -71,7 +71,7 @@ export type PipelineResult<T> =
  */
 interface PipelineState {
   diagnostics: Diagnostic[];
-  cst?: CSTDocument;
+  cst?: CST.Document;
   symbols?: SymbolTable;
   document?: Document;
   styledDocument?: StyledDocument;
@@ -209,7 +209,7 @@ export async function tryCompile(
  */
 export function parseAndBind(
   source: string
-): { cst: CSTDocument; symbols: SymbolTable; diagnostics: Diagnostic[] } {
+): { cst: CST.Document; symbols: SymbolTable; diagnostics: Diagnostic[] } {
   const state: PipelineState = { diagnostics: [] };
 
   const parseResult = parseSource(source);
@@ -246,7 +246,7 @@ export function parseAndBind(
 export async function parseAndBindWithIncludes(
   source: string,
   options: Pick<CompileOptions, "sourcePath" | "loadFile" | "includeRoot"> = {},
-): Promise<{ cst: CSTDocument; symbols: SymbolTable; diagnostics: Diagnostic[] }> {
+): Promise<{ cst: CST.Document; symbols: SymbolTable; diagnostics: Diagnostic[] }> {
   const parseResult = parseSource(source);
   const diagnostics: Diagnostic[] = [...parseResult.diagnostics];
   const parseErrors = parseResult.diagnostics.filter((d) => d.severity === "error");

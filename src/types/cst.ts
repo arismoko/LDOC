@@ -337,23 +337,3 @@ export function documentConfig(loc: SourceLocation, argsRaw?: string): DocumentC
   return { kind: "DocumentConfig", loc, argsRaw };
 }
 
-// =============================================================================
-// Backward-compatible type aliases (v2 → v3 migration)
-// These let downstream files (binder, evaluator, LSP) compile during
-// the transition. They will be removed once those modules are rewritten.
-// =============================================================================
-
-/** @deprecated Use `Document` */
-export type CSTDocument = Document;
-/** @deprecated Use `Block` */
-export type CSTNode = Block;
-/** @deprecated Use `Directive` */
-export type CSTDirective = Directive;
-/** @deprecated Use `ParagraphBlock` */
-export type CSTParagraph = ParagraphBlock;
-/** @deprecated Use `Inline` */
-export type CSTInline = Inline;
-/** @deprecated Use `InlineText` */
-export type CSTText = InlineText;
-/** @deprecated Removed in v3 — args are now `argsRaw: string` parsed as JSON5 */
-export type CSTArgument = Record<string, unknown>;

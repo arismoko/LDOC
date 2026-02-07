@@ -8,7 +8,7 @@
  */
 
 import type { SourceLocation } from "./source-location.ts";
-import type { CSTDocument, CSTNode, CSTArgument, Document, Block } from "./cst.ts";
+import type { Document, Block } from "./cst.ts";
 import type { Diagnostic } from "./diagnostics.ts";
 
 // =============================================================================
@@ -66,7 +66,7 @@ export interface BoundStyleRef {
   type: "BoundStyleRef";
   symbol: StyleSymbol | null; // null if inline-only style
   /** Inline overrides */
-  overrides: CSTArgument[];
+  overrides: Record<string, unknown>[];
   loc: SourceLocation;
 }
 
@@ -86,7 +86,7 @@ export interface BoundCrossRef {
 
 export interface BindResult {
   /** The original CST (unmodified) */
-  cst: CSTDocument;
+  cst: Document;
   /** Symbol table with all definitions */
   symbols: SymbolTable;
   /** Binding diagnostics (undefined refs, cycles, etc.) */
