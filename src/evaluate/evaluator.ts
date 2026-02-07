@@ -31,6 +31,7 @@ import type {
   InlineStyleProps,
   List,
   ListItem,
+  PageLayout,
   Paragraph,
   Table,
   TableCell,
@@ -239,6 +240,108 @@ function parseColumnsArgs(args: ArgsObject, state: EvaluationState, loc: Directi
   }
 
   return { count, space };
+}
+
+/**
+ * Parse page layout config from @document args.
+ * Supports margins (string or object), pageSize, and orientation.
+ */
+function parseDocumentLayout(
+  args: ArgsObject,
+  state: EvaluationState,
+  loc: Directive["loc"],
+): PageLayout | undefined {
+  let hasLayout = false;
+  const layout: PageLayout = {};
+
+  // Parse margins — string shorthand or object
+  if (args.margins !== undefined) {
+    hasLayout = true;
+    if (typeof args.margins === "string") {
+      layout.margins = parseMarginsString(args.margins, state, loc);
+    } else if (typeof args.margins === "object" && args.margins !== null) {
+      const m = args.margins as Record<string, unknown>;
+      layout.margins = {
+        top: parseSingleMargin(m.top, 1440),
+        bottom: parseSingleMargin(m.bottom, 1440),
+        left: parseSingleMargin(m.left, 1440),
+        right: parseSingleMargin(m.right, 1440),
+      };
+    }
+  }
+
+  // Parse page size
+  if (args.pageSize !== undefined && typeof args.pageSize === "object" && args.pageSize !== null) {
+    hasLayout = true;
+    const ps = args.pageSize as Record<string, unknown>;
+    const width = typeof ps.width === "string" ? tryParseTwips(ps.width) : undefined;
+    const height = typeof ps.height === "string" ? tryParseTwips(ps.height) : undefined;
+    if (width !== undefined && height !== undefined) {
+      layout.pageSize = { width, height };
+    }
+  }
+
+  // Parse orientation
+  if (args.orientation === "landscape" || args.orientation === "portrait") {
+    hasLayout = true;
+    layout.orientation = args.orientation;
+  }
+
+  return hasLayout ? layout : undefined;
+}
+
+/**
+ * Parse margin shorthand string: "1in" (all), "1in 1.25in" (v h),
+ * "1in 1in 1in 1.25in" (top right bottom left — CSS order).
+ */
+function parseMarginsString(
+  raw: string,
+  state: EvaluationState,
+  loc: Directive["loc"],
+): PageLayout["margins"] {
+  const parts = raw.trim().split(/\s+/);
+  try {
+    if (parts.length === 1) {
+      const all = parseLengthToTwips(parts[0]!);
+      return { top: all, bottom: all, left: all, right: all };
+    }
+    if (parts.length === 2) {
+      const vertical = parseLengthToTwips(parts[0]!);
+      const horizontal = parseLengthToTwips(parts[1]!);
+      return { top: vertical, bottom: vertical, left: horizontal, right: horizontal };
+    }
+    if (parts.length === 4) {
+      return {
+        top: parseLengthToTwips(parts[0]!),
+        right: parseLengthToTwips(parts[1]!),
+        bottom: parseLengthToTwips(parts[2]!),
+        left: parseLengthToTwips(parts[3]!),
+      };
+    }
+    state.diagnostics.push(
+      createWarning(DiagnosticCode.PARSE_ERROR, "margins string must have 1, 2, or 4 values", loc),
+    );
+    return undefined;
+  } catch {
+    state.diagnostics.push(
+      createWarning(DiagnosticCode.PARSE_ERROR, `Invalid margin value in "${raw}"`, loc),
+    );
+    return undefined;
+  }
+}
+
+function parseSingleMargin(value: unknown, fallback: number): number {
+  if (typeof value === "string") return tryParseTwips(value) ?? fallback;
+  if (typeof value === "number") return value;
+  return fallback;
+}
+
+function tryParseTwips(value: string): number | undefined {
+  try {
+    return parseLengthToTwips(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function alignmentFromRegion(name: "left" | "center" | "right"): HorizontalAlign {
@@ -740,6 +843,22 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
       if (typeof args.title === "string") state.metadata.title = args.title;
       if (typeof args.author === "string") state.metadata.author = args.author;
       if (typeof args.date === "string") state.metadata.date = args.date;
+
+      // Parse page layout config (Spec §6)
+      const layout = parseDocumentLayout(args, state, node.loc);
+      if (layout) {
+        state.metadata.layout = layout;
+      }
+
+      // Parse numbering mode (Spec §11.2)
+      const numbering = args.numbering;
+      if (numbering && typeof numbering === "object") {
+        const mode = (numbering as Record<string, unknown>).mode;
+        if (typeof mode === "string") {
+          state.metadata.custom.numberingMode = mode;
+        }
+      }
+
       for (const [key, value] of Object.entries(args)) {
         state.metadata.custom[key] = value;
       }

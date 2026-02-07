@@ -137,10 +137,23 @@ async function runPipelineTo(
   if (stopAt === "evaluate") return state;
 
   // Phase 4: Style
+  // Merge @document layout metadata into style options (document wins over caller defaults)
+  const layout = state.document.metadata.layout;
+  const mergedStyleOptions: StyleOptions = {
+    ...options.style,
+    ...(layout?.pageSize?.width ? { pageWidth: layout.pageSize.width } : {}),
+    ...(layout?.pageSize?.height ? { pageHeight: layout.pageSize.height } : {}),
+    ...(layout?.margins ? {
+      margins: {
+        ...options.style?.margins,
+        ...layout.margins,
+      },
+    } : {}),
+  };
   const styleResult = style(
     state.document,
     state.symbols,
-    options.style
+    mergedStyleOptions
   );
   state.diagnostics.push(...styleResult.diagnostics);
   state.styledDocument = styleResult.styledDocument;
