@@ -41,7 +41,7 @@
 
 # Phase I - Layout correctness (must-fix semantics)
 
-### Commit 22 - `feat(v3-layout): implement section and column evaluation`
+### Commit 22 - `feat(v3-layout): implement section and column evaluation` ✅
 
 **Context**: evaluator currently flattens layout directives into normal body blocks.
 
@@ -100,9 +100,45 @@
 
 ---
 
-### Commit 23 - `feat(v3-data): implement includes and params names validation`
+### Commit 23 - `feat(v3-data): implement includes and params names validation` ✅
 
 **Context**: include resolution is stubbed; params contracts are not enforced.
+
+**Issues found while planning (must account for in this commit):**
+
+- `src/bind/resolver.ts` is fully stubbed and currently returns empty symbols/paths.
+- `src/pipeline/index.ts` only calls `bindSync` and never routes `sourcePath/loadFile` into bind/resolve.
+- `@include` currently falls through evaluator default path and emits nothing when body is absent.
+- `@params` is validated as a known directive, but has no evaluation-time contract enforcement.
+
+**Implementation shape**
+
+- Keep include semantics in EVALUATE (content expansion), and keep dependency graph/cycle checks in BIND.
+- Start with strict v3-core contract only: `@params(names: [...])` where names are strings.
+- Emit deterministic diagnostics with stable codes and source locations (include callsite for missing arg; included file location for params declaration errors).
+
+**Step-by-step checklist**
+
+1. **Path + graph resolution in BIND**
+   - Implement `resolveImports` traversal for `@include(path: ...)` directives.
+   - Resolve relative paths against entry `sourcePath`.
+   - Track visited/import stack to detect and report cycles once.
+2. **Pipeline wiring**
+   - Thread `CompileOptions.sourcePath` and a loader into bind/resolve path.
+   - Ensure parseAndBind tooling path can opt out cleanly when loader/path absent.
+3. **Include expansion in EVALUATE**
+   - Parse `@include` args (`path`, optional `args` object).
+   - Load, parse, bind, and evaluate child source in isolated scope.
+   - Merge child output blocks into parent output at callsite order.
+4. **Params contract enforcement**
+   - Scan included CST top-level for `@params(names: [...])`.
+   - Validate provided `args` contains all required names.
+   - Emit diagnostics for malformed params declaration and missing args.
+5. **Regression coverage**
+   - include happy path (content appears in parent document).
+   - missing arg -> error diagnostic.
+   - import cycle -> single stable diagnostic.
+   - malformed params declaration -> error diagnostic.
 
 **Changes**
 
@@ -128,6 +164,7 @@
 - included content renders in parent output.
 - missing required include arg (from `@params(names: [...])`) emits an error diagnostic.
 - simple import cycle is reported once with stable diagnostic output.
+- compile path respects `sourcePath` for relative includes.
 
 ---
 

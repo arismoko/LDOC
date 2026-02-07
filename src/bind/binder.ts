@@ -15,6 +15,7 @@ import type { Diagnostic } from "../types/diagnostics.ts";
 import { warning, error as diagError, DiagnosticCode } from "../types/diagnostics.ts";
 import { createSymbolTable } from "../types/symbols.ts";
 import { validate } from "./validator.ts";
+import { resolveImports } from "./resolver.ts";
 import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
 
 function isParseError(result: ArgsObject | ParseArgsResult): result is ParseArgsResult {
@@ -50,7 +51,24 @@ export class Binder {
    * Bind a CST document.
    */
   async bind(cst: CSTDocument): Promise<BindResult> {
-    return this.bindSync(cst);
+    const doc = cst as Document;
+    const symbols = createSymbolTable();
+    const diagnostics: Diagnostic[] = [];
+
+    diagnostics.push(...validate(doc));
+
+    if (this.options.loadFile && this.options.sourcePath) {
+      const importResult = await resolveImports(doc, {
+        basePath: this.options.sourcePath,
+        loadFile: this.options.loadFile,
+      });
+      diagnostics.push(...importResult.diagnostics);
+      mergeSymbols(symbols, importResult.symbols, diagnostics);
+    }
+
+    collectDefs(doc.children, symbols, diagnostics);
+
+    return { cst, symbols, diagnostics };
   }
 
   /**
@@ -68,6 +86,34 @@ export class Binder {
     collectDefs(doc.children, symbols, diagnostics);
 
     return { cst, symbols, diagnostics };
+  }
+}
+
+function mergeSymbols(target: SymbolTable, source: SymbolTable, diagnostics: Diagnostic[]): void {
+  for (const [name, symbol] of source.defs) {
+    if (target.defs.has(name)) {
+      diagnostics.push(
+        diagError(
+          DiagnosticCode.DUPLICATE_DEFINITION,
+          `Duplicate imported definition '${name}'`,
+          symbol.definedAt,
+        ),
+      );
+      continue;
+    }
+    target.defs.set(name, symbol);
+  }
+
+  for (const [name, symbol] of source.styles) {
+    if (!target.styles.has(name)) {
+      target.styles.set(name, symbol);
+    }
+  }
+
+  for (const [name, symbol] of source.anchors) {
+    if (!target.anchors.has(name)) {
+      target.anchors.set(name, symbol);
+    }
   }
 }
 

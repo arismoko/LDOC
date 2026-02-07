@@ -5,8 +5,8 @@
  */
 
 import { parseSource } from "../parse/index.ts";
-import { bindSync } from "../bind/index.ts";
-import { evaluate } from "../evaluate/index.ts";
+import { bind, bindSync } from "../bind/index.ts";
+import { evaluate, type SourceLoader } from "../evaluate/index.ts";
 import { style, type StyleOptions } from "../style/index.ts";
 import { emit, type EmitOptions } from "../emit/index.ts";
 import type { CSTDocument } from "../types/cst.ts";
@@ -28,6 +28,9 @@ export interface CompileOptions {
   
   /** Context for variable interpolation and conditionals */
   variables?: Record<string, unknown>;
+
+  /** Custom source loader for @include expansion */
+  loadFile?: SourceLoader;
   
   /** Style options */
   style?: StyleOptions;
@@ -95,8 +98,14 @@ async function runPipelineTo(
   
   if (stopAt === "parse") return state;
 
+  const sourceLoader: SourceLoader = options.loadFile
+    ?? (async (path: string) => Bun.file(path).text());
+
   // Phase 2: Bind
-  const bindResult = bindSync(state.cst);
+  const bindResult = await bind(state.cst, {
+    sourcePath: options.sourcePath,
+    loadFile: async (path: string) => parseSource(await sourceLoader(path)),
+  });
   state.diagnostics.push(...bindResult.diagnostics);
   state.symbols = bindResult.symbols;
   
@@ -110,6 +119,8 @@ async function runPipelineTo(
   // Phase 3: Evaluate
   const evalResult = await evaluate(state.cst, state.symbols, {
     variables: options.variables,
+    sourcePath: options.sourcePath,
+    loadFile: sourceLoader,
   });
   state.diagnostics.push(...evalResult.diagnostics);
   state.document = evalResult.document;

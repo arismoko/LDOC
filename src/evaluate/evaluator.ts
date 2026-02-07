@@ -14,6 +14,7 @@ import {
   warning as createWarning,
   type Diagnostic,
 } from "../types/diagnostics.ts";
+import type { SourceLocation } from "../types/source-location.ts";
 import type {
   Block as CSTBlock,
   CSTDocument,
@@ -43,7 +44,12 @@ import type {
 import type { SymbolTable } from "../types/symbols.ts";
 import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
 import { parseLengthToTwips } from "../shared/units.ts";
+import { parseSource } from "../parse/index.ts";
+import { bindSync } from "../bind/index.ts";
 import { createEnv, evaluate as evaluateLua, execute as executeLua } from "./lua/runtime.ts";
+import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
+
+export type SourceLoader = (path: string) => Promise<string>;
 
 interface EvaluationState {
   diagnostics: Diagnostic[];
@@ -51,10 +57,17 @@ interface EvaluationState {
   defs: Record<string, unknown>;
   styles: Record<string, unknown>;
   luaEngine: Awaited<ReturnType<typeof createEnv>>;
+  variables: Record<string, unknown>;
+  sourcePath?: string;
+  loadFile?: SourceLoader;
+  includeStack: string[];
 }
 
 export interface EvaluateOptions {
   variables?: Record<string, unknown>;
+  sourcePath?: string;
+  loadFile?: SourceLoader;
+  includeStack?: string[];
 }
 
 function isArgsParseError(result: ArgsObject | ParseArgsResult): result is ParseArgsResult {
@@ -271,6 +284,196 @@ async function evaluateHeaderFooter(node: Directive, kind: HeaderFooter["kind"],
     ...(state.metadata.footers ?? {}),
     default: headerFooter,
   };
+}
+
+function withLocationSource(location: SourceLocation, sourcePath: string): SourceLocation {
+  if (location.source) {
+    return location;
+  }
+
+  return {
+    ...location,
+    source: sourcePath,
+  };
+}
+
+function withDiagnosticSource(diagnostic: Diagnostic, sourcePath: string): Diagnostic {
+  return {
+    ...diagnostic,
+    location: withLocationSource(diagnostic.location, sourcePath),
+  };
+}
+
+function resolveIncludePath(rawPath: string, sourcePath: string): string {
+  if (isAbsolute(rawPath)) {
+    return rawPath;
+  }
+
+  return resolvePath(dirname(sourcePath), rawPath);
+}
+
+function toIncludeArgs(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function readParamsNames(cst: CSTDocument, state: EvaluationState): string[] {
+  const paramsDirective = cst.children.find(
+    (block): block is Directive => block.kind === "Directive" && block.name === "params",
+  );
+
+  if (!paramsDirective) {
+    return [];
+  }
+
+  const args = parseDirectiveArgs(paramsDirective.argsRaw, state, paramsDirective.loc);
+  const names = args.names;
+  if (!Array.isArray(names)) {
+    state.diagnostics.push(
+      createError(
+        DiagnosticCode.PARSE_ERROR,
+        "@params requires names: [\"name\", ...]",
+        paramsDirective.loc,
+      ),
+    );
+    return [];
+  }
+
+  const rawNames = names as unknown[];
+  const validNames = rawNames.filter((item): item is string => typeof item === "string" && item.length > 0);
+  if (validNames.length !== rawNames.length) {
+    state.diagnostics.push(
+      createError(
+        DiagnosticCode.PARSE_ERROR,
+        "@params names must be an array of non-empty strings",
+        paramsDirective.loc,
+      ),
+    );
+    return [];
+  }
+
+  return validNames;
+}
+
+function validateIncludeParams(
+  requiredNames: string[],
+  args: Record<string, unknown>,
+  includeLoc: Directive["loc"],
+  state: EvaluationState,
+): boolean {
+  let valid = true;
+  for (const name of requiredNames) {
+    if (!(name in args)) {
+      valid = false;
+      state.diagnostics.push(
+        createError(
+          DiagnosticCode.ARITY_MISMATCH,
+          `Missing include arg '${name}' required by @params(names: [...])`,
+          includeLoc,
+        ),
+      );
+    }
+  }
+  return valid;
+}
+
+async function evaluateIncludeDirective(node: Directive, state: EvaluationState): Promise<Block[]> {
+  const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
+  const includePath = typeof args.path === "string" ? args.path : undefined;
+  if (!includePath) {
+    state.diagnostics.push(
+      createError(
+        DiagnosticCode.PARSE_ERROR,
+        "@include requires path: \"...\"",
+        node.loc,
+      ),
+    );
+    return [];
+  }
+
+  if (!state.sourcePath) {
+    state.diagnostics.push(
+      createError(
+        DiagnosticCode.IMPORT_NOT_FOUND,
+        "@include requires sourcePath in evaluation options",
+        node.loc,
+      ),
+    );
+    return [];
+  }
+
+  if (!state.loadFile) {
+    state.diagnostics.push(
+      createError(
+        DiagnosticCode.IMPORT_NOT_FOUND,
+        "@include requires a file loader in evaluation options",
+        node.loc,
+      ),
+    );
+    return [];
+  }
+
+  const resolvedPath = resolveIncludePath(includePath, state.sourcePath);
+  if (state.includeStack.includes(resolvedPath)) {
+    state.diagnostics.push(
+      createError(
+        DiagnosticCode.IMPORT_CYCLE,
+        `Import cycle detected at '${resolvedPath}'`,
+        node.loc,
+      ),
+    );
+    return [];
+  }
+
+  let childSource: string;
+  try {
+    childSource = await state.loadFile(resolvedPath);
+  } catch (cause) {
+    state.diagnostics.push(
+      createError(
+        DiagnosticCode.IMPORT_NOT_FOUND,
+        `Failed to load include '${resolvedPath}': ${cause instanceof Error ? cause.message : String(cause)}`,
+        node.loc,
+      ),
+    );
+    return [];
+  }
+
+  const parsed = parseSource(childSource);
+  state.diagnostics.push(...parsed.diagnostics.map((diagnostic) => withDiagnosticSource(diagnostic, resolvedPath)));
+  if (parsed.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return [];
+  }
+
+  const bindResult = bindSync(parsed.cst);
+  state.diagnostics.push(...bindResult.diagnostics.map((diagnostic) => withDiagnosticSource(diagnostic, resolvedPath)));
+  if (bindResult.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return [];
+  }
+
+  const includeArgs = toIncludeArgs(args.args);
+  const requiredNames = readParamsNames(parsed.cst, state);
+  if (!validateIncludeParams(requiredNames, includeArgs, node.loc, state)) {
+    return [];
+  }
+
+  const childVariables = {
+    ...state.variables,
+    ...includeArgs,
+  };
+
+  const childResult = await evaluate(parsed.cst, bindResult.symbols, {
+    variables: childVariables,
+    sourcePath: resolvedPath,
+    loadFile: state.loadFile,
+    includeStack: [...state.includeStack, resolvedPath],
+  });
+  state.diagnostics.push(...childResult.diagnostics);
+
+  return childResult.document.blocks;
 }
 
 async function evaluateInline(node: CSTInline, state: EvaluationState): Promise<Inline[]> {
@@ -593,6 +796,10 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
     case "footer":
       await evaluateHeaderFooter(node, "footer", state);
       return [];
+    case "params":
+      return [];
+    case "include":
+      return evaluateIncludeDirective(node, state);
     case "style": {
       const inner = node.body ? await evaluateBlocks(node.body.children, state) : [];
       const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
@@ -700,6 +907,10 @@ export async function evaluate(
     defs,
     styles,
     luaEngine,
+    variables: data,
+    sourcePath: options.sourcePath,
+    loadFile: options.loadFile,
+    includeStack: options.includeStack ?? (options.sourcePath ? [options.sourcePath] : []),
   };
 
   const blocks = await evaluateBlocks(cst.children, state);
