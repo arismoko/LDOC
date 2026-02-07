@@ -11,7 +11,6 @@
  */
 
 import type { Document, List } from "../types/document-ir.ts";
-import type { SymbolTable } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import type {
   StyledDocument,
@@ -63,13 +62,12 @@ const DEFAULT_OPTIONS = {
  */
 export function style(
   document: Document,
-  symbols: SymbolTable,
   options: StyleOptions = {}
 ): StyleResult {
   const diagnostics: Diagnostic[] = [];
   
   // Create the resolver
-  const resolveStyle = createStyleResolver(symbols, diagnostics);
+  const resolveStyle = createStyleResolver(diagnostics);
   
   // Build document-level styles
   const documentStyles = buildDocumentStyles(options);

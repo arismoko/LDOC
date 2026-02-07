@@ -123,6 +123,46 @@ function validateDirective(dir: Directive, state: ValidationState): void {
     }
   }
 
+  // Check args arity
+  if (contract.hasArgs === "none" && dir.argsRaw) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' does not accept arguments`,
+        dir.loc,
+      ),
+    );
+  }
+  if (contract.hasArgs === "required" && !dir.argsRaw) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' requires arguments`,
+        dir.loc,
+      ),
+    );
+  }
+
+  // Check body arity
+  if (contract.hasBody === "none" && dir.body) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' does not accept a body`,
+        dir.loc,
+      ),
+    );
+  }
+  if (contract.hasBody === "required" && !dir.body) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' requires a body`,
+        dir.loc,
+      ),
+    );
+  }
+
   // Validate body if present
   if (dir.body && dir.body.kind === "StructuralBody") {
     const childState: ValidationState = {
@@ -171,6 +211,46 @@ function validateInlineDirective(dir: InlineDirective, state: ValidationState): 
       warning(
         MISPLACED_DIRECTIVE,
         `'@${dir.name}' is not allowed inline`,
+        dir.loc,
+      ),
+    );
+  }
+
+  // Check args arity
+  if (contract.hasArgs === "none" && dir.argsRaw) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' does not accept arguments`,
+        dir.loc,
+      ),
+    );
+  }
+  if (contract.hasArgs === "required" && !dir.argsRaw) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' requires arguments`,
+        dir.loc,
+      ),
+    );
+  }
+
+  // Check body arity
+  if (contract.hasBody === "none" && dir.body) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' does not accept a body`,
+        dir.loc,
+      ),
+    );
+  }
+  if (contract.hasBody === "required" && !dir.body) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' requires a body`,
         dir.loc,
       ),
     );

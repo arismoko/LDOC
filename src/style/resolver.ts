@@ -8,7 +8,6 @@
  */
 
 import type { StyleRef } from "../types/document-ir.ts";
-import type { SymbolTable } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import type { ComputedStyle, StyleResolver } from "../types/styled.ts";
 import { loc as createLoc, type SourceLocation } from "../types/source-location.ts";
@@ -21,7 +20,6 @@ import { applyInlineStyles } from "../types/styled.ts";
  * The resolver caches computed styles for efficiency.
  */
 export function createStyleResolver(
-  symbols: SymbolTable,
   diagnostics: Diagnostic[]
 ): StyleResolver {
   // Cache for resolved named styles

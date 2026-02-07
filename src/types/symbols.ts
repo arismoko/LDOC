@@ -86,6 +86,14 @@ export function createSymbolTable(): SymbolTable {
  * with throwing stubs. The table object itself is frozen.
  */
 export function freezeSymbolTable(symbols: SymbolTable): Readonly<SymbolTable> {
+  for (const symbol of symbols.defs.values()) {
+    Object.freeze(symbol.usages);
+    Object.freeze(symbol);
+  }
+  for (const symbol of symbols.anchors.values()) {
+    Object.freeze(symbol.usages);
+    Object.freeze(symbol);
+  }
   freezeMap(symbols.defs);
   freezeMap(symbols.anchors);
   return Object.freeze(symbols);

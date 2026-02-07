@@ -6,6 +6,7 @@ import { describe, test, expect } from "bun:test";
 import { tryCompile, parseAndBind, compileToDocument } from "./index.ts";
 import { parseSource } from "../parse/index.ts";
 import { evaluate } from "../evaluate/index.ts";
+import { bindSync } from "../bind/index.ts";
 
 describe("tryCompile", () => {
   test("returns diagnostics on parse failure", async () => {
@@ -37,7 +38,7 @@ describe("@lua directive parsing", () => {
     expect(luaDir!.body.text).toBe("");
   });
 
-  test("@lua(args){} parses args correctly with RawBody", () => {
+  test("@lua(args){} parses args but bind warns about unwanted args", () => {
     const { cst } = parseSource("@lua(once){}");
     const luaDir = (cst.children as any[]).find(
       (c: any) => c.kind === "Directive" && c.name === "lua"
@@ -46,6 +47,10 @@ describe("@lua directive parsing", () => {
     expect(luaDir!.argsRaw).toBe("(once)");
     expect(luaDir!.body).toBeDefined();
     expect(luaDir!.body.kind).toBe("RawBody");
+
+    // Bind should warn that @lua doesn't accept args
+    const bindResult = bindSync(cst);
+    expect(bindResult.diagnostics.some((d: any) => d.message.includes("does not accept arguments"))).toBe(true);
   });
 
   test("@lua{ x = { 1, 2 } } handles nested braces in Lua tables", () => {
@@ -274,6 +279,18 @@ describe("phase boundaries", () => {
     // Should compile without errors
     const errors = diagnostics.filter((d) => d.severity === "error");
     expect(errors).toHaveLength(0);
+  });
+
+  test("symbol table entries are frozen — value mutation throws", () => {
+    const { symbols } = parseAndBind("@def(x: 1)");
+    const sym = symbols.defs.get("x")!;
+    expect(() => { (sym as any).value = 999; }).toThrow();
+  });
+
+  test("symbol table entries are frozen — usages mutation throws", () => {
+    const { symbols } = parseAndBind("@def(x: 1)");
+    const sym = symbols.defs.get("x")!;
+    expect(() => { (sym.usages as any).push({}); }).toThrow();
   });
 
   test("parse output is not mutated by bind", () => {
