@@ -95,17 +95,6 @@ export class Lexer {
       return;
     }
 
-    // Lua block open
-    if (char === "@" && this.peek(1) === "l" && this.peek(2) === "u" && this.peek(3) === "a" && this.peek(4) === "{") {
-      this.emit(TokenType.LUA_BLOCK_OPEN, "@lua{");
-      this.advance();
-      this.advance();
-      this.advance();
-      this.advance();
-      this.advance();
-      return;
-    }
-
     // Directive start
     if (char === "@") {
       this.scanDirective();
@@ -299,6 +288,8 @@ export class Lexer {
     }
 
     this.emit(TokenType.STRING, value, startLine, startCol, this.line, this.column);
+    // Tag with original quote character for faithful roundtripping
+    this.tokens[this.tokens.length - 1]!.quote = quote;
   }
 
   /**
@@ -391,7 +382,7 @@ export class Lexer {
       comment += this.advance();
     }
 
-    this.emit(TokenType.COMMENT, comment.trim(), startLine, startCol, this.line, this.column);
+    this.emit(TokenType.COMMENT, comment, startLine, startCol, this.line, this.column);
   }
 
   private isAtEnd(): boolean {

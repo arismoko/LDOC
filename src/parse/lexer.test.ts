@@ -92,7 +92,7 @@ describe("Lexer single slash handling", () => {
     const { tokens } = tokenize("// this is a comment");
     const commentTokens = tokens.filter((t) => t.type === TokenType.COMMENT);
     expect(commentTokens.length).toBe(1);
-    expect(commentTokens[0]!.value).toBe("this is a comment");
+    expect(commentTokens[0]!.value).toBe(" this is a comment");
   });
 });
 
@@ -118,7 +118,7 @@ describe("Lexer // in paragraph context (§3.2)", () => {
     const { tokens } = tokenize("// full line comment\n@document");
     const commentTokens = tokens.filter((t) => t.type === TokenType.COMMENT);
     expect(commentTokens.length).toBe(1);
-    expect(commentTokens[0]!.value).toBe("full line comment");
+    expect(commentTokens[0]!.value).toBe(" full line comment");
     const directiveTokens = tokens.filter((t) => t.type === TokenType.DIRECTIVE);
     expect(directiveTokens.length).toBe(1);
   });
@@ -138,5 +138,60 @@ describe("Lexer unterminated strings", () => {
   test("terminated string emits no diagnostic", () => {
     const { diagnostics } = tokenize('@style(ref: "h1")');
     expect(diagnostics.length).toBe(0);
+  });
+});
+
+describe("Lexer @lua tokenization (§7.2)", () => {
+  test("@lua{ tokenizes as DIRECTIVE + LBRACE, not a special token", () => {
+    const { tokens } = tokenize("@lua{x = 1}");
+    const directives = tokens.filter((t) => t.type === TokenType.DIRECTIVE);
+    expect(directives.length).toBe(1);
+    expect(directives[0]!.value).toBe("lua");
+    const lbraces = tokens.filter((t) => t.type === TokenType.LBRACE);
+    expect(lbraces.length).toBe(1);
+  });
+
+  test("@lua(args){body} tokenizes as DIRECTIVE + LPAREN/RPAREN + LBRACE", () => {
+    const { tokens } = tokenize("@lua(once){print('hi')}");
+    const types = tokens.map((t) => t.type);
+    expect(types[0]).toBe(TokenType.DIRECTIVE);
+    expect(types[1]).toBe(TokenType.LPAREN);
+  });
+});
+
+describe("Lexer STRING quote preservation", () => {
+  test("double-quoted string stores quote char", () => {
+    const { tokens } = tokenize('"hello"');
+    const str = tokens.find((t) => t.type === TokenType.STRING);
+    expect(str!.value).toBe("hello");
+    expect(str!.quote).toBe('"');
+  });
+
+  test("single-quoted string stores quote char", () => {
+    const { tokens } = tokenize("'hello'");
+    const str = tokens.find((t) => t.type === TokenType.STRING);
+    expect(str!.value).toBe("hello");
+    expect(str!.quote).toBe("'");
+  });
+
+  test("single-quoted string with embedded double quotes preserves content", () => {
+    const { tokens } = tokenize("'he said \"hello\"'");
+    const str = tokens.find((t) => t.type === TokenType.STRING);
+    expect(str!.value).toBe('he said "hello"');
+    expect(str!.quote).toBe("'");
+  });
+});
+
+describe("Lexer comment text preservation", () => {
+  test("comment preserves leading whitespace", () => {
+    const { tokens } = tokenize("//  indented comment");
+    const comment = tokens.find((t) => t.type === TokenType.COMMENT);
+    expect(comment!.value).toBe("  indented comment");
+  });
+
+  test("comment with no space after // preserves empty prefix", () => {
+    const { tokens } = tokenize("//tight");
+    const comment = tokens.find((t) => t.type === TokenType.COMMENT);
+    expect(comment!.value).toBe("tight");
   });
 });

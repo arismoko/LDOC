@@ -93,7 +93,7 @@ function parseStructuralChildren(ctx: ParseContext, terminator: TokenType | null
     }
 
     // Parse list marker
-    if (token.type === TokenType.LIST_BULLET || token.type === TokenType.LIST_ORDERED || token.type === TokenType.LIST_CONTINUATION) {
+    if (token.type === TokenType.LIST_BULLET || token.type === TokenType.LIST_ORDERED) {
       const item = parseListItemMarker(ctx);
       if (item) children.push(item);
       continue;
@@ -279,7 +279,7 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
   const startToken = peekToken(ctx);
   if (!startToken) return null;
 
-  const ordered = startToken.type === TokenType.LIST_ORDERED || startToken.type === TokenType.LIST_CONTINUATION;
+  const ordered = startToken.type === TokenType.LIST_ORDERED;
   const depth = startToken.value.startsWith("@") ? startToken.value.length - 1 : 1;
   ctx.pos++;
 
@@ -356,7 +356,7 @@ function isTextLikeToken(type: TokenType): boolean {
 function tokenTextValue(token: Token): string {
   switch (token.type) {
     case TokenType.STRING:
-      return `"${token.value}"`;
+      return `${token.quote ?? '"'}${token.value}${token.quote ?? '"'}`;
     case TokenType.COMMENT:
       return `//${token.value}`;
     default:
@@ -560,6 +560,7 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
     ctx.pos++; // consume LBRACE
     body = [];
     let textBuffer = "";
+    let bodyClosed = false;
 
     while (ctx.pos < ctx.tokens.length) {
       const token = peekToken(ctx);
@@ -575,6 +576,7 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
           });
         }
         ctx.pos++; // consume RBRACE
+        bodyClosed = true;
         break;
       }
 
@@ -615,6 +617,25 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
       // Default: consume as text
       textBuffer += token.value;
       ctx.pos++;
+    }
+
+    // EOF-close recovery: loop exited without consuming RBRACE
+    if (!bodyClosed) {
+      if (textBuffer) {
+        body.push({
+          kind: "InlineText",
+          loc: startLoc,
+          text: textBuffer,
+        });
+      }
+      ctx.incomplete = true;
+      ctx.diagnostics.push(
+        error(
+          DiagnosticCode.UNCLOSED_DELIMITER,
+          `Unterminated inline directive body at line ${startLoc.line}`,
+          startLoc
+        )
+      );
     }
   }
 
