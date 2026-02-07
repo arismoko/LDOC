@@ -183,6 +183,9 @@ All review comments across 3 Codex review rounds have been triaged. New sessions
 | R3-2 | `@style(ref:)` replaces `r` overrides instead of merging | P2 | ✅ Fixed | `084c233` |
 | R3-3 | `[[id]]` syntax conflicts with `[` paragraph open | P1 | ✅ Fixed | `e00a620` — replaced with `@ref(id: ...)` |
 | R3-4 | List start/continue not wired to DOCX emission | P1 | ✅ Fixed | `da93bb3` |
+| R4-1 | Dynamic list ref when baseDef missing | P1 | ✅ Fixed | `876b8c5` |
+| R4-2 | Continuation instances not scoped by nesting level | P1 | ✅ Fixed | `876b8c5` |
+| R4-3 | Document orientation not wired to style/emission | P2 | ⏭️ Deferred | PR #4 |
 
 ---
 
