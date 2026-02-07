@@ -193,4 +193,49 @@ describe("layout evaluation", () => {
     const { diagnostics } = await compileToDocument(source);
     expect(diagnostics.some((d) => d.message.includes("@anchor requires id"))).toBe(true);
   });
+
+  test("[[id]] cross-reference produces a CrossRef IR node", async () => {
+    const source = `[See [[payment-terms]] for details.]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const para = document.blocks[0];
+    expect(para?.type).toBe("Paragraph");
+    if (para?.type === "Paragraph") {
+      // Should have: Text("See "), CrossRef("payment-terms"), Text(" for details.")
+      const crossRef = para.content.find((n) => n.type === "CrossRef");
+      expect(crossRef).toBeDefined();
+      if (crossRef?.type === "CrossRef") {
+        expect(crossRef.target).toBe("payment-terms");
+      }
+    }
+  });
+
+  test("[[id]] alongside @anchor creates matching bookmark and cross-ref", async () => {
+    const source = `@anchor(id: "sec1")
+[Reference to [[sec1]] here.]
+`;
+
+    const { document } = await compileToDocument(source);
+
+    // First block: anchor paragraph with Bookmark
+    const anchorPara = document.blocks[0];
+    expect(anchorPara?.type).toBe("Paragraph");
+    if (anchorPara?.type === "Paragraph") {
+      expect(anchorPara.content[0]?.type).toBe("Bookmark");
+    }
+
+    // Second block: paragraph with CrossRef
+    const bodyPara = document.blocks[1];
+    expect(bodyPara?.type).toBe("Paragraph");
+    if (bodyPara?.type === "Paragraph") {
+      const xref = bodyPara.content.find((n) => n.type === "CrossRef");
+      expect(xref).toBeDefined();
+      if (xref?.type === "CrossRef") {
+        expect(xref.target).toBe("sec1");
+      }
+    }
+  });
 });

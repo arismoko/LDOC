@@ -612,6 +612,12 @@ async function evaluateInline(node: CST.Inline, state: EvaluationState): Promise
     }
     case "InlineDirective":
       return evaluateInlineDirective(node, state);
+    case "InlineCrossRef":
+      return [{
+        type: "CrossRef",
+        target: node.target,
+        loc: node.loc,
+      }];
     default:
       return [];
   }
