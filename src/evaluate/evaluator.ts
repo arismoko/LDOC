@@ -647,7 +647,12 @@ async function evaluateInlineDirective(node: CST.InlineDirective, state: Evaluat
     const def = state.defs[args.ref];
     if (def && typeof def === "object") {
       const defObj = def as Record<string, unknown>;
-      runChannel = defObj.r ?? runChannel;
+      // Merge: def provides the base, call-site overrides win
+      if (defObj.r && typeof defObj.r === "object" && runChannel && typeof runChannel === "object") {
+        runChannel = { ...(defObj.r as Record<string, unknown>), ...(runChannel as Record<string, unknown>) };
+      } else {
+        runChannel = defObj.r ?? runChannel;
+      }
     } else if (def === undefined) {
       state.diagnostics.push(
         createWarning(DiagnosticCode.PARSE_ERROR, `@style ref "${args.ref}" not found in @def bindings`, node.loc),

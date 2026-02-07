@@ -350,8 +350,15 @@ export class Lexer {
       this.emit(TokenType.TEXT, next, startLine, startCol, this.line, this.column);
     } else {
       // Unknown escape → literal \X
-      const char = this.advance();
-      this.emit(TokenType.TEXT, "\\" + char, startLine, startCol, this.line, this.column);
+      // If the next char is a newline, don't consume it — let the main
+      // loop handle it so BLANK_LINE is emitted and line/column stay correct.
+      const next2 = this.peek();
+      if (next2 === "\n") {
+        this.emit(TokenType.TEXT, "\\", startLine, startCol, this.line, this.column);
+      } else {
+        const char = this.advance();
+        this.emit(TokenType.TEXT, "\\" + char, startLine, startCol, this.line, this.column);
+      }
     }
   }
 
