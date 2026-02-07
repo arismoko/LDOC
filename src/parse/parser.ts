@@ -482,13 +482,14 @@ function parseRawBody(ctx: ParseContext, format: "lua"): RawBody | null {
         ctx.pos++; // skip the opening LBRACE token
         while (ctx.pos < ctx.tokens.length) {
           const tok = ctx.tokens[ctx.pos]!;
-          // Stop when we reach the closing RBRACE at offset i
-          if (tok.type === TokenType.RBRACE) {
-            const tokOffset = sourceOffset(source, tok.line, tok.column);
-            if (tokOffset >= i) {
-              ctx.pos++; // consume the closing RBRACE token
-              break;
+          const tokOffset = sourceOffset(source, tok.line, tok.column);
+          // Stop at any token at or beyond the closing brace offset
+          if (tokOffset >= i) {
+            // Exact match: consume the closing RBRACE token
+            if (tok.type === TokenType.RBRACE && tokOffset === i) {
+              ctx.pos++;
             }
+            break;
           }
           ctx.pos++;
         }

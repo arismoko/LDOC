@@ -76,6 +76,21 @@ describe("@lua directive parsing", () => {
     expect(diagnostics.filter((d: any) => d.severity === "error")).toHaveLength(0);
   });
 
+  test('@lua{ x = "}" .. y } does not consume later braces', () => {
+    const src = '@lua{ x = "}" .. y }\n@foo{}';
+    const { cst, diagnostics } = parseSource(src);
+    const directives = (cst.children as any[]).filter(
+      (c: any) => c.kind === "Directive"
+    );
+    expect(directives).toHaveLength(2);
+    expect(directives[0]!.name).toBe("lua");
+    expect(directives[0]!.body.kind).toBe("RawBody");
+    expect(directives[0]!.body.text).toBe(' x = "}" .. y ');
+    expect(directives[1]!.name).toBe("foo");
+    expect(directives[1]!.body).toBeDefined();
+    expect(diagnostics.filter((d: any) => d.severity === "error")).toHaveLength(0);
+  });
+
   test("@lua{ -- }\\nx = 1 } handles braces inside Lua line comments", () => {
     const src = "@lua{ -- }\nx = 1 }";
     const { cst, diagnostics } = parseSource(src);
@@ -529,5 +544,14 @@ describe("args parse error location precision", () => {
     expect(dupDiags).toHaveLength(1);
     // Second "x" is at col 11 (0-based). Error must be past LPAREN (col 4).
     expect(dupDiags[0]!.location.column).toBeGreaterThan(4);
+  });
+
+  test("multiline args parse errors are rebased to the correct source line", () => {
+    const src = "@foo(\n  a: 1,\n  b\n)";
+    const { diagnostics } = parseSource(src);
+    const parseDiags = diagnostics.filter((d) => d.code === "P006");
+    expect(parseDiags).toHaveLength(1);
+    expect(parseDiags[0]!.location.line).toBe(3);
+    expect(parseDiags[0]!.location.column).toBeGreaterThanOrEqual(2);
   });
 });

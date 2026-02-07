@@ -101,7 +101,7 @@ Full architectural audit landed 7 issues covering every compiler phase. Evaluato
 - Fixed nested-include false B009 warnings in `src/evaluate/directives/block-include.ts`.
 - Added tests for include-file directive validation (B020) and nested include false warnings.
 
-#### Round 4 — pending commit (Codex review + oracle pre-review)
+#### Round 4 — `4bbb193` (Codex review + oracle pre-review)
 
 **Tagged union for `ParseArgsResult`** (P1 — Codex review):
 - `isArgsParseError` type guard checked `"ok" in result` which false-positived on user args like `@foo(ok: false)`.
@@ -130,6 +130,13 @@ Full architectural audit landed 7 issues covering every compiler phase. Evaluato
 - All 16 bare `'PARSE_ERROR'`/`'DUPLICATE_DEFINITION'` strings in `args.ts` replaced with `DiagnosticCode.X` constants.
 
 **Tests**: 8 new regression tests (151 total, 346 expect() calls).
+
+#### Round 5 — pending commit (Codex review follow-up)
+
+- **Raw-body token advancement precision** (P1): in `src/parse/parser.ts`, `parseRawBody` now stops token advancement at the first token whose offset is at/after the matched closing brace and only consumes `RBRACE` on exact offset match. Prevents over-consuming a later brace token if token/source offsets diverge.
+- **Multiline args diagnostic rebasing** (P2): in `src/shared/args.ts`, args parse diagnostics now rebase via newline-aware `advancePosition()` so multiline args point to the correct source line/column.
+- **Regression tests**: added raw-body brace consumption guard + multiline args location test in `src/pipeline/pipeline.test.ts`.
+- **Verification**: `npx tsc --noEmit` clean; `bun test` = 153 pass, 356 expect() calls.
 
 ---
 
@@ -175,7 +182,6 @@ Deferred from PR #3 review. `@document(orientation: "landscape")` is parsed but 
 
 ## Deferred (not in v3 core path)
 
-- **Multiline args diagnostic locations**: args error rebasing hardcodes `line: location.line` — for multiline args spanning newlines, inner diagnostics may point to the wrong line. Single-line args (the 99% case) are correct. Needs a `advanceLocation` helper that walks the source text to map offset → line:column.
 - Typed include params (`SG-001`)
 - Direct expression args (`SG-002`)
 - Markdown emphasis sugar (`SG-004`)

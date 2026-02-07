@@ -23,7 +23,7 @@ export type JSON5Value = string | number | boolean | null | ArgsObject | ArgsObj
 
 export function parseArgsObject(argsRaw: string, location: SourceLocation): ParseArgsResult {
   try {
-    let trimmed = argsRaw.trim();
+    const trimmed = argsRaw.trim();
     if (trimmed === '') {
       return { ok: true, value: {} };
     }
@@ -38,26 +38,33 @@ export function parseArgsObject(argsRaw: string, location: SourceLocation): Pars
 
     const inner = trimmed.slice(1, -1);
     const innerLeadingWS = inner.length - inner.trimStart().length;
-    trimmed = inner.trim();
-    if (trimmed === '') {
+    const innerTrimmed = inner.trim();
+    if (innerTrimmed === '') {
       return { ok: true, value: {} };
     }
 
-    const result = parseJSON5Object(trimmed);
+    const result = parseJSON5Object(innerTrimmed);
     if (!result.ok) {
       // Rebase inner parser location to source coordinates.
-      // location points at the opening delimiter (LPAREN); inner column offsets
-      // are relative to the trimmed content after stripping delimiters and whitespace.
-      // Offset = 1 (opening paren) + leading whitespace inside parens.
+      // location points at the LPAREN; inner locations use flat offsets (line: 1, column: offset).
+      // Walk through the original inner args text (between parens) to map offsets.
       const innerLoc = result.error?.location;
-      const rebasedLoc: SourceLocation = innerLoc
-        ? {
-            line: location.line,
-            column: location.column + 1 + innerLeadingWS + innerLoc.column,
-            endLine: location.line,
-            endColumn: location.column + 1 + innerLeadingWS + innerLoc.endColumn,
-          }
-        : location;
+      let rebasedLoc: SourceLocation;
+      if (innerLoc) {
+        // Start at first char after LPAREN, then skip leading whitespace inside parens.
+        const innerStart = advancePosition(inner, location.line, location.column + 1, innerLeadingWS);
+        const start = advancePosition(innerTrimmed, innerStart.line, innerStart.column, innerLoc.column);
+        const end = advancePosition(innerTrimmed, innerStart.line, innerStart.column, innerLoc.endColumn);
+        rebasedLoc = {
+          line: start.line,
+          column: start.column,
+          endLine: end.line,
+          endColumn: end.column,
+          source: location.source,
+        };
+      } else {
+        rebasedLoc = location;
+      }
       return {
         ok: false,
         raw: argsRaw,
@@ -73,6 +80,30 @@ export function parseArgsObject(argsRaw: string, location: SourceLocation): Pars
       error: error(DiagnosticCode.PARSE_ERROR, err instanceof Error ? err.message : 'Failed to parse args', location),
     };
   }
+}
+
+/**
+ * Walk through `text` for `offset` characters, tracking newlines to compute
+ * the resulting line/column position relative to a starting line/column.
+ */
+function advancePosition(
+  text: string,
+  startLine: number,
+  startColumn: number,
+  offset: number
+): { line: number; column: number } {
+  const end = Math.max(0, Math.min(offset, text.length));
+  let line = startLine;
+  let column = startColumn;
+  for (let i = 0; i < end; i++) {
+    if (text[i] === '\n') {
+      line++;
+      column = 0;
+    } else {
+      column++;
+    }
+  }
+  return { line, column };
 }
 
 interface ParseResultBase {
