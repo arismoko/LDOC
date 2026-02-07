@@ -1,6 +1,6 @@
 {
   "active": true,
-  "iteration": 1,
+  "iteration": 2,
   "maxIterations": 0,
   "completionPromise": "COMPLETE",
   "prompt": "You are implementing LDOC v3 according to the repository docs.\n\nMANDATORY: At the start of EVERY iteration, open and read these files completely:\n\n- COMMITS.MD\n- LDOC-V3-SPEC.md\n- YAGNI.md\n- LSP.md\n- RALPH.md\n\nRules (KISS/YAGNI):\n\n- Implement ONLY what is required by LDOC-V3-SPEC.md and the next item in COMMITS.MD.\n- Avoid bonus scope, but do not use hacks that will obviously be torn out next commit.\n- Make the smallest _correct and maintainable_ change that satisfies the current commit and keeps the repo ready for the next commit.\n\nWork loop:\n\n1. Pick the next unfinished commit from COMMITS.MD (in order).\n2. Implement exactly that commit’s scope.\n3. Run the project’s tests / smoke build. Fix only what you broke.\n4. Commit one change with the commit message specified in COMMITS.MD.\n5. Update COMMITS.MD to mark that commit done.\n6. Send a message to the user saying what was done keep it brief. Do not continue after sending this message.\n\nIf blocked:\n\n- Write a short BLOCKED note in RALPH.md (what you tried, the error, and the smallest next step).\n- Do NOT output the completion promise.\n\nOnly when all commits in COMMITS.MD are completed and tests pass, output:\n<promise>COMPLETE</promise>\n",
