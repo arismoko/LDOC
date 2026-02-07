@@ -211,6 +211,30 @@ Performed comprehensive self-review + oracle code review. All findings fixed in 
 
 Tests: 81 pass (79 original + 2 new pipeline tests), 0 fail, 0 TypeScript errors.
 
+### Oracle Code Review (4-layer)
+
+Full oracle code review performed on `fix/spec-correctness` branch. All 9 findings fixed across 2 commits.
+
+| # | Finding | Sev | Fix | Commit |
+|---|---------|-----|-----|--------|
+| 1 | `@style(ref:)` block-level resolution not wired | P1 | Share `resolveStyleRef()` between block and inline paths | `90cbacf` |
+| 2 | Parser dispatch: giant switch duplicates can-have-body logic | P2 | DRY via `BLOCK_DIRECTIVE_SET` lookup + shared `parseDirectiveCommon()` | `90cbacf` |
+| 3 | Emitter duplication: `compileToDocument`/`compileToStyledDocument` copy-pasted | P2 | Extract `buildDocument()` helper | `90cbacf` |
+| 4 | `emitBookmark()` wraps in paragraph, leaking IR abstraction | P2 | Deferred to PR #5 (anchor IR cleanup) | — |
+| 5 | Evaluator: `start`/`continue` exclusivity not enforced | P1 | Add diagnostic when both specified; `continue` wins | `65294e8` |
+| 6 | Evaluator: `@document(margins: "1in")` 1-value shorthand not wired | P1 | Already handled, verified by test | `65294e8` |
+| 7 | Numbering config: `baseDef` lookup can return `undefined` | P1 | Add null-check with early return | `65294e8` |
+| 8 | `emitBookmark()` should sanitize name consistently | P2 | Uses `bookmarkSafeName()` from bookmarks.ts | `65294e8` |
+| 9 | Dead code in `emit/docx/utils.ts` | P3 | Removed `buildRunProperties()` and `buildParagraphProperties()`; only `Mutable<T>` remains | `65294e8` |
+
+### YAGNI Cleanup (post-review)
+
+Removed 161 lines of dead code across `parser.ts` and `cst.ts`:
+- **parser.ts**: 15 unused type imports, 1 dead interface (`ParseResultInternal`), 1 dead function (`advanceToken()`)
+- **cst.ts**: 4 speculative "reserved for future use" types (`Anchor`, `Def`, `Style`, `DocumentConfig`), 17 unused constructor functions, 1 unused `TokenType` import
+
+Tests: 88 pass, 0 fail, 0 TypeScript errors. Commit: `b0ac236`.
+
 ---
 
 # 4. PR: Professional output polish
