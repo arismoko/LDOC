@@ -187,7 +187,12 @@ export const handleInclude: BlockDirectiveHandler = async (node, ctx) => {
     return [];
   }
 
-  const bindResult = bindSync(parsed.cst);
+  // This bind pass is only for local symbol collection in the included subtree.
+  // Primary directive/ref validation ownership belongs to the top-level bind phase.
+  const bindResult = bindSync(parsed.cst, {
+    validateDirectives: false,
+    validateRefs: false,
+  });
   ctx.diagnostics.push(...bindResult.diagnostics.map((diagnostic) => withDiagnosticSource(diagnostic, resolvedPath)));
   if (bindResult.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return [];

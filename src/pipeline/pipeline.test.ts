@@ -393,4 +393,20 @@ describe("cross-file ref validation", () => {
     // B009 — "nowhere" doesn't exist in any file
     expect(diagnostics.some((d) => d.code === "B009")).toBe(true);
   });
+
+  test("bind-with-includes validates unknown directives inside included files", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const { diagnostics } = await parseAndBindWithIncludes(
+      `@include(path: "child.ldoc")`,
+      {
+        sourcePath: mainPath,
+        loadFile: createMapLoader({
+          [childPath]: `@unknownDirective()`,
+        }),
+      },
+    );
+
+    expect(diagnostics.some((d) => d.code === "B020")).toBe(true);
+  });
 });

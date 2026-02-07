@@ -115,4 +115,24 @@ describe("include evaluation", () => {
       }),
     ).rejects.toThrow("Absolute include paths are not allowed");
   });
+
+  test("nested include refs do not emit false B009 warnings", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const grandPath = resolvePath("/virtual", "grand.ldoc");
+    const loadFile = createMapLoader({
+      [childPath]: `@include(path: "grand.ldoc")
+[@ref(id: "grand-anchor")]`,
+      [grandPath]: `@anchor(id: "grand-anchor")
+[Grand section]`,
+    });
+
+    const source = `@include(path: "child.ldoc")`;
+    const { diagnostics } = await compileToDocument(source, {
+      sourcePath: mainPath,
+      loadFile,
+    });
+
+    expect(diagnostics.some((d) => d.code === "B009")).toBe(false);
+  });
 });

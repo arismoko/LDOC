@@ -28,6 +28,10 @@ export interface BinderOptions {
   includeRoot?: string;
   /** Function to load and parse a file */
   loadFile?: (path: string) => Promise<ParseResult>;
+  /** Enable directive-contract validation diagnostics */
+  validateDirectives?: boolean;
+  /** Enable cross-reference target validation diagnostics */
+  validateRefs?: boolean;
 }
 
 /**
@@ -53,8 +57,12 @@ export class Binder {
     const doc = cst as Document;
     const symbols = createSymbolTable();
     const diagnostics: Diagnostic[] = [];
+    const shouldValidateDirectives = this.options.validateDirectives !== false;
+    const shouldValidateRefs = this.options.validateRefs !== false;
 
-    diagnostics.push(...validate(doc));
+    if (shouldValidateDirectives) {
+      diagnostics.push(...validate(doc));
+    }
 
     // Collect symbols from entry document
     collectSymbols(doc.children, symbols, diagnostics);
@@ -70,15 +78,20 @@ export class Binder {
       diagnostics.push(...importResult.diagnostics);
       // Collect only anchors from included files (defs are scoped to their file)
       for (const includedDoc of importResult.parsedDocuments) {
+        if (shouldValidateDirectives) {
+          diagnostics.push(...validate(includedDoc));
+        }
         collectAnchors(includedDoc.children, symbols, diagnostics);
         includedDocs.push(includedDoc);
       }
     }
 
     // Validate refs after all symbols (entry + included) are collected
-    validateRefs(doc.children, symbols, diagnostics);
-    for (const includedDoc of includedDocs) {
-      validateRefs(includedDoc.children, symbols, diagnostics);
+    if (shouldValidateRefs) {
+      validateRefs(doc.children, symbols, diagnostics);
+      for (const includedDoc of includedDocs) {
+        validateRefs(includedDoc.children, symbols, diagnostics);
+      }
     }
 
     return { cst, symbols: freezeSymbolTable(symbols), diagnostics };
@@ -91,15 +104,21 @@ export class Binder {
     const doc = cst as Document;
     const symbols = createSymbolTable();
     const diagnostics: Diagnostic[] = [];
+    const shouldValidateDirectives = this.options.validateDirectives !== false;
+    const shouldValidateRefs = this.options.validateRefs !== false;
 
     // Pass 1: Validate directives against registry
-    diagnostics.push(...validate(doc));
+    if (shouldValidateDirectives) {
+      diagnostics.push(...validate(doc));
+    }
 
     // Pass 2: Collect @def bindings and @anchor definitions
     collectSymbols(doc.children, symbols, diagnostics);
 
     // Pass 3: Validate @ref targets against collected anchors
-    validateRefs(doc.children, symbols, diagnostics);
+    if (shouldValidateRefs) {
+      validateRefs(doc.children, symbols, diagnostics);
+    }
 
     return { cst, symbols: freezeSymbolTable(symbols), diagnostics };
   }

@@ -29,10 +29,7 @@ export type Block =
   | ParagraphBlock
   | Directive
   | ListItemMarker
-  | StructuralBody
-  | Table
-  | LayoutDirective
-  | HeaderFooter;
+  | StructuralBody;
 
 /** Paragraph block - exactly one paragraph enclosed in [...] */
 export interface ParagraphBlock {
@@ -78,87 +75,6 @@ export interface StructuralBody {
   kind: "StructuralBody";
   loc: SourceLocation;
   children: Block[];
-}
-
-/** Table - @table{ rows } */
-export interface Table {
-  kind: "Table";
-  loc: SourceLocation;
-  rows: TableRow[];
-}
-
-/** Table row - @row(cells: [...]) */
-export interface TableRow {
-  kind: "TableRow";
-  loc: SourceLocation;
-  cells: string[]; // cell contents with merge tokens (">", "^")
-}
-
-// =============================================================================
-// Layout Directives (core)
-// =============================================================================
-
-export type LayoutDirective =
-  | Pagebreak
-  | Columns
-  | Box
-  | Align;
-
-/** Page break - @pagebreak */
-export interface Pagebreak {
-  kind: "Pagebreak";
-  loc: SourceLocation;
-}
-
-/** Columns - @columns(count: 2, gap: "0.5in", separator: true){ body } */
-export interface Columns {
-  kind: "Columns";
-  loc: SourceLocation;
-  count: number;
-  gap: string;
-  separator: boolean;
-  body: StructuralBody;
-}
-
-/** Box - @box{ content } */
-export interface Box {
-  kind: "Box";
-  loc: SourceLocation;
-  body: StructuralBody;
-}
-
-/** Alignment - @align(value: "center"){ content } */
-export interface Align {
-  kind: "Align";
-  loc: SourceLocation;
-  value: "left" | "center" | "right";
-  body: StructuralBody;
-}
-
-// =============================================================================
-// Header and Footer
-// =============================================================================
-
-export type HeaderFooter =
-  | Header
-  | Footer;
-
-/** Header - @header{ left | center | right } */
-export interface Header {
-  kind: "Header";
-  loc: SourceLocation;
-  left?: ParagraphBlock;
-  center?: ParagraphBlock;
-  right?: ParagraphBlock;
-}
-
-/** Footer - @footer{ left | center | right } */
-export interface Footer {
-  kind: "Footer";
-  loc: SourceLocation;
-  left?: ParagraphBlock;
-  center?: ParagraphBlock;
-  right?: ParagraphBlock;
 }
 
 // =============================================================================
