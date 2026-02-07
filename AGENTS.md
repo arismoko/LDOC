@@ -1,5 +1,7 @@
 # AGENTS.md — Code Review Policy
 
+READ LDOC-V3-SPEC.md before reviewing.
+
 ## Severity Classification
 
 - **P0 (Critical)**: DRY violations, dead code, YAGNI violations. Fix immediately — these rot the codebase.
