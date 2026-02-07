@@ -3,8 +3,6 @@
  */
 
 import type { Block, Document, Directive, ParseResult } from "../types/cst.ts";
-import type { SymbolTable } from "../types/symbols.ts";
-import { createSymbolTable } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { error, DiagnosticCode } from "../types/diagnostics.ts";
 import { defaultIncludeRoot, resolveIncludeFilePath } from "../shared/include-path.ts";
@@ -25,8 +23,6 @@ export interface ResolverOptions {
  * Result of import resolution.
  */
 export interface ResolveResult {
-  /** Imported symbol table (currently reserved for future use) */
-  symbols: SymbolTable;
   /** Diagnostics from import resolution */
   diagnostics: Diagnostic[];
   /** Resolved paths that were imported */
@@ -41,7 +37,6 @@ export interface ResolveResult {
 export class ImportResolver {
   private readonly options: ResolverOptions;
   private readonly diagnostics: Diagnostic[] = [];
-  private readonly symbols: SymbolTable = createSymbolTable();
   private readonly importedPaths = new Set<string>();
   private readonly parsedDocuments: Document[] = [];
   private readonly visiting = new Set<string>();
@@ -172,7 +167,6 @@ export class ImportResolver {
     }
 
     return {
-      symbols: this.symbols,
       diagnostics: this.diagnostics,
       importedPaths: this.importedPaths,
       parsedDocuments: this.parsedDocuments,

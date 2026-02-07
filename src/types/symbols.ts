@@ -88,6 +88,7 @@ export function createSymbolTable(): SymbolTable {
 export function freezeSymbolTable(symbols: SymbolTable): Readonly<SymbolTable> {
   for (const symbol of symbols.defs.values()) {
     Object.freeze(symbol.usages);
+    deepFreeze(symbol.value);
     Object.freeze(symbol);
   }
   for (const symbol of symbols.anchors.values()) {
@@ -104,4 +105,27 @@ function freezeMap<K, V>(map: Map<K, V>): void {
   map.set = () => { throw new Error(`Cannot mutate frozen ${name}`); };
   map.delete = () => { throw new Error(`Cannot mutate frozen ${name}`); };
   map.clear = () => { throw new Error(`Cannot mutate frozen ${name}`); };
+}
+
+/**
+ * Recursively freeze a value and all nested objects/arrays.
+ * Primitives and already-frozen values are no-ops.
+ */
+function deepFreeze(value: unknown): void {
+  if (value === null || value === undefined || typeof value !== "object") {
+    return;
+  }
+  if (Object.isFrozen(value)) {
+    return;
+  }
+  Object.freeze(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      deepFreeze(item);
+    }
+  } else {
+    for (const v of Object.values(value as Record<string, unknown>)) {
+      deepFreeze(v);
+    }
+  }
 }

@@ -59,7 +59,8 @@ export class Binder {
     // Collect symbols from entry document
     collectSymbols(doc.children, symbols, diagnostics);
 
-    // Resolve includes and collect symbols from included documents
+    // Resolve includes and collect anchors from included documents
+    const includedDocs: Document[] = [];
     if (this.options.loadFile && this.options.sourcePath) {
       const importResult = await resolveImports(doc, {
         basePath: this.options.sourcePath,
@@ -70,11 +71,15 @@ export class Binder {
       // Collect only anchors from included files (defs are scoped to their file)
       for (const includedDoc of importResult.parsedDocuments) {
         collectAnchors(includedDoc.children, symbols, diagnostics);
+        includedDocs.push(includedDoc);
       }
     }
 
     // Validate refs after all symbols (entry + included) are collected
     validateRefs(doc.children, symbols, diagnostics);
+    for (const includedDoc of includedDocs) {
+      validateRefs(includedDoc.children, symbols, diagnostics);
+    }
 
     return { cst, symbols: freezeSymbolTable(symbols), diagnostics };
   }
@@ -197,7 +202,13 @@ function collectAnchors(blocks: Block[], symbols: SymbolTable, diagnostics: Diag
 function collectAnchor(dir: Directive, symbols: SymbolTable, diagnostics: Diagnostic[]): void {
   const id = dir.args?.id;
   if (typeof id !== "string" || id.length === 0) {
-    // @anchor without id is already caught by the evaluator; skip silently
+    diagnostics.push(
+      diagWarning(
+        DiagnosticCode.PARSE_ERROR,
+        `@anchor requires a non-empty string 'id' argument`,
+        dir.loc,
+      ),
+    );
     return;
   }
 

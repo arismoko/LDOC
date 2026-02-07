@@ -3,7 +3,8 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { tryCompile, parseAndBind, compileToDocument } from "./index.ts";
+import { resolve as resolvePath } from "node:path";
+import { tryCompile, parseAndBind, parseAndBindWithIncludes, compileToDocument } from "./index.ts";
 import { parseSource } from "../parse/index.ts";
 import { evaluate } from "../evaluate/index.ts";
 import { bindSync } from "../bind/index.ts";
@@ -293,6 +294,12 @@ describe("phase boundaries", () => {
     expect(() => { (sym.usages as any).push({}); }).toThrow();
   });
 
+  test("symbol table entries are frozen — nested value mutation throws", () => {
+    const { symbols } = parseAndBind("@def(meta: { title: 'Hello', count: 2 })");
+    const sym = symbols.defs.get("meta")!;
+    expect(() => { (sym.value as any).title = "Mutated"; }).toThrow();
+  });
+
   test("parse output is not mutated by bind", () => {
     const { cst } = parseSource("@def(x: 1)\n[Hello]");
     const childrenBefore = cst.children.length;
@@ -301,5 +308,89 @@ describe("phase boundaries", () => {
 
     // Original CST from separate parse should be untouched
     expect(cst.children.length).toBe(childrenBefore);
+  });
+});
+
+// =============================================================================
+// Cross-file anchor/ref validation
+// =============================================================================
+
+describe("cross-file ref validation", () => {
+  function createMapLoader(files: Record<string, string>) {
+    return async (path: string): Promise<string> => {
+      const value = files[path];
+      if (value === undefined) {
+        throw new Error(`Missing fixture file: ${path}`);
+      }
+      return value;
+    };
+  }
+
+  test("ref to anchor in included file resolves without warning", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const { diagnostics } = await parseAndBindWithIncludes(
+      `@include(path: "child.ldoc")\n[@ref(id: "sec1")]`,
+      {
+        sourcePath: mainPath,
+        loadFile: createMapLoader({
+          [childPath]: `@anchor(id: "sec1")\n[Section One]`,
+        }),
+      },
+    );
+
+    // No B009 warning — anchor exists in child
+    expect(diagnostics.some((d) => d.code === "B009")).toBe(false);
+  });
+
+  test("ref to missing anchor across files emits B009 warning", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const { diagnostics } = await parseAndBindWithIncludes(
+      `@include(path: "child.ldoc")\n[@ref(id: "missing")]`,
+      {
+        sourcePath: mainPath,
+        loadFile: createMapLoader({
+          [childPath]: `@anchor(id: "sec1")\n[Section One]`,
+        }),
+      },
+    );
+
+    // B009 warning — "missing" doesn't exist anywhere
+    expect(diagnostics.some((d) => d.code === "B009")).toBe(true);
+  });
+
+  test("ref inside included file to anchor in entry file resolves", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const { diagnostics } = await parseAndBindWithIncludes(
+      `@anchor(id: "top")\n@include(path: "child.ldoc")`,
+      {
+        sourcePath: mainPath,
+        loadFile: createMapLoader({
+          [childPath]: `[@ref(id: "top")]`,
+        }),
+      },
+    );
+
+    // No B009 — included file references entry anchor
+    expect(diagnostics.some((d) => d.code === "B009")).toBe(false);
+  });
+
+  test("ref inside included file to nonexistent anchor emits B009", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const { diagnostics } = await parseAndBindWithIncludes(
+      `@include(path: "child.ldoc")`,
+      {
+        sourcePath: mainPath,
+        loadFile: createMapLoader({
+          [childPath]: `[@ref(id: "nowhere")]`,
+        }),
+      },
+    );
+
+    // B009 — "nowhere" doesn't exist in any file
+    expect(diagnostics.some((d) => d.code === "B009")).toBe(true);
   });
 });
