@@ -3,7 +3,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { createEnv, evaluate, execute } from "./runtime.ts";
+import { createEnv, evaluate, execute, withTimeout } from "./runtime.ts";
 
 describe("Lua runtime", () => {
   test("evaluate: return 1 + 1 returns 2", async () => {
@@ -50,5 +50,32 @@ describe("Lua runtime", () => {
     `);
     const result = await evaluate(engine, "defs.sum");
     expect(result).toBe(3);
+  });
+
+  test("evaluate: completes within timeout for normal operations", async () => {
+    const engine = await createEnv();
+    // This test verifies normal operations complete quickly
+    // Note: wasmoon's functionTimeout uses a debug hook to interrupt infinite loops
+    const start = Date.now();
+    const result = await evaluate(engine, "1 + 1");
+    expect(Date.now() - start).toBeLessThan(5000);
+    expect(result).toBe(2);
+  });
+
+  test("withTimeout: rejects with timeout error message", async () => {
+    // Test the withTimeout helper directly
+    const slowPromise = new Promise<string>((resolve) => {
+      setTimeout(() => resolve("done"), 200);
+    });
+
+    await expect(
+      withTimeout(slowPromise, 50, "test operation"),
+    ).rejects.toThrow("Lua test operation timed out after 50ms");
+  });
+
+  test("withTimeout: resolves when promise completes before timeout", async () => {
+    const fastPromise = Promise.resolve("success");
+    const result = await withTimeout(fastPromise, 1000, "fast operation");
+    expect(result).toBe("success");
   });
 });
