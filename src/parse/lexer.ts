@@ -118,6 +118,13 @@ export class Lexer {
       return;
     }
 
+    // Single slash (not a comment) — consume as text
+    if (char === "/") {
+      this.emit(TokenType.TEXT, "/");
+      this.advance();
+      return;
+    }
+
     // Braces
     if (char === "{") {
       this.emit(TokenType.LBRACE, "{");
@@ -181,12 +188,6 @@ export class Lexer {
     // String literal
     if (char === '"' || char === "'") {
       this.scanString();
-      return;
-    }
-
-    // Number literal
-    if (this.isDigit(char)) {
-      this.scanNumber();
       return;
     }
 
@@ -291,26 +292,6 @@ export class Lexer {
     this.emit(TokenType.STRING, value, startLine, startCol, this.line, this.column);
   }
 
-  private scanNumber(): void {
-    const startLine = this.line;
-    const startCol = this.column;
-    let value = "";
-
-    while (!this.isAtEnd() && this.isDigit(this.peek())) {
-      value += this.advance();
-    }
-
-    // Check for decimal point (length tokens use this pattern)
-    if (this.peek() === ".") {
-      value += this.advance();
-      while (!this.isAtEnd() && this.isDigit(this.peek())) {
-        value += this.advance();
-      }
-    }
-
-    this.emit(TokenType.NUMBER, value, startLine, startCol, this.line, this.column);
-  }
-
   /**
    * Scan an escape sequence (Spec §3.3).
    * Recognized: \\ \@ \[ \] \{ \} \( \) \$
@@ -371,8 +352,7 @@ export class Lexer {
         char === "," ||
         char === ":" ||
         char === "=" ||
-        char === "." ||
-        char === "/"
+        char === "."
       ) {
         break;
       }

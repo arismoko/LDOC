@@ -5,7 +5,9 @@ import type { NumberingDefinition } from "../../types/styled.ts";
 
 describe("numbering config", () => {
   test("default mode creates tiered decimal levels", () => {
-    const config = createNumberingConfig([]);
+    const defs: NumberingDefinition[] = [];
+    ensureDefaultNumberingDefs(defs);
+    const config = createNumberingConfig(defs);
     const ordered = config.config.find(c => c.reference === "ordered-decimal");
     expect(ordered).toBeDefined();
     // All levels should be decimal in tiered mode
@@ -19,7 +21,9 @@ describe("numbering config", () => {
   });
 
   test("legal mode creates alternating format levels", () => {
-    const config = createNumberingConfig([], "legal");
+    const defs: NumberingDefinition[] = [];
+    ensureDefaultNumberingDefs(defs);
+    const config = createNumberingConfig(defs);
     const legal = config.config.find(c => c.reference === "ordered-legal");
     expect(legal).toBeDefined();
     const levels = legal!.levels;
@@ -30,7 +34,9 @@ describe("numbering config", () => {
   });
 
   test("both ordered-decimal and ordered-legal are always created", () => {
-    const config = createNumberingConfig([]);
+    const defs: NumberingDefinition[] = [];
+    ensureDefaultNumberingDefs(defs);
+    const config = createNumberingConfig(defs);
     const decimal = config.config.find(c => c.reference === "ordered-decimal");
     const legal = config.config.find(c => c.reference === "ordered-legal");
     expect(decimal).toBeDefined();
@@ -38,7 +44,9 @@ describe("numbering config", () => {
   });
 
   test("bullets config is created", () => {
-    const config = createNumberingConfig([]);
+    const defs: NumberingDefinition[] = [];
+    ensureDefaultNumberingDefs(defs);
+    const config = createNumberingConfig(defs);
     const bullets = config.config.find(c => c.reference === "bullets");
     expect(bullets).toBeDefined();
     expect(bullets!.levels[0]!.format).toBe(LevelFormat.BULLET);

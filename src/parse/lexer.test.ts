@@ -78,3 +78,20 @@ describe("Lexer escape sequences (§3.3)", () => {
     expect(textTokens.some((t) => t.value === "\\")).toBe(true);
   });
 });
+
+describe("Lexer single slash handling", () => {
+  test("single / is tokenized as TEXT (no infinite loop)", () => {
+    const { tokens } = tokenize("[a/b]");
+    const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
+    // Only "/" should be TEXT; "a" and "b" are IDENTIFIER tokens
+    expect(textTokens.length).toBe(1);
+    expect(textTokens[0]!.value).toBe("/");
+  });
+
+  test("// is still a comment", () => {
+    const { tokens } = tokenize("// this is a comment");
+    const commentTokens = tokens.filter((t) => t.type === TokenType.COMMENT);
+    expect(commentTokens.length).toBe(1);
+    expect(commentTokens[0]!.value).toBe("this is a comment");
+  });
+});

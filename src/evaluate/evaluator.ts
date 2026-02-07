@@ -40,7 +40,7 @@ import type {
   Styled,
 } from "../types/document-ir.ts";
 import type { SymbolTable } from "../types/symbols.ts";
-import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
+import { parseArgsObject, type ArgsObject, type JSON5Value, type ParseArgsResult } from "../shared/args.ts";
 import { defaultIncludeRoot, resolveIncludeFilePath } from "../shared/include-path.ts";
 import { parseLengthToTwips } from "../shared/units.ts";
 import { parseSource } from "../parse/index.ts";
@@ -350,6 +350,44 @@ function tryParseTwips(value: string): number | undefined {
 
 function alignmentFromRegion(name: "left" | "center" | "right"): HorizontalAlign {
   return name;
+}
+
+/**
+ * Resolve @style(ref: ...) from @def bindings (Spec §10.4).
+ * Returns merged r/p channels and whether a def was found.
+ */
+function resolveStyleRef(
+  args: ArgsObject,
+  state: EvaluationState,
+  loc: SourceLocation,
+): { runChannel: unknown; pChannel: unknown; refResolved: boolean } {
+  let runChannel: unknown = args.r;
+  let pChannel: unknown = args.p;
+  let refResolved = false;
+
+  if (typeof args.ref === "string") {
+    const def = state.defs[args.ref];
+    if (def && typeof def === "object") {
+      refResolved = true;
+      const defObj = def as Record<string, unknown>;
+      // Merge r channel: def provides the base, call-site overrides win
+      if (defObj.r && typeof defObj.r === "object" && runChannel && typeof runChannel === "object") {
+        runChannel = { ...(defObj.r as Record<string, unknown>), ...(runChannel as Record<string, unknown>) };
+      } else {
+        runChannel = defObj.r ?? runChannel;
+      }
+      // Inherit p channel from def if not overridden at call site
+      if (defObj.p && !pChannel) {
+        pChannel = defObj.p;
+      }
+    } else if (def === undefined) {
+      state.diagnostics.push(
+        createWarning(DiagnosticCode.PARSE_ERROR, `@style ref "${args.ref}" not found in @def bindings`, loc),
+      );
+    }
+  }
+
+  return { runChannel, pChannel, refResolved };
 }
 
 function isHeaderFooterRegionDirective(node: CST.Block): node is Directive & { name: "left" | "center" | "right" } {
@@ -687,23 +725,7 @@ async function evaluateInlineDirective(node: CST.InlineDirective, state: Evaluat
   const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
 
   // Resolve ref from @def bindings (Spec §10.4)
-  let runChannel: unknown = args.r;
-  if (typeof args.ref === "string") {
-    const def = state.defs[args.ref];
-    if (def && typeof def === "object") {
-      const defObj = def as Record<string, unknown>;
-      // Merge: def provides the base, call-site overrides win
-      if (defObj.r && typeof defObj.r === "object" && runChannel && typeof runChannel === "object") {
-        runChannel = { ...(defObj.r as Record<string, unknown>), ...(runChannel as Record<string, unknown>) };
-      } else {
-        runChannel = defObj.r ?? runChannel;
-      }
-    } else if (def === undefined) {
-      state.diagnostics.push(
-        createWarning(DiagnosticCode.PARSE_ERROR, `@style ref "${args.ref}" not found in @def bindings`, node.loc),
-      );
-    }
-  }
+  const { runChannel } = resolveStyleRef(args, state, node.loc);
 
   const inlineStyle = inlineStyleFromRunChannel(runChannel);
   if (Object.keys(inlineStyle).length === 0) {
@@ -939,6 +961,9 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
         if (typeof mode === "string") {
           state.metadata.custom.numberingMode = mode;
         }
+      } else if (typeof numbering === "string") {
+        // String shorthand: @document(numbering: "legal")
+        state.metadata.custom.numberingMode = numbering;
       }
 
       for (const [key, value] of Object.entries(args)) {
@@ -1029,7 +1054,22 @@ async function evaluateDirective(node: Directive, state: EvaluationState): Promi
     case "style": {
       const inner = node.body ? await evaluateBlocks(node.body.children, state) : [];
       const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
-      const styleRef = paragraphStyleRefFromArgs(args);
+
+      // Resolve ref from @def bindings (Spec §10.4)
+      const { runChannel, pChannel, refResolved } = resolveStyleRef(args, state, node.loc);
+
+      // Build the StyleRef with resolved channels.
+      // When ref resolved to a @def, omit ref so p.use can provide the style name.
+      // When ref didn't resolve (no def found), keep it as a named style reference.
+      const resolvedArgs: ArgsObject = {
+        ...args,
+        r: runChannel as JSON5Value,
+        p: pChannel as JSON5Value,
+      };
+      if (refResolved) {
+        delete resolvedArgs.ref;
+      }
+      const styleRef = paragraphStyleRefFromArgs(resolvedArgs);
       if (!styleRef) {
         return inner;
       }

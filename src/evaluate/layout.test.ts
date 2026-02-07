@@ -309,6 +309,45 @@ describe("layout evaluation", () => {
     expect(diagnostics.some((d) => d.message.includes("not found in @def"))).toBe(true);
   });
 
+  test("block @style(ref: ...) resolves from @def bindings", async () => {
+    const source = `@def(heading: { p: { use: "Heading1" }, r: { bold: true } })
+@style(ref: "heading"){
+  [Important heading text]
+}
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const para = document.blocks[0];
+    expect(para?.type).toBe("Paragraph");
+    if (para?.type === "Paragraph") {
+      // Should have paragraph style from def's p channel
+      expect(para.style?.name).toBe("Heading1");
+      // Should have inline style from def's r channel
+      expect(para.style?.inline?.bold).toBe(true);
+    }
+  });
+
+  test("block @style(ref: ...) merges call-site r overrides with def", async () => {
+    const source = `@def(base: { r: { bold: true, italic: true } })
+@style(ref: "base", r: { italic: false }){
+  [Merged styles]
+}
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const para = document.blocks[0];
+    expect(para?.type).toBe("Paragraph");
+    if (para?.type === "Paragraph") {
+      // bold from def, italic overridden to false by call-site
+      expect(para.style?.inline?.bold).toBe(true);
+      expect(para.style?.inline?.italic).toBe(false);
+    }
+  });
+
   test("@#(start: 5) produces a List with start: 5", async () => {
     const source = `@#(start: 5)[Fifth item]
 @#[Sixth item]

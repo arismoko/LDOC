@@ -102,7 +102,7 @@ function createEmitContext(
   // Ensure default numbering definitions exist before emission starts.
   // emitList() needs to look up base definitions (e.g. "ordered-legal") to create
   // dynamic start-override clones, but createNumberingConfig() runs AFTER emission.
-  ensureDefaultNumberingDefs(styledDocument.numberingDefinitions, numberingMode);
+  ensureDefaultNumberingDefs(styledDocument.numberingDefinitions);
   
   return {
     resolveStyle: styledDocument.resolveStyle,
@@ -196,8 +196,7 @@ function compileDocument(styledDocument: StyledDocument, ctx: EmitContext): Docu
   const styles = compileStyles(styleDefinitions);
   
   // Build numbering configuration
-  const numberingMode = styledDocument.document.metadata?.custom?.numberingMode as string | undefined;
-  const numbering = createNumberingConfig(numberingDefinitions, numberingMode);
+  const numbering = createNumberingConfig(numberingDefinitions);
   
   // Build footnotes
   const footnotes = compileFootnotes(ctx);

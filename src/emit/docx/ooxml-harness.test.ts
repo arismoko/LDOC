@@ -134,6 +134,10 @@ describe("ooxml harness", () => {
     // Should contain start value of 10 — before the fix, the ordered-legal
     // base definition wasn't available during emission so start was silently dropped
     expect(numberingXml.includes('<w:start w:val="10"/>')).toBe(true);
+
+    // Verify legal mode is actually active — the numbering XML should contain
+    // the legal format (lowerLetter at level 1), not just decimal
+    expect(numberingXml).toContain("lowerLetter");
   });
 
   test("@#(continue: true) after @#(start: N) reuses same numId", async () => {

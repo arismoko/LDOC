@@ -190,6 +190,27 @@ All review comments across 5 Codex review rounds have been triaged. New sessions
 | R5-2 | Default numbering defs missing during emission (baseDef lookup fails) | P1 | ✅ Fixed | `a4f3fbf` |
 | R5-3 | @ref display text drops non-Text inlines (Styled, Bold, Code) | P1 | ✅ Fixed | `a4f3fbf` |
 
+### Self-Review Findings (post-R5)
+
+Performed comprehensive self-review + oracle code review. All findings fixed in a single commit.
+
+| Finding | Category | Fix |
+| ------- | -------- | --- |
+| `PipelineError` class declared but never thrown — `tryCompile()` returns `diagnostics: []` on failure | **Bug** | Wire `PipelineError` into `parseWithDiagnostics()` and `throwOnBindErrors()`; `tryCompile` extracts `.diagnostics` |
+| Block `@style(ref: ...)` never resolved through `@def` bindings | **Bug** | Extract shared `resolveStyleRef()` helper; block case now uses it |
+| `@document(numbering: "legal")` string shorthand silently ignored | **Bug** | Handle string form alongside object `{mode: "legal"}` |
+| Single `/` in text causes infinite lexer loop | **Bug** | Add explicit `/` handler before `scanText()`; remove `/` from break set |
+| Smart-quote regex in `bookmarkSafeName` was no-op (regular quotes) | **Bug** | Use `\u201C\u201D` Unicode escapes |
+| `hasBullet`/`hasDecimal` in `ensureDefaultNumberingDefs()` used structural matching — user-defined decimal list would suppress system default | **Bug** | Changed to strict ID-based checks, consistent with `hasLegal` |
+| `scanNumber()` in lexer unreachable — digits hit `isAlphaNumeric` → `scanIdentifier` first | **Dead code** | Removed `scanNumber()` and its call site |
+| `normalizeRefKey()` and `uniqueBookmark()` in bookmarks.ts never imported | **Dead code** | Removed both functions |
+| `compileToDocument`/`compileToStyledDocument` doc comments say "Synchronous" but are async | **Doc error** | Fixed doc comments |
+| Pipeline helpers DRY violation (`parseWithDiagnostics`, `throwOnBindErrors`, `buildBindOptions` duplicated) | **DRY** | Extracted 3 shared helpers used by `runPipelineTo`, `parseAndBind`, `parseAndBindWithIncludes` |
+| Numbering DRY: fallback logic in both `ensureDefaultNumberingDefs` and `createNumberingConfig` | **DRY** | Removed all fallback/factory code from `createNumberingConfig`; single source of truth in `ensureDefaultNumberingDefs` |
+| `numberingMode` parameter threaded through but unused | **YAGNI** | Removed from `ensureDefaultNumberingDefs` and `createNumberingConfig` signatures |
+
+Tests: 81 pass (79 original + 2 new pipeline tests), 0 fail, 0 TypeScript errors.
+
 ---
 
 # 4. PR: Professional output polish
