@@ -67,6 +67,12 @@ export class Lexer {
       return;
     }
 
+    // Escape sequences (Spec §3.3)
+    if (char === "\\") {
+      this.scanEscape();
+      return;
+    }
+
     // Paragraph block open
     if (char === "[") {
       this.emit(TokenType.PARA_OPEN, "[");
@@ -305,6 +311,34 @@ export class Lexer {
     this.emit(TokenType.NUMBER, value, startLine, startCol, this.line, this.column);
   }
 
+  /**
+   * Scan an escape sequence (Spec §3.3).
+   * Recognized: \\ \@ \[ \] \{ \} \( \) \$
+   * Unknown \X → literal \X
+   */
+  private scanEscape(): void {
+    const startLine = this.line;
+    const startCol = this.column;
+    this.advance(); // consume backslash
+
+    if (this.isAtEnd()) {
+      // Trailing backslash at end of input → literal backslash
+      this.emit(TokenType.TEXT, "\\", startLine, startCol, this.line, this.column);
+      return;
+    }
+
+    const next = this.peek();
+    const escapable = "\\@[]{}()$";
+    if (escapable.includes(next)) {
+      this.advance(); // consume the escaped character
+      this.emit(TokenType.TEXT, next, startLine, startCol, this.line, this.column);
+    } else {
+      // Unknown escape → literal \X
+      const char = this.advance();
+      this.emit(TokenType.TEXT, "\\" + char, startLine, startCol, this.line, this.column);
+    }
+  }
+
   private scanText(): void {
     const startLine = this.line;
     const startCol = this.column;
@@ -316,6 +350,7 @@ export class Lexer {
       // Stop at any token start characters
       if (
         char === "\n" ||
+        char === "\\" ||
         char === "@" ||
         char === "{" ||
         char === "}" ||
