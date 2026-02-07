@@ -12,37 +12,13 @@ import type {
   StructuralBody,
   ParagraphBlock,
   ListItemMarker,
-  Table,
-  TableRow,
-  LayoutDirective,
-  Pagebreak,
-  Columns,
-  Box,
-  Align,
-  Header,
-  Footer,
-  Include,
-  InlineText,
   InlineDirective,
   LuaExpr,
-  InlineHardBreak,
-  Anchor,
-  Def,
-  Style,
-  DocumentConfig,
   ParseResult,
 } from "../types/cst.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { error, warning, DiagnosticCode } from "../types/diagnostics.ts";
 import { loc } from "../types/source-location.ts";
-
-/**
- * Parser result combining CST and diagnostics.
- */
-interface ParseResultInternal {
-  cst: Document;
-  diagnostics: Diagnostic[];
-}
 
 /**
  * Current parsing context.
@@ -81,16 +57,6 @@ function peekToken(ctx: ParseContext): Token | undefined {
     return ctx.tokens[ctx.pos];
   }
   return undefined;
-}
-
-/**
- * Get current token and advance.
- */
-function advanceToken(ctx: ParseContext): Token | undefined {
-  if (ctx.pos >= ctx.tokens.length) return undefined;
-  const token = ctx.tokens[ctx.pos];
-  ctx.pos++;
-  return token;
 }
 
 /**
