@@ -117,6 +117,7 @@ function createEmitContext(
     numberingMode,
     numberingInstances: new Map(),
     lastNumberingInstance: new Map(),
+    lastNumberingReference: new Map(),
   };
 }
 

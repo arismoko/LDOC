@@ -135,4 +135,28 @@ describe("ooxml harness", () => {
     // base definition wasn't available during emission so start was silently dropped
     expect(numberingXml.includes('<w:start w:val="10"/>')).toBe(true);
   });
+
+  test("@#(continue: true) after @#(start: N) reuses same numId", async () => {
+    const source = `@#(start: 5)[Fifth item]
+@#[Sixth item]
+
+[Interrupting paragraph.]
+
+@#(continue: true)[Seventh item]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    const numIdMatches = docXml.match(/w:numId w:val="(\d+)"/g) ?? [];
+    // 3 list items should have numId references
+    expect(numIdMatches.length).toBeGreaterThanOrEqual(3);
+
+    // The continued list (item 3) should reuse the same numId as the started list
+    const numIds = numIdMatches.map((m) => m.match(/w:val="(\d+)"/)?.[1]);
+    const startedListId = numIds[0];
+    const continuedId = numIds[numIds.length - 1];
+    expect(continuedId).toBe(startedListId);
+  });
 });

@@ -92,8 +92,10 @@ export interface EmitContext {
   numberingMode?: string;
   /** Tracks next instance ID per numbering reference (for start/continue) */
   numberingInstances: Map<string, number>;
-  /** Tracks the last instance used per numbering reference (for continue) */
+  /** Tracks the last instance used per continuation key (for continue) */
   lastNumberingInstance: Map<string, number>;
+  /** Tracks the last reference used per continuation key (for continue after start) */
+  lastNumberingReference: Map<string, string>;
 }
 
 /**
@@ -191,20 +193,21 @@ function emitHeading(node: Heading, ctx: EmitContext): DocxBlock[] {
 
 function emitList(node: List, ctx: EmitContext): DocxBlock[] {
   const results: DocxBlock[] = [];
-  let reference = getNumberingReference(
+  const baseReference = getNumberingReference(
     node.ordered,
     node.numberFormat,
     ctx.numberingDefinitions,
     ctx.numberingMode
   );
+  let reference = baseReference;
   
   // Handle start: N — create a dynamic numbering definition with custom start
   if (node.start !== undefined && node.start !== 1 && node.ordered) {
-    const dynamicRef = `${reference}-lvl-${ctx.listLevel}-start-${node.start}`;
+    const dynamicRef = `${baseReference}-lvl-${ctx.listLevel}-start-${node.start}`;
     const existingDef = ctx.numberingDefinitions.find((d) => d.id === dynamicRef);
     if (!existingDef) {
       // Clone the base definition's levels with the custom start value at the active nesting level
-      const baseDef = ctx.numberingDefinitions.find((d) => d.id === reference);
+      const baseDef = ctx.numberingDefinitions.find((d) => d.id === baseReference);
       if (baseDef) {
         ctx.numberingDefinitions.push({
           id: dynamicRef,
@@ -218,13 +221,19 @@ function emitList(node: List, ctx: EmitContext): DocxBlock[] {
     }
   }
 
-  // Determine numbering instance for start/continue semantics
-  // Key by (reference, listLevel) so nested lists don't clobber parent continuation state
-  const instanceKey = `${reference}:${ctx.listLevel}`;
+  // Continuation is keyed by logical list family (base reference + level), not by
+  // the dynamic start-override reference. This ensures @#(continue: true) finds the
+  // most recent list even if it was started with @#(start: N).
+  const continuationKey = `${baseReference}:${ctx.listLevel}`;
   let instance: number | undefined;
   if (node.continue) {
-    // Continue: reuse the last instance for this reference at this nesting level
-    instance = ctx.lastNumberingInstance.get(instanceKey);
+    // Continue: reuse the last instance AND reference for this base reference at this level.
+    // The reference may differ from baseReference if the original list used start: N.
+    instance = ctx.lastNumberingInstance.get(continuationKey);
+    const lastRef = ctx.lastNumberingReference.get(continuationKey);
+    if (instance !== undefined && lastRef) {
+      reference = lastRef;
+    }
   }
   if (instance === undefined) {
     // New list: allocate a fresh instance
@@ -232,7 +241,8 @@ function emitList(node: List, ctx: EmitContext): DocxBlock[] {
     ctx.numberingInstances.set(reference, next);
     instance = next;
   }
-  ctx.lastNumberingInstance.set(instanceKey, instance);
+  ctx.lastNumberingInstance.set(continuationKey, instance);
+  ctx.lastNumberingReference.set(continuationKey, reference);
 
   // Save current level and increment
   const savedLevel = ctx.listLevel;
