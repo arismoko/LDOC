@@ -173,7 +173,9 @@
 
 - `ldoc compile fixtures/minimal.ldoc` produces a valid `.docx`.
 
-### Commit 17 — `fix(docx): list items support multi-paragraph bodies`
+### Commit 17 — `fix(docx): list items support multi-paragraph bodies` ✅
+
+**Status**: ✅ Complete
 
 **Changes**
 

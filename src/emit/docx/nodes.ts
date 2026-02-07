@@ -234,12 +234,49 @@ function emitListItem(
       ctx.listLevel++;
       results.push(...emitBlock(child, ctx));
       ctx.listLevel--;
+    } else if (child.type === "Paragraph") {
+      results.push(emitListContinuationParagraph(child, reference, ctx));
     } else {
       results.push(...emitBlock(child, ctx));
     }
   }
   
   return results;
+}
+
+function emitListContinuationParagraph(
+  node: ParagraphNode,
+  reference: string,
+  ctx: EmitContext,
+): Paragraph {
+  const style = resolveNodeStyle(node.style, ctx);
+  const children = emitInlines(node.content, ctx, style);
+  const options = toParagraphOptions(style);
+  const continuationIndent = getListContinuationIndent(reference, ctx.listLevel, ctx);
+  const optionsWithIndent = continuationIndent === undefined
+    ? options
+    : {
+        ...options,
+        indent: {
+          ...(options.indent ?? {}),
+          left: options.indent?.left ?? continuationIndent,
+        },
+      };
+
+  return new Paragraph({
+    ...optionsWithIndent,
+    children,
+  });
+}
+
+function getListContinuationIndent(
+  reference: string,
+  level: number,
+  ctx: EmitContext,
+): number | undefined {
+  const numbering = ctx.numberingDefinitions.find((definition) => definition.id === reference);
+  const levelConfig = numbering?.levels.find((candidate) => candidate.level === level);
+  return levelConfig?.indent;
 }
 
 function emitBlockquote(node: Blockquote, ctx: EmitContext): DocxBlock[] {
