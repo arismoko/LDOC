@@ -264,10 +264,10 @@ function parseDocumentLayout(
       // Only set sides that are explicitly provided — unspecified sides
       // inherit from existing style defaults during pipeline merge.
       const partial: Record<string, number> = {};
-      if (m.top !== undefined) partial.top = parseSingleMargin(m.top, 1440);
-      if (m.bottom !== undefined) partial.bottom = parseSingleMargin(m.bottom, 1440);
-      if (m.left !== undefined) partial.left = parseSingleMargin(m.left, 1440);
-      if (m.right !== undefined) partial.right = parseSingleMargin(m.right, 1440);
+      if (m.top !== undefined) partial.top = parseSingleMargin(m.top, 1440, state, loc);
+      if (m.bottom !== undefined) partial.bottom = parseSingleMargin(m.bottom, 1440, state, loc);
+      if (m.left !== undefined) partial.left = parseSingleMargin(m.left, 1440, state, loc);
+      if (m.right !== undefined) partial.right = parseSingleMargin(m.right, 1440, state, loc);
       if (Object.keys(partial).length > 0) {
         layout.margins = partial as PageLayout["margins"];
       }
@@ -334,9 +334,29 @@ function parseMarginsString(
   }
 }
 
-function parseSingleMargin(value: unknown, fallback: number): number {
-  if (typeof value === "string") return tryParseTwips(value) ?? fallback;
+function parseSingleMargin(value: unknown, fallback: number, state: EvaluationState, loc: SourceLocation): number {
+  if (typeof value === "string") {
+    const twips = tryParseTwips(value);
+    if (twips === undefined) {
+      state.diagnostics.push(
+        createWarning(
+          DiagnosticCode.PARSE_ERROR,
+          `Invalid margin value "${value}", using default`,
+          loc,
+        ),
+      );
+      return fallback;
+    }
+    return twips;
+  }
   if (typeof value === "number") return value;
+  state.diagnostics.push(
+    createWarning(
+      DiagnosticCode.PARSE_ERROR,
+      `Margin value must be a string or number, got ${typeof value}`,
+      loc,
+    ),
+  );
   return fallback;
 }
 
@@ -807,6 +827,17 @@ async function evaluateListRun(blocks: CST.Block[], start: number, state: Evalua
   const args = parseDirectiveArgs(first.argsRaw, state, first.loc);
   const listStart = typeof args.start === "number" ? args.start : undefined;
   const listContinue = typeof args.continue === "boolean" ? args.continue : undefined;
+
+  // Spec §11.3: start and continue are mutually exclusive
+  if (listStart !== undefined && listContinue !== undefined) {
+    state.diagnostics.push(
+      createWarning(
+        DiagnosticCode.PARSE_ERROR,
+        "List args 'start' and 'continue' are mutually exclusive (Spec §11.3)",
+        first.loc,
+      ),
+    );
+  }
 
   return {
     list: {

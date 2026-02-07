@@ -377,4 +377,21 @@ describe("layout evaluation", () => {
       expect((list as List).continue).toBe(true);
     }
   });
+
+  test("@#(start: 5, continue: true) emits warning for mutual exclusivity", async () => {
+    const source = `@#(start: 5, continue: true)[Item]
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.message.includes("mutually exclusive"))).toBe(true);
+  });
+
+  test("@document(margins: { top: ... }) with invalid value emits warning", async () => {
+    const source = `@document(margins: { top: "not-a-length" })
+[Body]
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.message.includes("Invalid margin value"))).toBe(true);
+  });
 });

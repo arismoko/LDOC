@@ -95,3 +95,48 @@ describe("Lexer single slash handling", () => {
     expect(commentTokens[0]!.value).toBe("this is a comment");
   });
 });
+
+describe("Lexer // in paragraph context (§3.2)", () => {
+  test("// inside [] does not swallow closing bracket", () => {
+    const { tokens } = tokenize("[text // more ] text]");
+    // The ] should be tokenized as PARA_CLOSE, not consumed by the comment
+    const paraCloseTokens = tokens.filter((t) => t.type === TokenType.PARA_CLOSE);
+    expect(paraCloseTokens.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("[text // comment] closes correctly", () => {
+    const { tokens } = tokenize("[text // comment]");
+    const paraCloseTokens = tokens.filter((t) => t.type === TokenType.PARA_CLOSE);
+    expect(paraCloseTokens.length).toBe(1);
+    // Comment should not include the ] bracket
+    const commentTokens = tokens.filter((t) => t.type === TokenType.COMMENT);
+    expect(commentTokens.length).toBe(1);
+    expect(commentTokens[0]!.value).not.toContain("]");
+  });
+
+  test("// outside [] still consumes to end of line", () => {
+    const { tokens } = tokenize("// full line comment\n@document");
+    const commentTokens = tokens.filter((t) => t.type === TokenType.COMMENT);
+    expect(commentTokens.length).toBe(1);
+    expect(commentTokens[0]!.value).toBe("full line comment");
+    const directiveTokens = tokens.filter((t) => t.type === TokenType.DIRECTIVE);
+    expect(directiveTokens.length).toBe(1);
+  });
+});
+
+describe("Lexer unterminated strings", () => {
+  test("unterminated string emits diagnostic", () => {
+    const { tokens, diagnostics } = tokenize('@style(ref: "h1)');
+    // Should still emit a STRING token
+    const stringTokens = tokens.filter((t) => t.type === TokenType.STRING);
+    expect(stringTokens.length).toBe(1);
+    // Should emit a warning diagnostic
+    expect(diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(diagnostics.some((d) => d.message.includes("nterminated"))).toBe(true);
+  });
+
+  test("terminated string emits no diagnostic", () => {
+    const { diagnostics } = tokenize('@style(ref: "h1")');
+    expect(diagnostics.length).toBe(0);
+  });
+});

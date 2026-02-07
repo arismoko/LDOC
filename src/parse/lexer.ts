@@ -287,6 +287,15 @@ export class Lexer {
 
     if (this.peek() === quote) {
       this.advance();
+    } else {
+      // Unterminated string — hit newline or EOF before closing quote
+      this.diagnostics.push(
+        error(
+          DiagnosticCode.UNCLOSED_DELIMITER,
+          `Unterminated string literal (missing closing ${quote})`,
+          loc(startLine, startCol)
+        )
+      );
     }
 
     this.emit(TokenType.STRING, value, startLine, startCol, this.line, this.column);
@@ -374,6 +383,11 @@ export class Lexer {
 
     let comment = "";
     while (!this.isAtEnd() && this.peek() !== "\n") {
+      // Stop at paragraph delimiters so they can be tokenized independently.
+      // This ensures `[text // comment ] more]` doesn't swallow the `]`.
+      if (this.peek() === "]" || this.peek() === "[") {
+        break;
+      }
       comment += this.advance();
     }
 
