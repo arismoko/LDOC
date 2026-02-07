@@ -195,3 +195,90 @@ describe("Lexer comment text preservation", () => {
     expect(comment!.value).toBe("tight");
   });
 });
+
+describe("Lexer SOL list marker gating (§11.5)", () => {
+  test("@- at start-of-line tokenizes as LIST_BULLET", () => {
+    const { tokens } = tokenize("@-[item]");
+    const bullets = tokens.filter((t) => t.type === TokenType.LIST_BULLET);
+    expect(bullets.length).toBe(1);
+    expect(bullets[0]!.value).toBe("@-");
+  });
+
+  test("@# at start-of-line tokenizes as LIST_ORDERED", () => {
+    const { tokens } = tokenize("@#[item]");
+    const ordered = tokens.filter((t) => t.type === TokenType.LIST_ORDERED);
+    expect(ordered.length).toBe(1);
+    expect(ordered[0]!.value).toBe("@#");
+  });
+
+  test("indented @- still tokenizes as LIST_BULLET (whitespace before marker)", () => {
+    const { tokens } = tokenize("  @-[item]");
+    const bullets = tokens.filter((t) => t.type === TokenType.LIST_BULLET);
+    expect(bullets.length).toBe(1);
+  });
+
+  test("indented @# still tokenizes as LIST_ORDERED", () => {
+    const { tokens } = tokenize("\t@#[item]");
+    const ordered = tokens.filter((t) => t.type === TokenType.LIST_ORDERED);
+    expect(ordered.length).toBe(1);
+  });
+
+  test("@@- at start-of-line tokenizes as nested LIST_BULLET", () => {
+    const { tokens } = tokenize("@@-[nested item]");
+    const bullets = tokens.filter((t) => t.type === TokenType.LIST_BULLET);
+    expect(bullets.length).toBe(1);
+    expect(bullets[0]!.value).toBe("@@-");
+  });
+
+  test("@@@# at start-of-line tokenizes as nested LIST_ORDERED", () => {
+    const { tokens } = tokenize("@@@#[nested item]");
+    const ordered = tokens.filter((t) => t.type === TokenType.LIST_ORDERED);
+    expect(ordered.length).toBe(1);
+    expect(ordered[0]!.value).toBe("@@@#");
+  });
+
+  test("@- after newline tokenizes as LIST_BULLET", () => {
+    const { tokens } = tokenize("[text]\n@-[item]");
+    const bullets = tokens.filter((t) => t.type === TokenType.LIST_BULLET);
+    expect(bullets.length).toBe(1);
+  });
+
+  test("mid-line @- does NOT tokenize as LIST_BULLET", () => {
+    const { tokens } = tokenize("[text @- more]");
+    const bullets = tokens.filter((t) => t.type === TokenType.LIST_BULLET);
+    expect(bullets.length).toBe(0);
+    // The @ should be TEXT
+    const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
+    expect(textTokens.some((t) => t.value === "@")).toBe(true);
+  });
+
+  test("mid-line @# does NOT tokenize as LIST_ORDERED", () => {
+    const { tokens } = tokenize("[text @# more]");
+    const ordered = tokens.filter((t) => t.type === TokenType.LIST_ORDERED);
+    expect(ordered.length).toBe(0);
+  });
+
+  test("mid-line @@- does NOT tokenize as nested LIST_BULLET", () => {
+    const { tokens } = tokenize("[text @@- more]");
+    const bullets = tokens.filter((t) => t.type === TokenType.LIST_BULLET);
+    expect(bullets.length).toBe(0);
+    // The @ should be TEXT
+    const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
+    expect(textTokens.some((t) => t.value === "@")).toBe(true);
+  });
+
+  test("@mention mid-line is a DIRECTIVE, not a list marker", () => {
+    const { tokens } = tokenize("[contact @-info here]");
+    const bullets = tokens.filter((t) => t.type === TokenType.LIST_BULLET);
+    expect(bullets.length).toBe(0);
+  });
+
+  test("@- on new line after content parses correctly", () => {
+    const { tokens } = tokenize("@style{}\n@-[item]");
+    const bullets = tokens.filter((t) => t.type === TokenType.LIST_BULLET);
+    expect(bullets.length).toBe(1);
+    const directives = tokens.filter((t) => t.type === TokenType.DIRECTIVE);
+    expect(directives.length).toBe(1);
+    expect(directives[0]!.value).toBe("style");
+  });
+});

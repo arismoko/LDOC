@@ -25,6 +25,8 @@ export class Lexer {
   private column = 0;
   private tokens: Token[] = [];
   private diagnostics: Diagnostic[] = [];
+  /** True when no non-whitespace token has been emitted on the current line yet. */
+  private atLineStart = true;
 
   constructor(input: string) {
     this.input = input;
@@ -52,10 +54,11 @@ export class Lexer {
       this.advance();
       this.line++;
       this.column = 0;
+      this.atLineStart = true;
       return;
     }
 
-    // Spaces and tabs
+    // Spaces and tabs (preserve atLineStart — whitespace doesn't count)
     if (char === " " || char === "\t") {
       const wsStart = this.line;
       const wsCol = this.column;
@@ -66,6 +69,10 @@ export class Lexer {
       this.tokens.push(token(TokenType.TEXT, ws, wsStart, wsCol, this.line, this.column));
       return;
     }
+
+    // All remaining tokens are non-whitespace — clear atLineStart after dispatch
+    const wasAtLineStart = this.atLineStart;
+    this.atLineStart = false;
 
     // Escape sequences (Spec §3.3)
     if (char === "\\") {
@@ -97,7 +104,7 @@ export class Lexer {
 
     // Directive start
     if (char === "@") {
-      this.scanDirective();
+      this.scanDirective(wasAtLineStart);
       return;
     }
 
@@ -184,43 +191,57 @@ export class Lexer {
     this.scanText();
   }
 
-  private scanDirective(): void {
+  private scanDirective(atLineStart: boolean): void {
     const startLine = this.line;
     const startCol = this.column;
     this.advance(); // skip @
 
     // Check for list markers: @- or @#
     // Also handle nested list markers: @@-, @@@-, @@#, etc.
+    // Per spec §11.5: markers are only recognized at start-of-line (after optional whitespace)
     const nextChar = this.peek();
-    if (nextChar === "-") {
+    if (atLineStart && nextChar === "-") {
       this.advance(); // consume -
       this.emit(TokenType.LIST_BULLET, "@-", startLine, startCol, this.line, this.column);
       return;
     }
-    if (nextChar === "#") {
+    if (atLineStart && nextChar === "#") {
       this.advance(); // consume #
       this.emit(TokenType.LIST_ORDERED, "@#", startLine, startCol, this.line, this.column);
       return;
     }
     if (nextChar === "@") {
-      // Nested list marker: @@-, @@@-, @@#, etc.
-      let depth = 1; // already consumed one @
-      while (this.peek() === "@") {
-        depth++;
-        this.advance();
-      }
-      if (this.peek() === "-") {
-        this.advance();
-        this.emit(TokenType.LIST_BULLET, "@".repeat(depth) + "-", startLine, startCol, this.line, this.column);
+      // Could be nested list marker (@@-, @@@-, etc.) or just stacked @@ text
+      if (atLineStart) {
+        // Nested list marker: @@-, @@@-, @@#, etc.
+        let depth = 1; // already consumed one @
+        while (this.peek() === "@") {
+          depth++;
+          this.advance();
+        }
+        if (this.peek() === "-") {
+          this.advance();
+          this.emit(TokenType.LIST_BULLET, "@".repeat(depth) + "-", startLine, startCol, this.line, this.column);
+          return;
+        }
+        if (this.peek() === "#") {
+          this.advance();
+          this.emit(TokenType.LIST_ORDERED, "@".repeat(depth) + "#", startLine, startCol, this.line, this.column);
+          return;
+        }
+        // Not a list marker, these @@ are text
+        this.tokens.push(token(TokenType.TEXT, "@".repeat(depth), startLine, startCol, this.line, this.column));
         return;
       }
-      if (this.peek() === "#") {
-        this.advance();
-        this.emit(TokenType.LIST_ORDERED, "@".repeat(depth) + "#", startLine, startCol, this.line, this.column);
-        return;
-      }
-      // Not a list marker, these @@ are text
-      this.tokens.push(token(TokenType.TEXT, "@".repeat(depth), startLine, startCol, this.line, this.column));
+      // Not at line start — emit lone @ as text, let next iteration handle the rest
+      this.tokens.push(token(TokenType.TEXT, "@", startLine, startCol, this.line, this.column));
+      return;
+    }
+
+    // Not at line start and we see @- or @# — treat as text, not a list marker
+    if (!atLineStart && (nextChar === "-" || nextChar === "#")) {
+      // Emit the @ as text; the - or # will be picked up by scanToken next iteration
+      this.tokens.push(token(TokenType.TEXT, "@", startLine, startCol, this.line, this.column));
       return;
     }
 
