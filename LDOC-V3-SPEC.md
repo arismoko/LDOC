@@ -596,6 +596,37 @@ When no body is provided, implementations SHOULD generate display text from the 
 
 Resolution rules are implementation-defined (heading-text references and/or explicit IDs).
 
+### 15.3 Footnotes
+
+LDOC supports footnotes through the `@footnote` directive.
+
+Structural form:
+
+```ldoc
+@footnote{
+  [This is a footnote body.]
+}
+```
+
+Rules:
+
+- `@footnote{ ... }` in structural context defines footnote content as a structural body.
+- The body MAY contain one or more paragraph blocks and other structural content valid in that context.
+
+Inline reference form (primary use):
+
+```ldoc
+[See this important point@footnote{This is the footnote text.}.]
+[Alternative form: @footnote[Inline footnote text].]
+```
+
+Rules:
+
+- In paragraph context, `@footnote{ ... }` or `@footnote[ ... ]` inserts a footnote reference at the directive position.
+- The inline body content becomes the footnote body.
+- `@footnote[ ... ]` is sugar for `@footnote{ ... }` following the same sugar rule as §5.5.
+- If no body is provided, implementations MUST emit a diagnostic and recover by emitting no footnote.
+
 ---
 
 ## 16. Composition (File Includes)
@@ -663,12 +694,43 @@ Lua runtime errors/timeouts MUST be surfaced as diagnostics with accurate source
 
 Recommended stages:
 
-1. **Lex / Parse** → CST or AST-with-spans (must recover)
-2. **Desugar** → expand sugars (e.g., `@name[...]` → `@name{[...]}`)
-3. **Bind / Resolve** → bindings (`@def`), directive lookup, anchors/refs
-4. **Evaluate** → run `$()` and `@lua{}` in a sandbox (with timeouts)
-5. **Normalize / Validate** → list numbering rules, style resolution, table spans
-6. **Emit** → DOCX (primary), others later
+1. **Parse** → CST with spans and parsed args (must recover)
+2. **Bind** → directive validation, static symbol collection, and static reference checks
+3. **Evaluate** → runtime expansion/evaluation (`$()`, `@lua{}`) into document IR
+4. **Style** → resolve styles and numbering into styled IR
+5. **Emit** → DOCX (primary), others later
+
+### 18.1 Architecture invariants (normative)
+
+#### 18.1.1 Symbol table immutability
+
+- Binder produces `SymbolTable`.
+- `SymbolTable` is immutable after bind phase.
+- Evaluator MUST copy `symbols.defs` into its own mutable `EvaluationState.defs`.
+- Runtime mutations (Lua and runtime `@def`) MUST write only to `EvaluationState.defs`, never back to `SymbolTable`.
+
+#### 18.1.2 Two-table model
+
+- `SymbolTable` is binder-owned, static, and immutable.
+- `EvaluationState` is evaluator-owned, runtime, and mutable.
+- Each phase MAY add to its own phase-local tables, but binder output is frozen once bind completes.
+
+#### 18.1.3 Phase boundaries
+
+- The pipeline boundary is strict: Parse -> Bind -> Evaluate -> Style -> Emit.
+- Each phase consumes outputs from the immediately previous phase.
+- A phase MUST NOT mutate earlier-phase outputs.
+
+#### 18.1.4 Args parsing boundary
+
+- Directive args are parsed exactly once during Parse.
+- CST nodes store both raw args text and parsed structured args.
+- Downstream phases (Bind/Evaluate/Style/Emit/LSP) MUST consume parsed args and MUST NOT re-parse raw args text.
+
+### 18.2 Conformance notes (normative)
+
+- The balanced-brace `@lua{...}` raw-body requirement in §7.2 is normative for v3 core.
+- The SOL list-marker gating requirement in §11.5 is normative for v3 core.
 
 ---
 

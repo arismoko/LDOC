@@ -58,32 +58,28 @@ Fixed all spec promises that failed silently — compiler accepted input, did no
 
 ---
 
-# 4. PR: Anchor IR cleanup
+# 4. PR: Architectural Debt Purge
 
-**Branch**: `refactor/anchor-ir`
+**Branch**: `refactor/architectural-debt`
+**Plan**: `PRESCRIPTION.md` (9-step commit plan, success criteria, risk assessment)
+**Audit**: `REVIEW.md` (oracle findings for 7 issues)
+**Spec changes**: `LDOC-V3-SPEC.md` §15.3 (footnotes), §18 (architecture invariants), §18.2 (conformance)
 
-`@anchor` is modeled as an inline `Bookmark` wrapped in a synthetic paragraph — a leaky abstraction. `SymbolTable.anchors` exists but is never populated; anchor validation happens at emit-time instead of bind-time. Must fix before adding paragraph formatting (PR #5) to avoid defensive hacks around fake paragraphs.
+Full architectural audit landed 7 issues covering every compiler phase. Evaluator modularization promoted to Step 3 so subsequent changes (anchor IR, @lua, dead code) target isolated handler files instead of repeatedly patching a 1,227-line monolith.
 
-### A — `refactor(types): promote Bookmark inline to Anchor block IR`
+### Implementation order (see PRESCRIPTION.md for full details)
 
-`Bookmark` is currently an `Inline` node in `src/types/document-ir.ts`. Anchors are structural targets, not text styling — they should be block-level.
+1. Parse args once → CST nodes
+2. Remove downstream args re-parsing
+3. **Evaluator modularization** (handler/registry/per-directive files)
+4. Binder anchors + ref validation + remove hollow `SymbolTable.styles`
+5. Anchor IR → block `Anchor`, remove inline `Bookmark`
+6. `@lua` raw-body parsing (balanced brace scanner)
+7. SOL list marker gating
+8. Dead code purge (CST `Include`, IR `Heading`)
+9. Phase boundary hardening
 
-- `src/types/document-ir.ts`: add `Anchor` to `Block` union (`{ type: "Anchor", id: string }`); remove `Bookmark` from `Inline` union.
-- `src/evaluate/evaluator.ts`: `@anchor` case emits `Anchor` block directly instead of `Paragraph` + inline `Bookmark`.
-- `src/emit/docx/nodes.ts`: add `case "Anchor"` in `emitBlock()`; remove `case "Bookmark"` from `emitInline()`.
-- Update tests in `src/evaluate/layout.test.ts` (anchor assertions check `Anchor` block, not wrapper paragraph).
-
-**Done when**: `@anchor(id: "x")` produces an `Anchor` block in IR; no synthetic paragraph wrapper; OOXML output unchanged.
-
-### B — `refactor(bind): collect anchor targets in bind phase`
-
-`SymbolTable.anchors` exists (`src/types/symbols.ts`) but is never populated. Move undefined-anchor diagnostics earlier.
-
-- `src/bind/binder.ts`: collect anchor IDs from `@anchor` directives and `Heading.anchor` fields during bind pass.
-- `src/evaluate/evaluator.ts`: validate `@ref(id: ...)` cross-references against binder's anchor set; emit diagnostic if target missing.
-- Remove emit-phase `E003` diagnostic (redundant once bind handles it).
-
-**Done when**: `@ref(id: "nonexistent")` produces a bind-phase diagnostic; emit phase trusts the reference index without re-validating.
+**Done when**: All 10 success criteria in `PRESCRIPTION.md` are met (109+ tests, 0 type errors, all architectural invariants enforced).
 
 ---
 
@@ -132,8 +128,6 @@ Deferred from PR #3 review. `@document(orientation: "landscape")` is parsed but 
 - Typed include params (`SG-001`)
 - Direct expression args (`SG-002`)
 - Markdown emphasis sugar (`SG-004`)
-- `@lua{...}` raw-chunk body parsing — Lua-aware balanced-brace scanning that respects Lua strings/comments (Spec §7.2). Current: `@lua{...}` goes through generic structural body parser, which works for simple cases but mangles Lua code containing `}` in strings or `--` comments. Needs dedicated body parser.
-- List marker SOL gating — Spec §11.1 says markers SHOULD be recognized only at start-of-line; currently `@-`/`@#` are recognized anywhere in structural context
 - Table of contents generation
 - Section-specific header/footer variants (first page, odd/even)
 - Images/logo embedding API
