@@ -315,6 +315,27 @@ describe("phase boundaries", () => {
     expect(() => { (sym.value as any).title = "Mutated"; }).toThrow();
   });
 
+  test("Lua can mutate nested def values at runtime (§18.1.1)", async () => {
+    // Frozen bind-time defs must be deep-cloned for the evaluator so Lua
+    // mutations on nested objects succeed (regression: deep-freeze leaked).
+    const source = "@def(meta: { count: 2 })\n@lua{ defs.meta.count = 42 }\n[$(defs.meta.count)]";
+    const { cst, symbols } = parseAndBind(source);
+
+    const { document, diagnostics } = await evaluate(cst, symbols);
+    const errors = diagnostics.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(0);
+
+    // The paragraph should contain the mutated value "42"
+    const para = document.blocks.find((b) => b.type === "Paragraph") as any;
+    expect(para).toBeDefined();
+    const text = para.content.find((i: any) => i.type === "Text");
+    expect(text?.value).toBe("42");
+
+    // Symbol table must remain frozen and unchanged
+    const sym = symbols.defs.get("meta")!;
+    expect((sym.value as any).count).toBe(2);
+  });
+
   test("parse output is not mutated by bind", () => {
     const { cst } = parseSource("@def(x: 1)\n[Hello]");
     const childrenBefore = cst.children.length;

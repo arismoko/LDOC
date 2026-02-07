@@ -283,7 +283,9 @@ async function evaluateBlocks(nodes: CST.Block[], state: EvaluationState): Promi
 function defsFromSymbols(symbols: SymbolTable): Record<string, unknown> {
   const defs: Record<string, unknown> = {};
   for (const [name, symbol] of symbols.defs) {
-    defs[name] = symbol.value;
+    // Deep-clone so evaluator gets mutable copies of frozen bind-phase values
+    // (Spec §18.1.1: runtime defs must be mutable, symbol table is immutable)
+    defs[name] = structuredClone(symbol.value);
   }
   return defs;
 }

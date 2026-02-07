@@ -13,7 +13,8 @@ import {
 export const handleDef: BlockDirectiveHandler = async (node, ctx) => {
   const args = node.args ?? {};
   for (const [key, value] of Object.entries(args)) {
-    ctx.defs[key] = value;
+    // Deep-clone: CST args may share frozen refs with the symbol table
+    ctx.defs[key] = structuredClone(value);
   }
   return [];
 };
