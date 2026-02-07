@@ -21,7 +21,7 @@ import type {
   TableCell as TableCellNode,
 } from "../../types/document-ir.ts";
 import type { EmitContext, DocxBlock } from "./nodes.ts";
-import { toParagraphOptions, toRunOptions } from "./styles.ts";
+import { emitBlocks } from "./nodes.ts";
 
 // =============================================================================
 // Table Emission
@@ -48,7 +48,8 @@ export function emitTable(node: TableNode, ctx: EmitContext): Table {
  * Emit a TableRow IR node to docx TableRow.
  */
 function emitTableRow(node: TableRowNode, ctx: EmitContext): TableRow {
-  const cells = node.cells.map((cell) => emitTableCell(cell, ctx));
+  const emittedCells = node.cells.map((cell) => emitTableCell(cell, ctx));
+  const cells = emittedCells.length > 0 ? emittedCells : [new TableCell({ children: [new Paragraph({})] })];
   
   return new TableRow({
     children: cells,
@@ -60,9 +61,6 @@ function emitTableRow(node: TableRowNode, ctx: EmitContext): TableRow {
  * Emit a TableCell IR node to docx TableCell.
  */
 function emitTableCell(node: TableCellNode, ctx: EmitContext): TableCell {
-  // Import emitBlocks here to avoid circular dependency at module level
-  const { emitBlocks } = require("./nodes.ts");
-  
   // Emit cell content blocks
   const children = emitBlocks(node.content, ctx) as (Paragraph | Table)[];
   

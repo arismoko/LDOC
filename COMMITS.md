@@ -185,7 +185,9 @@
 
 - `src/emit/docx/nodes.ts`
 
-### Commit 18 — `feat(v3-table): implement @table/@row emission path`
+### Commit 18 — `feat(v3-table): implement @table/@row emission path` ✅
+
+**Status**: ✅ Complete
 
 **Changes**
 
