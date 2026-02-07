@@ -37,10 +37,17 @@ async function runSmokeTests(): Promise<TestResult[]> {
       const input = await Bun.file(inputPath).text();
       
       // Parse and bind to check syntax
-      const { cst, diagnostics } = parseAndBind(input);
+      const { cst, symbols, diagnostics } = parseAndBind(input);
       
       const errors = diagnostics.filter(d => d.severity === "error");
       const warnings = diagnostics.filter(d => d.severity === "warning");
+      
+      if (symbols.defs.size > 0) {
+        console.log(`  📦 Defs: ${symbols.defs.size}`);
+        for (const [name, def] of symbols.defs) {
+          console.log(`    ${name}: ${JSON.stringify(def.value)}`);
+        }
+      }
       
       if (warnings.length > 0) {
         console.log(`  ⚠ Warnings: ${warnings.length}`);

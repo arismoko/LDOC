@@ -69,7 +69,7 @@ interface ParseMemberResult extends ParseResultBase {
 }
 
 interface ParseKeyResult extends ParseResultBase {
-  value: any;
+  value: { text: string; column: number; endColumn: number };
 }
 
 interface ParseValueResult extends ParseResultBase {
@@ -86,7 +86,7 @@ function parseJSON5Object(input: string): ParseJSON5Result {
   const length = input.length;
 
   while (i < length) {
-    skipWhitespace(input, i);
+    i = skipWhitespace(input, i);
     if (i >= length) break;
 
     const char = input[i];
@@ -115,19 +115,20 @@ function parseJSON5Object(input: string): ParseJSON5Result {
       };
     }
 
-    const key = member.key.line;
-    if (result.hasOwnProperty(key)) {
+    const key = member.key;
+    const keyText = key.text;
+    if (result.hasOwnProperty(keyText)) {
       return {
         ok: false,
-        error: error('DUPLICATE_DEFINITION', `Duplicate key "${key}"`, member.key),
+        error: error('DUPLICATE_DEFINITION', `Duplicate key "${keyText}"`, { line: 1, column: key.column, endLine: 1, endColumn: key.endColumn }),
         end: i,
       };
     }
 
-    result[key] = member.value;
+    result[keyText] = member.value;
     i = memberResult.end;
 
-    skipWhitespace(input, i);
+    i = skipWhitespace(input, i);
     if (i >= length) break;
 
     if (input[i] === ',') {
@@ -141,11 +142,8 @@ function parseJSON5Object(input: string): ParseJSON5Result {
     }
   }
 
-  return {
-    ok: false,
-    error: error('PARSE_ERROR', 'Unexpected end of args object', { line: 1, column: 0, endLine: 1, endColumn: input.length }),
-    end: i,
-  };
+  // Successfully consumed all input — this is valid for top-level args
+  return { ok: true, value: result, end: i };
 }
 
 function parseMember(input: string, start: number): ParseMemberResult {
@@ -157,18 +155,18 @@ function parseMember(input: string, start: number): ParseMemberResult {
   }
 
   i = keyResult.end;
-  skipWhitespace(input, i);
+  i = skipWhitespace(input, i);
   if (i >= input.length || input[i] !== ':') {
     return {
       ok: false,
-      error: error('PARSE_ERROR', 'Expected ":" after key', keyResult.value),
+      error: error('PARSE_ERROR', `Expected ":" after key "${keyResult.value.text}"`, { line: 1, column: keyResult.value.column, endLine: 1, endColumn: keyResult.value.endColumn }),
       end: i,
       value: undefined,
     };
   }
 
   i++;
-  skipWhitespace(input, i);
+  i = skipWhitespace(input, i);
 
   const valueResult = parseValue(input, i) as any;
   if (!valueResult.ok) {
@@ -184,16 +182,16 @@ function parseMember(input: string, start: number): ParseMemberResult {
 
 function parseKey(input: string, start: number): ParseKeyResult {
   let i = start;
-  let startPos = i;
 
-  skipWhitespace(input, i);
+  i = skipWhitespace(input, i);
+  let startPos = i;
 
   if (i >= input.length) {
     return {
       ok: false,
       error: error('PARSE_ERROR', 'Expected key name', { line: 1, column: start, endLine: 1, endColumn: start }),
       end: i,
-      value: undefined,
+      value: { text: '', column: start, endColumn: start },
     };
   }
 
@@ -218,26 +216,26 @@ function parseKey(input: string, start: number): ParseKeyResult {
         ok: false,
         error: error('PARSE_ERROR', 'Unterminated quoted key', { line: 1, column: startPos, endLine: 1, endColumn: i }),
         end: i,
-        value: undefined,
+        value: { text: '', column: startPos, endColumn: i },
       };
     }
-  const keyStr = input.slice(startPos + 1, i - 1);
-  if (!keyStr) {
-    return {
-      ok: false,
-      error: error('PARSE_ERROR', 'Empty key name', { line: 1, column: startPos + 1, endLine: 1, endColumn: i - 1 }),
-      end: i + 1,
-      value: undefined as any,
-    };
-  }
+    const keyStr = input.slice(startPos + 1, i - 1);
+    if (!keyStr) {
+      return {
+        ok: false,
+        error: error('PARSE_ERROR', 'Empty key name', { line: 1, column: startPos + 1, endLine: 1, endColumn: i - 1 }),
+        end: i,
+        value: { text: '', column: startPos, endColumn: i },
+      };
+    }
     return {
       ok: true,
-      value: { line: 1, column: startPos, endLine: 1, endColumn: i },
-      end: i + 1,
+      value: { text: keyStr, column: startPos, endColumn: i },
+      end: i,
     };
   }
 
-   if (isIdentifierStart(char!)) {
+  if (isIdentifierStart(char!)) {
     i++;
     while (true) {
       if (i >= input.length || !isIdentifierPart(input[i]!)) break;
@@ -249,12 +247,12 @@ function parseKey(input: string, start: number): ParseKeyResult {
         ok: false,
         error: error('PARSE_ERROR', `Unexpected literal "${keyStr}" as key name`, { line: 1, column: startPos, endLine: 1, endColumn: i }),
         end: i,
-        value: undefined as any,
+        value: { text: '', column: startPos, endColumn: i },
       };
     }
     return {
       ok: true,
-      value: { line: 1, column: startPos, endLine: 1, endColumn: i },
+      value: { text: keyStr, column: startPos, endColumn: i },
       end: i,
     };
   }
@@ -263,13 +261,12 @@ function parseKey(input: string, start: number): ParseKeyResult {
     ok: false,
     error: error('PARSE_ERROR', 'Expected quoted or unquoted key name', { line: 1, column: i, endLine: 1, endColumn: i + 1 }),
     end: i,
-    value: undefined,
+    value: { text: '', column: i, endColumn: i + 1 },
   };
 }
 
 function parseValue(input: string, start: number): ParseValueResult {
-  let i = start;
-  skipWhitespace(input, i);
+  let i = skipWhitespace(input, start);
 
   if (i >= input.length) {
     return {
@@ -305,7 +302,7 @@ function parseValue(input: string, start: number): ParseValueResult {
         value: undefined,
       };
     }
-    return { ok: true, value: input.slice(start + 1, i), end: i + 1 };
+    return { ok: true, value: input.slice(start + 1, i - 1), end: i };
   }
 
   if (char === '[') {
@@ -314,14 +311,36 @@ function parseValue(input: string, start: number): ParseValueResult {
   }
 
   if (char === '{') {
-    const result = parseJSON5Object(input.slice(i + 1).trim()) as any;
+    // Find the matching closing brace, respecting nesting and strings
+    let depth = 1;
+    let j = i + 1;
+    while (j < input.length && depth > 0) {
+      const c = input[j];
+      if (c === '{') depth++;
+      else if (c === '}') depth--;
+      else if (c === '"' || c === "'") {
+        // Skip quoted strings
+        j++;
+        while (j < input.length && input[j] !== c) {
+          if (input[j] === '\\') j++;
+          j++;
+        }
+      }
+      if (depth > 0) j++;
+    }
+    // j now points at the closing }
+    const innerContent = input.slice(i + 1, j).trim();
+    if (innerContent === '') {
+      return { ok: true, value: {}, end: j + 1 };
+    }
+    const result = parseJSON5Object(innerContent);
     if (!result.ok) {
-      return result;
+      return { ok: false, end: result.end, error: result.error, value: undefined };
     }
     return {
       ok: true,
       value: result.value || {},
-      end: i + 1,
+      end: j + 1,
     };
   }
 
@@ -370,7 +389,7 @@ function parseArray(input: string, start: number): ParseArrayResult {
   const length = input.length;
 
   while (i < length) {
-    skipWhitespace(input, i);
+    i = skipWhitespace(input, i);
     if (i >= length) break;
 
     const char = input[i];
@@ -393,7 +412,7 @@ function parseArray(input: string, start: number): ParseArrayResult {
     result.push(valueResult.value);
     i = valueResult.end;
 
-    skipWhitespace(input, i);
+    i = skipWhitespace(input, i);
     if (i >= length) break;
 
     if (input[i] === ',') {
@@ -403,7 +422,7 @@ function parseArray(input: string, start: number): ParseArrayResult {
 
     if (input[i] === ']') {
       i++;
-      break;
+      return { ok: true, value: result, end: i };
     }
   }
 

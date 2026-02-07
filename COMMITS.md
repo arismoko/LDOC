@@ -117,7 +117,9 @@
 
 - `macros` are gone from the codebase.
 
-### Commit 12 — `feat(v3-bind): implement binder for @def scope`
+### Commit 12 — `feat(v3-bind): implement binder for @def scope` ✅
+
+**Status**: ✅ Complete
 
 **Changes**
 

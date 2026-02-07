@@ -236,7 +236,7 @@ function parseArgs(ctx: ParseContext): string {
       }
     }
 
-    argsText += token.value;
+    argsText += tokenTextValue(token);
     ctx.pos++;
   }
 
