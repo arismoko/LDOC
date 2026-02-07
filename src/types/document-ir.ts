@@ -47,7 +47,7 @@ export interface DocumentMetadata {
 
 export interface PageLayout {
   pageSize?: { width: number; height: number }; // in twips
-  margins?: { top: number; bottom: number; left: number; right: number };
+  margins?: { top?: number; bottom?: number; left?: number; right?: number };
   orientation?: "portrait" | "landscape";
 }
 

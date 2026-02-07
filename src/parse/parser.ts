@@ -665,6 +665,20 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
         continue;
       }
 
+      if (token.type === TokenType.CROSS_REF_OPEN) {
+        if (textBuffer) {
+          body.push({
+            kind: "InlineText",
+            loc: startLoc,
+            text: textBuffer,
+          });
+          textBuffer = "";
+        }
+        const xref = parseCrossRef(ctx);
+        if (xref) body.push(xref);
+        continue;
+      }
+
       if (token.type === TokenType.DIRECTIVE) {
         if (textBuffer) {
           body.push({

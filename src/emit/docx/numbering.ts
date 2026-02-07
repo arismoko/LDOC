@@ -37,7 +37,13 @@ export function createNumberingConfig(
       reference: "ordered-decimal",
       levels: createOrderedLevels(),
     });
-    // Always add legal format as well
+  }
+
+  // Always add legal format if not already defined — getNumberingReference()
+  // may return "ordered-legal" when numberingMode is "legal", even when a
+  // decimal definition already exists from the style phase.
+  const hasLegal = config.some((c) => c.reference === "ordered-legal");
+  if (!hasLegal) {
     config.push({
       reference: "ordered-legal",
       levels: createLegalLevels(),

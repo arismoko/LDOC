@@ -261,12 +261,16 @@ function parseDocumentLayout(
       layout.margins = parseMarginsString(args.margins, state, loc);
     } else if (typeof args.margins === "object" && args.margins !== null) {
       const m = args.margins as Record<string, unknown>;
-      layout.margins = {
-        top: parseSingleMargin(m.top, 1440),
-        bottom: parseSingleMargin(m.bottom, 1440),
-        left: parseSingleMargin(m.left, 1440),
-        right: parseSingleMargin(m.right, 1440),
-      };
+      // Only set sides that are explicitly provided — unspecified sides
+      // inherit from existing style defaults during pipeline merge.
+      const partial: Record<string, number> = {};
+      if (m.top !== undefined) partial.top = parseSingleMargin(m.top, 1440);
+      if (m.bottom !== undefined) partial.bottom = parseSingleMargin(m.bottom, 1440);
+      if (m.left !== undefined) partial.left = parseSingleMargin(m.left, 1440);
+      if (m.right !== undefined) partial.right = parseSingleMargin(m.right, 1440);
+      if (Object.keys(partial).length > 0) {
+        layout.margins = partial as PageLayout["margins"];
+      }
     }
   }
 
