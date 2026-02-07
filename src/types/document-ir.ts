@@ -148,6 +148,8 @@ export interface List extends IRBase {
   numberFormat?: "decimal" | "lowerLetter" | "upperLetter" | "lowerRoman" | "upperRoman";
   /** Starting number */
   start?: number;
+  /** Continue numbering from previous list */
+  continue?: boolean;
 }
 
 export interface ListItem extends IRBase {

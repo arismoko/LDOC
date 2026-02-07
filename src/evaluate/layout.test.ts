@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { compileToDocument, compileToStyledDocument, parseAndBind } from "../pipeline/index.ts";
-import type { Block, Paragraph } from "../types/document-ir.ts";
+import type { Block, List, Paragraph } from "../types/document-ir.ts";
 
 function paragraphText(block: Block): string {
   if (block.type !== "Paragraph") {
@@ -268,5 +268,35 @@ describe("layout evaluation", () => {
 
     const { diagnostics } = await compileToDocument(source);
     expect(diagnostics.some((d) => d.message.includes("not found in @def"))).toBe(true);
+  });
+
+  test("@#(start: 5) produces a List with start: 5", async () => {
+    const source = `@#(start: 5)[Fifth item]
+@#[Sixth item]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const list = document.blocks[0];
+    expect(list?.type).toBe("List");
+    if (list?.type === "List") {
+      expect((list as List).start).toBe(5);
+      expect((list as List).items.length).toBe(2);
+    }
+  });
+
+  test("@#(continue: true) produces a List with continue: true", async () => {
+    const source = `@#(continue: true)[Continued item]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const list = document.blocks[0];
+    expect(list?.type).toBe("List");
+    if (list?.type === "List") {
+      expect((list as List).continue).toBe(true);
+    }
   });
 });

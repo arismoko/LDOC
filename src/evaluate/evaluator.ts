@@ -727,12 +727,19 @@ async function evaluateListRun(blocks: CST.Block[], start: number, state: Evalua
     index += 1;
   }
 
+  // Parse list marker args (start, continue) from first item
+  const args = parseDirectiveArgs(first.argsRaw, state, first.loc);
+  const listStart = typeof args.start === "number" ? args.start : undefined;
+  const listContinue = typeof args.continue === "boolean" ? args.continue : undefined;
+
   return {
     list: {
       type: "List",
       ordered: first.ordered,
       items,
       numberFormat: "decimal",
+      start: listStart,
+      continue: listContinue,
       loc: first.loc,
     },
     nextIndex: index,
