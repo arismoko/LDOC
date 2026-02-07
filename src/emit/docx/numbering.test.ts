@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createNumberingConfig, getNumberingReference } from "./numbering.ts";
+import { createNumberingConfig, getNumberingReference, ensureDefaultNumberingDefs } from "./numbering.ts";
 import { LevelFormat } from "docx";
 import type { NumberingDefinition } from "../../types/styled.ts";
 
@@ -69,5 +69,36 @@ describe("getNumberingReference", () => {
   test("no mode uses matching decimal definition", () => {
     const ref = getNumberingReference(true, "decimal", [decimalDef], undefined);
     expect(ref).toBe("style-decimal");
+  });
+});
+
+describe("ensureDefaultNumberingDefs", () => {
+  test("populates ordered-decimal, ordered-legal, and bullets when empty", () => {
+    const defs: NumberingDefinition[] = [];
+    ensureDefaultNumberingDefs(defs);
+    expect(defs.find((d) => d.id === "ordered-decimal")).toBeDefined();
+    expect(defs.find((d) => d.id === "ordered-legal")).toBeDefined();
+    expect(defs.find((d) => d.id === "bullets")).toBeDefined();
+  });
+
+  test("does not duplicate existing definitions", () => {
+    const defs: NumberingDefinition[] = [
+      { id: "ordered-decimal", levels: [{ level: 0, format: "decimal", text: "%1.", indent: 720, hanging: 360 }] },
+      { id: "ordered-legal", levels: [{ level: 0, format: "decimal", text: "%1.", indent: 720, hanging: 360 }] },
+      { id: "bullets", levels: [{ level: 0, format: "bullet", text: "•", indent: 720, hanging: 360 }] },
+    ];
+    ensureDefaultNumberingDefs(defs);
+    // Should still have exactly 3 definitions
+    expect(defs.length).toBe(3);
+  });
+
+  test("createNumberingConfig does not duplicate after ensureDefaultNumberingDefs", () => {
+    const defs: NumberingDefinition[] = [];
+    ensureDefaultNumberingDefs(defs);
+    const config = createNumberingConfig(defs);
+    // Count unique references — should not have duplicates
+    const refs = config.config.map((c) => c.reference);
+    const uniqueRefs = new Set(refs);
+    expect(refs.length).toBe(uniqueRefs.size);
   });
 });

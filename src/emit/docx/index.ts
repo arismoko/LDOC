@@ -12,7 +12,7 @@ import type { StyledDocument, NumberingDefinition } from "../../types/styled.ts"
 import type { Block, Inline, Document as DocIR, Section, HeaderFooter } from "../../types/document-ir.ts";
 import type { Diagnostic } from "../../types/diagnostics.ts";
 
-import { createNumberingConfig } from "./numbering.ts";
+import { createNumberingConfig, ensureDefaultNumberingDefs } from "./numbering.ts";
 import { toStyleDefinition } from "./styles.ts";
 import { emitBlocks, type EmitContext, type DocxBlock } from "./nodes.ts";
 import { SectionBuilder, compileHeader, compileFooter } from "./sections.ts";
@@ -98,6 +98,12 @@ function createEmitContext(
   diagnostics: Diagnostic[]
 ): EmitContext {
   const numberingMode = styledDocument.document.metadata?.custom?.numberingMode as string | undefined;
+  
+  // Ensure default numbering definitions exist before emission starts.
+  // emitList() needs to look up base definitions (e.g. "ordered-legal") to create
+  // dynamic start-override clones, but createNumberingConfig() runs AFTER emission.
+  ensureDefaultNumberingDefs(styledDocument.numberingDefinitions, numberingMode);
+  
   return {
     resolveStyle: styledDocument.resolveStyle,
     numberingDefinitions: styledDocument.numberingDefinitions,

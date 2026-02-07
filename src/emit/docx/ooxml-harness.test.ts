@@ -97,4 +97,42 @@ describe("ooxml harness", () => {
     const continuedId = numIds[numIds.length - 1];
     expect(continuedId).toBe(firstListId);
   });
+
+  test("nested @#(start: N) applies start at correct nesting level", async () => {
+    const source = `@#{
+  [Top-level item]
+  @@#(start: 5)[Nested starts at five]
+  @@#[Nested continues at six]
+}
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const numberingXml = await pkg.readPart("word/numbering.xml");
+    // Should have a start value of 5 somewhere in the numbering XML
+    expect(numberingXml.includes('<w:start w:val="5"/>')).toBe(true);
+
+    // The dynamic definition should include "lvl-1" in its reference (nesting level 1)
+    // to distinguish from top-level start overrides
+    const docXml = await pkg.readPart("word/document.xml");
+    // All 3 items should have numbering references
+    const numIdMatches = docXml.match(/w:numId w:val="(\d+)"/g) ?? [];
+    expect(numIdMatches.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("legal mode + @#(start: N) applies start value (R5-2)", async () => {
+    const source = `@document(numbering: "legal")
+@#(start: 10)[Starts at ten]
+@#[Continues at eleven]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const numberingXml = await pkg.readPart("word/numbering.xml");
+    // Should contain start value of 10 — before the fix, the ordered-legal
+    // base definition wasn't available during emission so start was silently dropped
+    expect(numberingXml.includes('<w:start w:val="10"/>')).toBe(true);
+  });
 });

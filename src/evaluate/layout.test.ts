@@ -258,6 +258,26 @@ describe("layout evaluation", () => {
     }
   });
 
+  test("@ref with styled body preserves text content (R5-3)", async () => {
+    const source = `[See @ref(id: "sec1"){@style(r: {bold: true}){styled label} and plain} for details.]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const para = document.blocks[0];
+    expect(para?.type).toBe("Paragraph");
+    if (para?.type === "Paragraph") {
+      const crossRef = para.content.find((n) => n.type === "CrossRef");
+      expect(crossRef).toBeDefined();
+      if (crossRef?.type === "CrossRef") {
+        expect(crossRef.target).toBe("sec1");
+        // Before the fix, Styled nodes mapped to "" and text was lost
+        expect(crossRef.text).toBe("styled label and plain");
+      }
+    }
+  });
+
   test("@style(ref: ...) resolves style from @def bindings", async () => {
     const source = `@def(strong: { r: { bold: true } })
 [@style(ref: "strong"){important text}]

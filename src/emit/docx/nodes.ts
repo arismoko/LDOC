@@ -200,15 +200,15 @@ function emitList(node: List, ctx: EmitContext): DocxBlock[] {
   
   // Handle start: N — create a dynamic numbering definition with custom start
   if (node.start !== undefined && node.start !== 1 && node.ordered) {
-    const dynamicRef = `${reference}-start-${node.start}`;
+    const dynamicRef = `${reference}-lvl-${ctx.listLevel}-start-${node.start}`;
     const existingDef = ctx.numberingDefinitions.find((d) => d.id === dynamicRef);
     if (!existingDef) {
-      // Clone the base definition's levels with the custom start value
+      // Clone the base definition's levels with the custom start value at the active nesting level
       const baseDef = ctx.numberingDefinitions.find((d) => d.id === reference);
       if (baseDef) {
         ctx.numberingDefinitions.push({
           id: dynamicRef,
-          levels: baseDef.levels.map((l) => ({ ...l, start: l.level === 0 ? node.start : undefined })),
+          levels: baseDef.levels.map((l) => ({ ...l, start: l.level === ctx.listLevel ? node.start : undefined })),
         });
         reference = dynamicRef;
       }

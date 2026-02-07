@@ -622,6 +622,36 @@ async function evaluateInline(node: CST.Inline, state: EvaluationState): Promise
   }
 }
 
+/**
+ * Recursively extract plain text from inline nodes.
+ * Walks into Bold, Italic, Underline, Strikethrough, Highlight, Styled, Link
+ * and extracts Text.value and Code.value.
+ */
+function flattenInlineText(inlines: Inline[]): string {
+  const parts: string[] = [];
+  for (const node of inlines) {
+    switch (node.type) {
+      case "Text":
+        parts.push(node.value);
+        break;
+      case "Code":
+        parts.push(node.value);
+        break;
+      case "Bold":
+      case "Italic":
+      case "Underline":
+      case "Strikethrough":
+      case "Highlight":
+      case "Styled":
+      case "Link":
+        parts.push(flattenInlineText(node.content));
+        break;
+      // FootnoteRef, CrossRef, Bookmark, HardBreak, Tab, Field, Image, StyleRef — no text
+    }
+  }
+  return parts.join("");
+}
+
 async function evaluateInlineDirective(node: CST.InlineDirective, state: EvaluationState): Promise<Inline[]> {
   const bodyInlines: Inline[] = [];
   if (node.body) {
@@ -640,7 +670,7 @@ async function evaluateInlineDirective(node: CST.InlineDirective, state: Evaluat
       return bodyInlines;
     }
     const text = bodyInlines.length > 0
-      ? bodyInlines.map((i) => i.type === "Text" ? i.value : "").join("")
+      ? flattenInlineText(bodyInlines)
       : undefined;
     return [{
       type: "CrossRef",
