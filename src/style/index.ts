@@ -74,8 +74,8 @@ export function style(
   // Build document-level styles
   const documentStyles = buildDocumentStyles(options);
   
-  // Build style definitions from symbol table
-  const styleDefinitions = buildStyleDefinitions(symbols, resolveStyle);
+  // Build style definitions from built-in styles
+  const styleDefinitions = buildStyleDefinitions(resolveStyle);
   
   // Collect numbering definitions from document
   const numberingDefinitions = collectNumberingDefinitions(document);
@@ -115,10 +115,9 @@ function buildDocumentStyles(opts: StyleOptions): DocumentStyles {
 
 /**
  * Build style definitions for DOCX styles.xml.
- * Includes both built-in and user-defined styles.
+ * Includes built-in styles.
  */
 function buildStyleDefinitions(
-  symbols: SymbolTable,
   resolveStyle: (ref: { name?: string }) => ComputedStyle
 ): StyleDefinition[] {
   const definitions: StyleDefinition[] = [];
@@ -130,18 +129,6 @@ function buildStyleDefinitions(
       id: name,
       name,
       type: "paragraph",
-      style: extractStyleDiff(DEFAULT_STYLE, computed),
-    });
-  }
-  
-  // Add user-defined styles
-  for (const [name, symbol] of symbols.styles) {
-    const computed = resolveStyle({ name });
-    definitions.push({
-      id: name,
-      name,
-      type: "paragraph",
-      basedOn: symbol.extends,
       style: extractStyleDiff(DEFAULT_STYLE, computed),
     });
   }

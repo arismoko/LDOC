@@ -3,16 +3,17 @@
  * 
  * Orchestrates:
  * 1. Directive validation (via validator)
- * 2. @def symbol collection
- * 3. Duplicate definition diagnostics
+ * 2. Symbol collection (pass 1): @def bindings + @anchor definitions
+ * 3. Reference validation (pass 2): @ref targets checked against anchors
+ * 4. Duplicate definition diagnostics
  * 
  * Output: BindResult with CST, SymbolTable, and Diagnostics
  */
 
-import type { Document, Block, Directive, ParseResult } from "../types/cst.ts";
+import type { Document, Block, Directive, Inline, ParseResult } from "../types/cst.ts";
 import type { SymbolTable, BindResult } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
-import { error as diagError, DiagnosticCode } from "../types/diagnostics.ts";
+import { error as diagError, warning as diagWarning, DiagnosticCode } from "../types/diagnostics.ts";
 import { createSymbolTable } from "../types/symbols.ts";
 import { validate } from "./validator.ts";
 import { resolveImports } from "./resolver.ts";
@@ -35,8 +36,9 @@ export interface BinderOptions {
  *
  * Walks v3 CST to:
  * - Validate directives against registry
- * - Collect @def bindings into SymbolTable
- * - Report duplicate definitions
+ * - Collect @def bindings and @anchor definitions into SymbolTable
+ * - Validate @ref targets against collected anchors
+ * - Report duplicate definitions and undefined references
  */
 export class Binder {
   private options: BinderOptions;
@@ -64,7 +66,8 @@ export class Binder {
       diagnostics.push(...importResult.diagnostics);
     }
 
-    collectDefs(doc.children, symbols, diagnostics);
+    collectSymbols(doc.children, symbols, diagnostics);
+    validateRefs(doc.children, symbols, diagnostics);
 
     return { cst, symbols, diagnostics };
   }
@@ -77,34 +80,41 @@ export class Binder {
     const symbols = createSymbolTable();
     const diagnostics: Diagnostic[] = [];
 
-    // Phase 1: Validate directives against registry
+    // Pass 1: Validate directives against registry
     diagnostics.push(...validate(doc));
 
-    // Phase 2: Collect @def bindings
-    collectDefs(doc.children, symbols, diagnostics);
+    // Pass 2: Collect @def bindings and @anchor definitions
+    collectSymbols(doc.children, symbols, diagnostics);
+
+    // Pass 3: Validate @ref targets against collected anchors
+    validateRefs(doc.children, symbols, diagnostics);
 
     return { cst, symbols, diagnostics };
   }
 }
 
 /**
- * Walk blocks and collect @def directives into the symbol table.
+ * Walk blocks and collect @def and @anchor directives into the symbol table.
  */
-function collectDefs(blocks: Block[], symbols: SymbolTable, diagnostics: Diagnostic[]): void {
+function collectSymbols(blocks: Block[], symbols: SymbolTable, diagnostics: Diagnostic[]): void {
   for (const block of blocks) {
     if (block.kind === "Directive" && block.name === "def") {
       collectDefBindings(block, symbols, diagnostics);
     }
 
+    if (block.kind === "Directive" && block.name === "anchor") {
+      collectAnchor(block, symbols, diagnostics);
+    }
+
     // Recurse into structural bodies
     if (block.kind === "Directive" && block.body) {
-      collectDefs(block.body.children, symbols, diagnostics);
+      collectSymbols(block.body.children, symbols, diagnostics);
     }
     if (block.kind === "ListItemMarker" && block.body) {
-      collectDefs(block.body.children, symbols, diagnostics);
+      collectSymbols(block.body.children, symbols, diagnostics);
     }
     if (block.kind === "StructuralBody") {
-      collectDefs(block.children, symbols, diagnostics);
+      collectSymbols(block.children, symbols, diagnostics);
     }
   }
 }
@@ -148,6 +158,85 @@ function collectDefBindings(dir: Directive, symbols: SymbolTable, diagnostics: D
       definedAt: dir.loc,
       usages: [],
     });
+  }
+}
+
+/**
+ * Collect an @anchor directive into the symbol table.
+ */
+function collectAnchor(dir: Directive, symbols: SymbolTable, diagnostics: Diagnostic[]): void {
+  const id = dir.args?.id;
+  if (typeof id !== "string" || id.length === 0) {
+    // @anchor without id is already caught by the evaluator; skip silently
+    return;
+  }
+
+  if (symbols.anchors.has(id)) {
+    const existing = symbols.anchors.get(id)!;
+    diagnostics.push(
+      diagError(
+        DiagnosticCode.DUPLICATE_DEFINITION,
+        `Duplicate anchor '${id}' (previously defined at line ${existing.definedAt.line})`,
+        dir.loc,
+      ),
+    );
+    return;
+  }
+
+  symbols.anchors.set(id, {
+    name: id,
+    definedAt: dir.loc,
+    usages: [],
+  });
+}
+
+/**
+ * Pass 2: Walk inlines to validate @ref targets against collected anchors.
+ */
+function validateRefs(blocks: Block[], symbols: SymbolTable, diagnostics: Diagnostic[]): void {
+  for (const block of blocks) {
+    if (block.kind === "ParagraphBlock") {
+      for (const inline of block.inlines) {
+        validateRefsInInline(inline, symbols, diagnostics);
+      }
+    }
+
+    // Recurse into structural bodies
+    if (block.kind === "Directive" && block.body) {
+      validateRefs(block.body.children, symbols, diagnostics);
+    }
+    if (block.kind === "ListItemMarker" && block.body) {
+      validateRefs(block.body.children, symbols, diagnostics);
+    }
+    if (block.kind === "StructuralBody") {
+      validateRefs(block.children, symbols, diagnostics);
+    }
+  }
+}
+
+/**
+ * Recursively check an inline node for @ref directives with undefined targets.
+ */
+function validateRefsInInline(node: Inline, symbols: SymbolTable, diagnostics: Diagnostic[]): void {
+  if (node.kind === "InlineDirective") {
+    if (node.name === "ref") {
+      const id = node.args?.id;
+      if (typeof id === "string" && id.length > 0 && !symbols.anchors.has(id)) {
+        diagnostics.push(
+          diagWarning(
+            DiagnosticCode.UNDEFINED_ANCHOR,
+            `Cross-reference target '${id}' not found`,
+            node.loc,
+          ),
+        );
+      }
+    }
+    // Recurse into inline directive body
+    if (node.body) {
+      for (const child of node.body) {
+        validateRefsInInline(child, symbols, diagnostics);
+      }
+    }
   }
 }
 

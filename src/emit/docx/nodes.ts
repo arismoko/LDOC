@@ -563,19 +563,10 @@ function emitFootnoteRef(node: FootnoteRef, ctx: EmitContext): (TextRun | Footno
   return [new FootnoteReferenceRun(id)];
 }
 
-function emitCrossRef(node: CrossRef, ctx: EmitContext, parentStyle: ComputedStyle): (TextRun | InternalHyperlink)[] {
+function emitCrossRef(node: CrossRef, _ctx: EmitContext, _parentStyle: ComputedStyle): (TextRun | InternalHyperlink)[] {
   const anchorId = bookmarkSafeName(node.target);
   
-  if (!ctx.bookmarks.has(anchorId)) {
-    ctx.diagnostics.push({
-      severity: "warning",
-      code: "E003",
-      message: `Cross-reference target not found: ${node.target}`,
-      location: node.loc ?? SYNTHETIC_LOC,
-    });
-    return [new TextRun({ text: node.text ?? node.target, italics: true })];
-  }
-  
+  // Always emit the hyperlink — the binder validates @ref targets (B009)
   return [
     new InternalHyperlink({
       anchor: anchorId,

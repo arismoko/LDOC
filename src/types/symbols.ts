@@ -3,7 +3,6 @@
  * 
  * Output of the BIND phase:
  * - Symbol table with all @def bindings indexed
- * - Style table with all @style definitions indexed
  * - Bound AST where references are linked to their definitions
  */
 
@@ -18,8 +17,6 @@ import type { Diagnostic } from "./diagnostics.ts";
 export interface SymbolTable {
   /** All @def bindings (Spec §9) */
   defs: Map<string, DefSymbol>;
-  /** All style definitions */
-  styles: Map<string, StyleSymbol>;
   /** All anchor definitions (for cross-references) */
   anchors: Map<string, AnchorSymbol>;
 }
@@ -38,17 +35,6 @@ export interface DefSymbol {
   usages: SourceLocation[];
 }
 
-export interface StyleSymbol {
-  name: string;
-  /** Style properties */
-  properties: Record<string, unknown>;
-  /** Parent style (for inheritance) */
-  extends?: string;
-  /** Where the style was defined */
-  definedAt: SourceLocation;
-  usages: SourceLocation[];
-}
-
 export interface AnchorSymbol {
   name: string;
   definedAt: SourceLocation;
@@ -58,17 +44,6 @@ export interface AnchorSymbol {
 // =============================================================================
 // Bound AST Nodes
 // =============================================================================
-
-/**
- * A style reference with its symbol resolved.
- */
-export interface BoundStyleRef {
-  type: "BoundStyleRef";
-  symbol: StyleSymbol | null; // null if inline-only style
-  /** Inline overrides */
-  overrides: Record<string, unknown>[];
-  loc: SourceLocation;
-}
 
 /**
  * A cross-reference with its target resolved.
@@ -100,7 +75,6 @@ export interface BindResult {
 export function createSymbolTable(): SymbolTable {
   return {
     defs: new Map(),
-    styles: new Map(),
     anchors: new Map(),
   };
 }

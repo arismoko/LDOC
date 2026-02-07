@@ -288,14 +288,6 @@ function defsFromSymbols(symbols: SymbolTable): Record<string, unknown> {
   return defs;
 }
 
-function stylesFromSymbols(symbols: SymbolTable): Record<string, unknown> {
-  const styles: Record<string, unknown> = {};
-  for (const [name, symbol] of symbols.styles) {
-    styles[name] = symbol.properties;
-  }
-  return styles;
-}
-
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -312,7 +304,7 @@ export async function evaluate(
   };
 
   const defs = defsFromSymbols(symbols);
-  const styles = stylesFromSymbols(symbols);
+  const styles: Record<string, unknown> = {};
   const data = options.variables ?? {};
   const luaEngine = await createEnv(data, defs, styles);
 
