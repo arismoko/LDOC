@@ -238,4 +238,35 @@ describe("layout evaluation", () => {
       }
     }
   });
+
+  test("@style(ref: ...) resolves style from @def bindings", async () => {
+    const source = `@def(strong: { r: { bold: true } })
+[@style(ref: "strong"){important text}]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const para = document.blocks[0];
+    expect(para?.type).toBe("Paragraph");
+    if (para?.type === "Paragraph") {
+      const styled = para.content.find((n) => n.type === "Styled");
+      expect(styled).toBeDefined();
+      if (styled?.type === "Styled") {
+        expect(styled.style.bold).toBe(true);
+        expect(styled.content[0]?.type).toBe("Text");
+        if (styled.content[0]?.type === "Text") {
+          expect(styled.content[0].value).toBe("important text");
+        }
+      }
+    }
+  });
+
+  test("@style(ref: ...) with missing def produces diagnostic", async () => {
+    const source = `[@style(ref: "nonexistent"){text}]
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.message.includes("not found in @def"))).toBe(true);
+  });
 });

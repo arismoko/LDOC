@@ -636,7 +636,22 @@ async function evaluateInlineDirective(node: CST.InlineDirective, state: Evaluat
   }
 
   const args = parseDirectiveArgs(node.argsRaw, state, node.loc);
-  const inlineStyle = inlineStyleFromRunChannel(args.r);
+
+  // Resolve ref from @def bindings (Spec §10.4)
+  let runChannel: unknown = args.r;
+  if (typeof args.ref === "string") {
+    const def = state.defs[args.ref];
+    if (def && typeof def === "object") {
+      const defObj = def as Record<string, unknown>;
+      runChannel = defObj.r ?? runChannel;
+    } else if (def === undefined) {
+      state.diagnostics.push(
+        createWarning(DiagnosticCode.PARSE_ERROR, `@style ref "${args.ref}" not found in @def bindings`, node.loc),
+      );
+    }
+  }
+
+  const inlineStyle = inlineStyleFromRunChannel(runChannel);
   if (Object.keys(inlineStyle).length === 0) {
     return bodyInlines;
   }
