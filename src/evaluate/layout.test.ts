@@ -161,7 +161,7 @@ describe("layout evaluation", () => {
     expect(styledDocument.documentStyles.marginLeft).toBe(1800);
   });
 
-  test("@anchor(id: ...) produces a Bookmark node in a wrapper paragraph", async () => {
+  test("@anchor(id: ...) produces an Anchor block node", async () => {
     const source = `@anchor(id: "payment-terms")
 [Body text]
 `;
@@ -169,16 +169,11 @@ describe("layout evaluation", () => {
     const { document, diagnostics } = await compileToDocument(source);
     expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
 
-    // First block should be the anchor paragraph
+    // First block should be the Anchor
     const anchor = document.blocks[0];
-    expect(anchor?.type).toBe("Paragraph");
-    if (anchor?.type === "Paragraph") {
-      expect(anchor.content.length).toBe(1);
-      const bookmark = anchor.content[0];
-      expect(bookmark?.type).toBe("Bookmark");
-      if (bookmark?.type === "Bookmark") {
-        expect(bookmark.name).toBe("payment-terms");
-      }
+    expect(anchor?.type).toBe("Anchor");
+    if (anchor?.type === "Anchor") {
+      expect(anchor.id).toBe("payment-terms");
     }
 
     // Second block should be body text
@@ -213,19 +208,16 @@ describe("layout evaluation", () => {
     }
   });
 
-  test("@ref(id: ...) alongside @anchor creates matching bookmark and cross-ref", async () => {
+  test("@ref(id: ...) alongside @anchor creates matching anchor and cross-ref", async () => {
     const source = `@anchor(id: "sec1")
 [Reference to @ref(id: "sec1") here.]
 `;
 
     const { document } = await compileToDocument(source);
 
-    // First block: anchor paragraph with Bookmark
-    const anchorPara = document.blocks[0];
-    expect(anchorPara?.type).toBe("Paragraph");
-    if (anchorPara?.type === "Paragraph") {
-      expect(anchorPara.content[0]?.type).toBe("Bookmark");
-    }
+    // First block: Anchor block node
+    const anchorBlock = document.blocks[0];
+    expect(anchorBlock?.type).toBe("Anchor");
 
     // Second block: paragraph with CrossRef
     const bodyPara = document.blocks[1];

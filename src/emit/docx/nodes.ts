@@ -48,7 +48,7 @@ import type {
   Image,
   FootnoteRef,
   CrossRef,
-  Bookmark as BookmarkNode,
+  Anchor,
   HardBreak,
   Tab,
   Field,
@@ -138,6 +138,8 @@ export function emitBlock(block: Block, ctx: EmitContext): DocxBlock[] {
       return emitHorizontalRule();
     case "Footnote":
       return emitFootnote(block, ctx);
+    case "Anchor":
+      return emitAnchor(block, ctx);
     default:
       const _exhaustive: never = block;
       throw new Error(`Unknown block type: ${(block as Block).type}`);
@@ -433,8 +435,6 @@ export function emitInline(node: Inline, ctx: EmitContext, parentStyle: Computed
       return emitFootnoteRef(node, ctx);
     case "CrossRef":
       return emitCrossRef(node, ctx, parentStyle);
-    case "Bookmark":
-      return emitBookmark(node, ctx);
     case "HardBreak":
       return emitHardBreak();
     case "Tab":
@@ -575,11 +575,13 @@ function emitCrossRef(node: CrossRef, _ctx: EmitContext, _parentStyle: ComputedS
   ];
 }
 
-function emitBookmark(node: BookmarkNode, ctx: EmitContext): Bookmark[] {
-  const anchorId = bookmarkSafeName(node.name);
+function emitAnchor(node: Anchor, ctx: EmitContext): DocxBlock[] {
+  const anchorId = bookmarkSafeName(node.id);
   ctx.bookmarks.add(anchorId);
-  // Emit a zero-width bookmark (start + end markers with no visible content)
-  return [new Bookmark({ id: anchorId, children: [] })];
+  // Emit an empty paragraph containing only a zero-width bookmark
+  return [new Paragraph({
+    children: [new Bookmark({ id: anchorId, children: [] })],
+  })];
 }
 
 function emitHardBreak(): TextRun[] {

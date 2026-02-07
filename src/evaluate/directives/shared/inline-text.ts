@@ -28,7 +28,7 @@ export function flattenInlineText(inlines: Inline[]): string {
       case "Link":
         parts.push(flattenInlineText(node.content));
         break;
-      // FootnoteRef, CrossRef, Bookmark, HardBreak, Tab, Field, Image, StyleRef — no text
+      // FootnoteRef, CrossRef, HardBreak, Tab, Field, Image, StyleRef — no text
     }
   }
   return parts.join("");

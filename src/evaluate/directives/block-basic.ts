@@ -39,10 +39,5 @@ export const handleAnchor: BlockDirectiveHandler = async (node, ctx) => {
     );
     return [];
   }
-  // Bookmark is an Inline node; wrap in an empty paragraph to anchor it in block flow
-  return [{
-    type: "Paragraph",
-    content: [{ type: "Bookmark", name: id, loc: node.loc }],
-    loc: node.loc,
-  }] as Block[];
+  return [{ type: "Anchor", id, loc: node.loc }];
 };

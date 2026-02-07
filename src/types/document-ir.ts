@@ -243,6 +243,11 @@ export interface Footnote extends IRBase {
   content: Block[];
 }
 
+export interface Anchor extends IRBase {
+  type: "Anchor";
+  id: string;
+}
+
 // =============================================================================
 // Inline Nodes
 // =============================================================================
@@ -319,11 +324,6 @@ export interface CrossRef extends IRBase {
   text?: string;
 }
 
-export interface Bookmark extends IRBase {
-  type: "Bookmark";
-  name: string;
-}
-
 export interface HardBreak extends IRBase {
   type: "HardBreak";
 }
@@ -355,7 +355,6 @@ export type Inline =
   | Image
   | FootnoteRef
   | CrossRef
-  | Bookmark
   | HardBreak
   | Tab
   | Field;
@@ -370,7 +369,8 @@ export type Block =
   | PageBreak
   | ColumnBreak
   | HorizontalRule
-  | Footnote;
+  | Footnote
+  | Anchor;
 
 // =============================================================================
 // Result Types
