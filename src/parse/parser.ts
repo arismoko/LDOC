@@ -60,6 +60,38 @@ function peekToken(ctx: ParseContext): Token | undefined {
 }
 
 /**
+ * Check if a token is whitespace-only TEXT (spaces, tabs, carriage returns).
+ */
+function isWhitespaceText(token: Token): boolean {
+  return token.type === TokenType.TEXT && /^[\t \r]+$/.test(token.value);
+}
+
+/**
+ * Skip whitespace-only TEXT tokens (Spec §5.1: whitespace between name, args, body MAY appear).
+ */
+function skipWhitespaceText(ctx: ParseContext): void {
+  while (ctx.pos < ctx.tokens.length) {
+    const token = peekToken(ctx);
+    if (!token || !isWhitespaceText(token)) break;
+    ctx.pos++;
+  }
+}
+
+/**
+ * Skip whitespace-only TEXT tokens only if followed by a directive delimiter.
+ * Used in inline/paragraph context where whitespace is meaningful content —
+ * we must not consume spaces that precede literal text.
+ */
+function skipWhitespaceBeforeDelimiter(ctx: ParseContext, ...delimiters: TokenType[]): void {
+  const saved = ctx.pos;
+  skipWhitespaceText(ctx);
+  const next = peekToken(ctx);
+  if (!next || !delimiters.includes(next.type)) {
+    ctx.pos = saved; // restore — whitespace is content, not trivia
+  }
+}
+
+/**
  * Shared dispatch loop for document-level and structural body contexts.
  * Parses children until `terminator` is consumed or EOF is reached.
  *
@@ -79,8 +111,26 @@ function parseStructuralChildren(ctx: ParseContext, terminator: TokenType | null
       break;
     }
 
-    // Skip trivia (blank lines, comments, whitespace)
-    if (token.type === TokenType.BLANK_LINE || token.type === TokenType.COMMENT || token.type === TokenType.TEXT) {
+    // Skip whitespace-only trivia (blank lines, comments, indentation)
+    if (token.type === TokenType.BLANK_LINE || token.type === TokenType.COMMENT) {
+      ctx.pos++;
+      continue;
+    }
+
+    // Whitespace-only TEXT is trivia (indentation); other text-like tokens are user error
+    if (token.type === TokenType.TEXT && isWhitespaceText(token)) {
+      ctx.pos++;
+      continue;
+    }
+    if (isTextLikeToken(token.type)) {
+      // Non-whitespace text at structural level — silently dropped without this diagnostic
+      ctx.diagnostics.push(
+        warning(
+          DiagnosticCode.UNEXPECTED_TOKEN,
+          `Text content must be inside a paragraph block [...]. Found: "${token.value}"`,
+          loc(token.line, token.column)
+        )
+      );
       ctx.pos++;
       continue;
     }
@@ -93,7 +143,7 @@ function parseStructuralChildren(ctx: ParseContext, terminator: TokenType | null
     }
 
     // Parse list marker
-    if (token.type === TokenType.LIST_BULLET || token.type === TokenType.LIST_ORDERED || token.type === TokenType.LIST_CONTINUATION) {
+    if (token.type === TokenType.LIST_BULLET || token.type === TokenType.LIST_ORDERED) {
       const item = parseListItemMarker(ctx);
       if (item) children.push(item);
       continue;
@@ -153,20 +203,24 @@ function parseDirective(ctx: ParseContext): Directive | null {
   let argsRaw: string | undefined;
   let body: StructuralBody | undefined;
 
-  // Parse args if present (no newline between directive name and args)
+  // Skip whitespace between name and args/body (Spec §5.1)
+  skipWhitespaceText(ctx);
+
+  // Parse args if present
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
+    skipWhitespaceText(ctx);
   }
 
-  // Parse body if present and it's a structural opener (no newline between)
+  // Parse body if present and it's a structural opener
   const bodyToken = peekToken(ctx);
   if (bodyToken && bodyToken.type === TokenType.LBRACE) {
     body = parseStructuralBody(ctx) ?? undefined;
+    skipWhitespaceText(ctx);
   }
 
-  // Sugar form @name[...]: only consume if there's NO newline between
-  // the directive/args/body and the paragraph block
+  // Sugar form @name[...]
   const paraToken = peekToken(ctx);
   if (paraToken && paraToken.type === TokenType.PARA_OPEN) {
     const para = parseParagraphBlock(ctx);
@@ -279,23 +333,28 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
   const startToken = peekToken(ctx);
   if (!startToken) return null;
 
-  const ordered = startToken.type === TokenType.LIST_ORDERED || startToken.type === TokenType.LIST_CONTINUATION;
+  const ordered = startToken.type === TokenType.LIST_ORDERED;
   const depth = startToken.value.startsWith("@") ? startToken.value.length - 1 : 1;
   ctx.pos++;
 
   let argsRaw: string | undefined;
   let body: StructuralBody | undefined;
 
+  // Skip whitespace between marker and args/body (Spec §5.1)
+  skipWhitespaceText(ctx);
+
   // Parse args if present
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
+    skipWhitespaceText(ctx);
   }
 
   // Parse body if present and it's a structural opener
   const bodyToken = peekToken(ctx);
   if (bodyToken && bodyToken.type === TokenType.LBRACE) {
     body = parseStructuralBody(ctx) ?? undefined;
+    skipWhitespaceText(ctx);
   }
 
   // Sugar form: @#[...] or @-[...] (Spec §11.4)
@@ -331,7 +390,6 @@ function isTextLikeToken(type: TokenType): boolean {
     case TokenType.TEXT:
     case TokenType.IDENTIFIER:
     case TokenType.STRING:
-    case TokenType.NUMBER:
     case TokenType.PERIOD:
     case TokenType.COMMA:
     case TokenType.COLON:
@@ -341,8 +399,6 @@ function isTextLikeToken(type: TokenType): boolean {
     case TokenType.RPAREN:
     case TokenType.LBRACE:
     case TokenType.RBRACE:
-    case TokenType.BOOLEAN:
-    case TokenType.LENGTH:
       return true;
     default:
       return false;
@@ -356,7 +412,7 @@ function isTextLikeToken(type: TokenType): boolean {
 function tokenTextValue(token: Token): string {
   switch (token.type) {
     case TokenType.STRING:
-      return `"${token.value}"`;
+      return `${token.quote ?? '"'}${token.value}${token.quote ?? '"'}`;
     case TokenType.COMMENT:
       return `//${token.value}`;
     default:
@@ -548,10 +604,15 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
   let argsRaw: string | undefined;
   let body: any[] | undefined;
 
+  // Skip whitespace between name and args/body only if followed by a delimiter (Spec §5.1).
+  // In paragraph context, whitespace is literal content — don't consume it blindly.
+  skipWhitespaceBeforeDelimiter(ctx, TokenType.LPAREN, TokenType.LBRACE);
+
   // Parse args if present
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
+    skipWhitespaceBeforeDelimiter(ctx, TokenType.LBRACE);
   }
 
   // Parse inline body if present: { ... } in paragraph context → inline content
@@ -560,6 +621,7 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
     ctx.pos++; // consume LBRACE
     body = [];
     let textBuffer = "";
+    let bodyClosed = false;
 
     while (ctx.pos < ctx.tokens.length) {
       const token = peekToken(ctx);
@@ -575,6 +637,7 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
           });
         }
         ctx.pos++; // consume RBRACE
+        bodyClosed = true;
         break;
       }
 
@@ -615,6 +678,25 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
       // Default: consume as text
       textBuffer += token.value;
       ctx.pos++;
+    }
+
+    // EOF-close recovery: loop exited without consuming RBRACE
+    if (!bodyClosed) {
+      if (textBuffer) {
+        body.push({
+          kind: "InlineText",
+          loc: startLoc,
+          text: textBuffer,
+        });
+      }
+      ctx.incomplete = true;
+      ctx.diagnostics.push(
+        error(
+          DiagnosticCode.UNCLOSED_DELIMITER,
+          `Unterminated inline directive body at line ${startLoc.line}`,
+          startLoc
+        )
+      );
     }
   }
 

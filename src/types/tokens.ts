@@ -14,6 +14,8 @@ export interface Token {
   endColumn: number;
   /** Set by lexer when token is incomplete (e.g., unclosed {{ or [^ ) */
   incomplete?: boolean;
+  /** Original quote character for STRING tokens (' or ") */
+  quote?: string;
 }
 
 /**
@@ -48,7 +50,6 @@ export enum TokenType {
 
   // Lua evaluation
   LUA_EXPR_OPEN = "LUA_EXPR_OPEN",     // $(
-  LUA_BLOCK_OPEN = "LUA_BLOCK_OPEN",   // @lua{
 
   // Directives
   DIRECTIVE = "DIRECTIVE",            // @name (e.g., @document, @def)
@@ -66,14 +67,10 @@ export enum TokenType {
   // List markers
   LIST_BULLET = "LIST_BULLET",         // @- (bullet)
   LIST_ORDERED = "LIST_ORDERED",       // @# (ordered)
-  LIST_CONTINUATION = "LIST_CONTINUATION", // @-, @# (same line continuation)
 
   // Content / Literals
   TEXT = "TEXT",                       // Plain text content
   STRING = "STRING",                   // "..." or '...'
-  NUMBER = "NUMBER",                   // 123, 3.14
-  LENGTH = "LENGTH",                   // 1in, 12pt, 2.5cm
-  BOOLEAN = "BOOLEAN",                 // true, false
   IDENTIFIER = "IDENTIFIER",           // bareword identifier
 
   // Comments
