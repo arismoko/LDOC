@@ -10,7 +10,7 @@ import { evaluate, type SourceLoader } from "../evaluate/index.ts";
 import { defaultIncludeRoot } from "../shared/include-path.ts";
 import { style, type StyleOptions } from "../style/index.ts";
 import { emit, type EmitOptions } from "../emit/index.ts";
-import type { CSTDocument } from "../types/cst.ts";
+import type { Document as CSTDocument } from "../types/cst.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import type { Document } from "../types/document-ir.ts";
 import type { StyledDocument } from "../types/styled.ts";

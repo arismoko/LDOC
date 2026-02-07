@@ -17,7 +17,7 @@ import {
 import type { SourceLocation } from "../types/source-location.ts";
 import type {
   Block as CSTBlock,
-  CSTDocument,
+  Document as CSTDocument,
   Directive,
   Inline as CSTInline,
   InlineDirective as CSTInlineDirective,
