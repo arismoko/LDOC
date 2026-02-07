@@ -18,7 +18,7 @@ import {
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { URI } from "vscode-uri";
 
-import type { CSTDocument, CSTDirective, ParseResult } from "../types/cst.ts";
+import type { Document, Directive, ParseResult } from "../types/cst.ts";
 import type { SymbolTable } from "../types/symbols.ts";
 import { parseSource } from "../parse/index.ts";
 import { bindSync } from "../bind/index.ts";
@@ -32,7 +32,7 @@ import { getDefinition, getReferences } from "./navigation.ts";
 // =============================================================================
 
 interface DocumentCache {
-  cst: CSTDocument;
+  cst: Document;
   symbols: SymbolTable;
 }
 
@@ -81,7 +81,7 @@ connection.onInitialize((_params: InitializeParams): InitializeResult => {
 documents.onDidChangeContent(async (change) => {
   const uri = change.document.uri;
   const text = change.document.getText();
-  let cst: CSTDocument | undefined;
+  let cst: Document | undefined;
   let symbols: SymbolTable | undefined;
   let diagnostics = [] as ReturnType<typeof parseSource>["diagnostics"];
 

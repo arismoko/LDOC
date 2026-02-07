@@ -9,7 +9,7 @@
  * Output: BindResult with CST, SymbolTable, and Diagnostics
  */
 
-import type { Document, CSTDocument, Block, Directive, ParseResult } from "../types/cst.ts";
+import type { Document, Block, Directive, ParseResult } from "../types/cst.ts";
 import type { SymbolTable, BindResult } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { error as diagError, DiagnosticCode } from "../types/diagnostics.ts";
@@ -52,7 +52,7 @@ export class Binder {
   /**
    * Bind a CST document.
    */
-  async bind(cst: CSTDocument): Promise<BindResult> {
+  async bind(cst: Document): Promise<BindResult> {
     const doc = cst as Document;
     const symbols = createSymbolTable();
     const diagnostics: Diagnostic[] = [];
@@ -76,7 +76,7 @@ export class Binder {
   /**
    * Synchronous bind for cases without imports.
    */
-  bindSync(cst: CSTDocument): BindResult {
+  bindSync(cst: Document): BindResult {
     const doc = cst as Document;
     const symbols = createSymbolTable();
     const diagnostics: Diagnostic[] = [];
@@ -168,13 +168,13 @@ function collectDefBindings(dir: Directive, symbols: SymbolTable, diagnostics: D
 /**
  * Bind a CST document.
  */
-export async function bind(cst: CSTDocument, options?: BinderOptions): Promise<BindResult> {
+export async function bind(cst: Document, options?: BinderOptions): Promise<BindResult> {
   return new Binder(options).bind(cst);
 }
 
 /**
  * Bind a CST document synchronously (no imports).
  */
-export function bindSync(cst: CSTDocument, options?: BinderOptions): BindResult {
+export function bindSync(cst: Document, options?: BinderOptions): BindResult {
   return new Binder(options).bindSync(cst);
 }

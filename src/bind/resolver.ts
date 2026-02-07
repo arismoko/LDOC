@@ -2,7 +2,7 @@
  * Import resolution for the BIND phase.
  */
 
-import type { Block, CSTDocument, ParseResult } from "../types/cst.ts";
+import type { Block, Document, ParseResult } from "../types/cst.ts";
 import type { SymbolTable } from "../types/symbols.ts";
 import { createSymbolTable } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
@@ -169,7 +169,7 @@ export class ImportResolver {
     }
   }
 
-  async resolve(cst: CSTDocument, sourcePath?: string): Promise<ResolveResult> {
+  async resolve(cst: Document, sourcePath?: string): Promise<ResolveResult> {
     const base = sourcePath ?? this.options.basePath;
     if (base) {
       this.includeRoot = this.options.includeRoot ?? defaultIncludeRoot(base);
@@ -188,7 +188,7 @@ export class ImportResolver {
  * Resolve imports for a CST.
  */
 export async function resolveImports(
-  cst: CSTDocument,
+  cst: Document,
   options: ResolverOptions
 ): Promise<ResolveResult> {
   const resolver = new ImportResolver(options);
