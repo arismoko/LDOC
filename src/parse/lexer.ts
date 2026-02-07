@@ -233,8 +233,14 @@ export class Lexer {
         this.tokens.push(token(TokenType.TEXT, "@".repeat(depth), startLine, startCol, this.line, this.column));
         return;
       }
-      // Not at line start — emit lone @ as text, let next iteration handle the rest
-      this.tokens.push(token(TokenType.TEXT, "@", startLine, startCol, this.line, this.column));
+      // Not at line start — consume all stacked @ chars and emit as text
+      // so `[email@@example.com]` stays literal (not parsed as @example directive)
+      let atCount = 1; // already consumed one @
+      while (this.peek() === "@") {
+        atCount++;
+        this.advance();
+      }
+      this.tokens.push(token(TokenType.TEXT, "@".repeat(atCount), startLine, startCol, this.line, this.column));
       return;
     }
 

@@ -262,9 +262,9 @@ describe("Lexer SOL list marker gating (§11.5)", () => {
     const { tokens } = tokenize("[text @@- more]");
     const bullets = tokens.filter((t) => t.type === TokenType.LIST_BULLET);
     expect(bullets.length).toBe(0);
-    // The @ should be TEXT
+    // The @@ should be TEXT (both consumed together)
     const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
-    expect(textTokens.some((t) => t.value === "@")).toBe(true);
+    expect(textTokens.some((t) => t.value === "@@")).toBe(true);
   });
 
   test("@mention mid-line is a DIRECTIVE, not a list marker", () => {
@@ -280,5 +280,23 @@ describe("Lexer SOL list marker gating (§11.5)", () => {
     const directives = tokens.filter((t) => t.type === TokenType.DIRECTIVE);
     expect(directives.length).toBe(1);
     expect(directives[0]!.value).toBe("style");
+  });
+
+  test("mid-line @@ emits all stacked @ as text, not directive", () => {
+    const { tokens } = tokenize("[email@@example]");
+    // No DIRECTIVE token — @@ mid-line is all text
+    const directives = tokens.filter((t) => t.type === TokenType.DIRECTIVE);
+    expect(directives.length).toBe(0);
+    // Should have @@ as a single TEXT token
+    const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
+    expect(textTokens.some((t) => t.value === "@@")).toBe(true);
+  });
+
+  test("mid-line @@@ emits all stacked @ as text", () => {
+    const { tokens } = tokenize("[test@@@value]");
+    const directives = tokens.filter((t) => t.type === TokenType.DIRECTIVE);
+    expect(directives.length).toBe(0);
+    const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
+    expect(textTokens.some((t) => t.value === "@@@")).toBe(true);
   });
 });
