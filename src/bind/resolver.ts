@@ -31,6 +31,8 @@ export interface ResolveResult {
   diagnostics: Diagnostic[];
   /** Resolved paths that were imported */
   importedPaths: Set<string>;
+  /** CST documents from included files (for symbol collection) */
+  parsedDocuments: Document[];
 }
 
 /**
@@ -41,6 +43,7 @@ export class ImportResolver {
   private readonly diagnostics: Diagnostic[] = [];
   private readonly symbols: SymbolTable = createSymbolTable();
   private readonly importedPaths = new Set<string>();
+  private readonly parsedDocuments: Document[] = [];
   private readonly visiting = new Set<string>();
   private includeRoot?: string;
 
@@ -124,6 +127,7 @@ export class ImportResolver {
 
       await this.walkBlocks(parseResult.cst.children, resolvedPath);
       this.importedPaths.add(resolvedPath);
+      this.parsedDocuments.push(parseResult.cst);
     } catch (cause) {
       this.diagnostics.push(
         error(
@@ -171,6 +175,7 @@ export class ImportResolver {
       symbols: this.symbols,
       diagnostics: this.diagnostics,
       importedPaths: this.importedPaths,
+      parsedDocuments: this.parsedDocuments,
     };
   }
 }

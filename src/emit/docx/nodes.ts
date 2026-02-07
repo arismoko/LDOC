@@ -532,10 +532,16 @@ function emitFootnoteRef(node: FootnoteRef, ctx: EmitContext): (TextRun | Footno
   return [new FootnoteReferenceRun(id)];
 }
 
-function emitCrossRef(node: CrossRef, _ctx: EmitContext, _parentStyle: ComputedStyle): (TextRun | InternalHyperlink)[] {
+function emitCrossRef(node: CrossRef, ctx: EmitContext, _parentStyle: ComputedStyle): (TextRun | InternalHyperlink)[] {
   const anchorId = bookmarkSafeName(node.target);
   
-  // Always emit the hyperlink — the binder validates @ref targets (B009)
+  // Defense-in-depth: binder warns about missing targets (B009),
+  // but if the document still reaches emit, fall back to plain text
+  // instead of emitting a dead hyperlink.
+  if (!ctx.bookmarks.has(anchorId)) {
+    return [new TextRun({ text: node.text ?? node.target, italics: true })];
+  }
+
   return [
     new InternalHyperlink({
       anchor: anchorId,

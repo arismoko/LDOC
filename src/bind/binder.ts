@@ -17,7 +17,6 @@ import { error as diagError, warning as diagWarning, DiagnosticCode } from "../t
 import { createSymbolTable, freezeSymbolTable } from "../types/symbols.ts";
 import { validate } from "./validator.ts";
 import { resolveImports } from "./resolver.ts";
-import type { ArgsObject } from "../shared/args.ts";
 
 /**
  * Options for the binder.
@@ -57,6 +56,10 @@ export class Binder {
 
     diagnostics.push(...validate(doc));
 
+    // Collect symbols from entry document
+    collectSymbols(doc.children, symbols, diagnostics);
+
+    // Resolve includes and collect symbols from included documents
     if (this.options.loadFile && this.options.sourcePath) {
       const importResult = await resolveImports(doc, {
         basePath: this.options.sourcePath,
@@ -64,9 +67,13 @@ export class Binder {
         loadFile: this.options.loadFile,
       });
       diagnostics.push(...importResult.diagnostics);
+      // Collect only anchors from included files (defs are scoped to their file)
+      for (const includedDoc of importResult.parsedDocuments) {
+        collectAnchors(includedDoc.children, symbols, diagnostics);
+      }
     }
 
-    collectSymbols(doc.children, symbols, diagnostics);
+    // Validate refs after all symbols (entry + included) are collected
     validateRefs(doc.children, symbols, diagnostics);
 
     return { cst, symbols: freezeSymbolTable(symbols), diagnostics };
@@ -158,6 +165,29 @@ function collectDefBindings(dir: Directive, symbols: SymbolTable, diagnostics: D
       definedAt: dir.loc,
       usages: [],
     });
+  }
+}
+
+/**
+ * Walk blocks collecting only anchors (no defs). Used for included documents
+ * where defs are scoped to the child but anchors are globally referenceable.
+ */
+function collectAnchors(blocks: Block[], symbols: SymbolTable, diagnostics: Diagnostic[]): void {
+  for (const block of blocks) {
+    if (block.kind === "Directive" && block.name === "anchor") {
+      collectAnchor(block, symbols, diagnostics);
+    }
+
+    // Recurse into structural bodies
+    if (block.kind === "Directive" && block.body && block.body.kind === "StructuralBody") {
+      collectAnchors(block.body.children, symbols, diagnostics);
+    }
+    if (block.kind === "ListItemMarker" && block.body) {
+      collectAnchors(block.body.children, symbols, diagnostics);
+    }
+    if (block.kind === "StructuralBody") {
+      collectAnchors(block.children, symbols, diagnostics);
+    }
   }
 }
 
