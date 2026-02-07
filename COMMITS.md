@@ -90,7 +90,9 @@
 
 # Phase F — Lua evaluator (Real Wasmoon Integration)
 
-### Commit 14 — `feat(v3-lua): integrate wasmoon runtime`
+### Commit 14 — `feat(v3-lua): integrate wasmoon runtime` ✅
+
+**Status**: ✅ Complete
 
 **Changes**
 
