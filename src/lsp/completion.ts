@@ -8,7 +8,7 @@ import {
   type CompletionItem,
   type Position,
 } from "vscode-languageserver";
-import type { CSTDocument } from "../types/cst.ts";
+import type { Document } from "../types/cst.ts";
 import type { SymbolTable } from "../types/symbols.ts";
 import { knownDirectiveNames } from "../bind/contracts.ts";
 
@@ -32,7 +32,7 @@ export interface CompletionOptions {
  * Detect completion context using text-based heuristics.
  */
 export function getCompletionContext(
-  _cst: CSTDocument,
+  _cst: Document,
   position: Position,
   text: string
 ): CompletionContext {
