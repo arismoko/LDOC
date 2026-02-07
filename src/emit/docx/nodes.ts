@@ -60,7 +60,7 @@ import type { SourceLocation } from "../../types/source-location.ts";
 import { toRunOptions, toParagraphOptions, toHeadingLevel } from "./styles.ts";
 import { getNumberingReference } from "./numbering.ts";
 import { emitTable } from "./tables.ts";
-import { sanitizeBookmarkName } from "./utils.ts";
+import { bookmarkSafeName } from "../../shared/bookmarks.ts";
 
 /** Synthetic location for diagnostics when node has no source location */
 const SYNTHETIC_LOC: SourceLocation = { line: 1, column: 0, endLine: 1, endColumn: 0 };
@@ -163,7 +163,7 @@ function emitHeading(node: Heading, ctx: EmitContext): DocxBlock[] {
   
   // Register bookmark if anchor is specified
   if (node.anchor) {
-    const anchorId = sanitizeBookmarkName(node.anchor);
+    const anchorId = bookmarkSafeName(node.anchor);
     ctx.bookmarks.add(anchorId);
     // For bookmarks, wrap inline content in a Bookmark
     // docx Bookmark wraps content, so we pass children to it
@@ -512,7 +512,7 @@ function emitFootnoteRef(node: FootnoteRef, ctx: EmitContext): (TextRun | Footno
 }
 
 function emitCrossRef(node: CrossRef, ctx: EmitContext, parentStyle: ComputedStyle): (TextRun | InternalHyperlink)[] {
-  const anchorId = sanitizeBookmarkName(node.target);
+  const anchorId = bookmarkSafeName(node.target);
   
   if (!ctx.bookmarks.has(anchorId)) {
     ctx.diagnostics.push({
@@ -533,7 +533,7 @@ function emitCrossRef(node: CrossRef, ctx: EmitContext, parentStyle: ComputedSty
 }
 
 function emitBookmark(node: BookmarkNode, ctx: EmitContext): Bookmark[] {
-  const anchorId = sanitizeBookmarkName(node.name);
+  const anchorId = bookmarkSafeName(node.name);
   ctx.bookmarks.add(anchorId);
   // Emit a zero-width bookmark (start + end markers with no visible content)
   return [new Bookmark({ id: anchorId, children: [] })];

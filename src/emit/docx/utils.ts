@@ -15,20 +15,6 @@
 export type Mutable<T> = { -readonly [P in keyof T]: T[P] };
 
 // =============================================================================
-// Bookmark Utilities
-// =============================================================================
-
-/**
- * Sanitize bookmark name for DOCX compatibility.
- * DOCX bookmark names must be alphanumeric, underscore only, max 40 chars.
- */
-export function sanitizeBookmarkName(name: string): string {
-  return name
-    .replace(/[^a-zA-Z0-9_]/g, "_")
-    .slice(0, 40);
-}
-
-// =============================================================================
 // Color Utilities
 // =============================================================================
 

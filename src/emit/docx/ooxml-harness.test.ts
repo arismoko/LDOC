@@ -35,7 +35,25 @@ describe("ooxml harness", () => {
     const docXml = await pkg.readPart("word/document.xml");
     expect(docXml.includes("w:bookmarkStart")).toBe(true);
     expect(docXml.includes("w:bookmarkEnd")).toBe(true);
-    // Bookmark name is sanitized: hyphens become underscores
+    // Bookmark name is sanitized: hyphens become underscores, lowercased
     expect(docXml.includes("payment_terms")).toBe(true);
+  });
+
+  test("forward cross-reference resolves without warning", async () => {
+    const source = `[See [[sec1]] for details.]
+@anchor(id: "sec1")
+`;
+
+    const pkg = await compileToOoxml(source);
+    // No "target not found" warning — pre-pass collects anchors before emission
+    const targetWarnings = pkg.diagnostics.filter(
+      (d) => d.code === "E003" && d.message.includes("sec1")
+    );
+    expect(targetWarnings.length).toBe(0);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    // Should have both the hyperlink and the bookmark
+    expect(docXml.includes("w:bookmarkStart")).toBe(true);
+    expect(docXml.includes("w:hyperlink")).toBe(true);
   });
 });
