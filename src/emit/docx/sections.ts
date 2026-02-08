@@ -80,10 +80,17 @@ export class SectionBuilder {
   private get pageSizeOptions() {
     const isLandscape = this.orientation === "landscape";
     // The docx package internally swaps w:w/w:h when orientation is landscape,
-    // so we always pass the logical portrait dimensions (width < height).
+    // so we must always pass logical portrait dimensions (width < height).
+    // If callers already provide landscape-oriented dims (width > height),
+    // normalize to portrait first to avoid a double-swap producing portrait output.
+    let w = this.pageWidth;
+    let h = this.pageHeight;
+    if (isLandscape && w > h) {
+      [w, h] = [h, w];
+    }
     return {
-      width: this.pageWidth,
-      height: this.pageHeight,
+      width: w,
+      height: h,
       ...(isLandscape ? { orientation: PageOrientation.LANDSCAPE } : {}),
     };
   }

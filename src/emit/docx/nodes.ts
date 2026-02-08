@@ -294,7 +294,6 @@ function emitListContinuationParagraph(
   const style = resolveNodeStyle(node.style, ctx);
   const children = emitInlines(node.content, ctx, style);
   const options = toParagraphOptions(style);
-  applyContainerStyles(options, ctx);
   const continuationIndent = getListContinuationIndent(reference, ctx.listLevel, ctx);
   const optionsWithIndent = continuationIndent === undefined
     ? options
@@ -305,6 +304,11 @@ function emitListContinuationParagraph(
           left: options.indent?.left ?? continuationIndent,
         },
       };
+
+  // Apply container styles (blockquote border/indent) AFTER resolving
+  // continuation indent — otherwise applyContainerStyles sets indent.left
+  // and the ?? continuationIndent fallback never fires.
+  applyContainerStyles(optionsWithIndent, ctx);
 
   return new Paragraph({
     ...optionsWithIndent,
