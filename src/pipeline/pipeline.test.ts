@@ -559,7 +559,7 @@ describe("cross-file ref validation", () => {
     expect(diagnostics.some((d) => d.code === "B004")).toBe(false);
   });
 
-   test("bind-time @params arity: no @params in included file emits no B007", async () => {
+  test("bind-time @params arity: no @params in included file emits no B007", async () => {
     const mainPath = "/virtual/main.ldoc";
     const childPath = resolvePath("/virtual", "child.ldoc");
     const { diagnostics } = await parseAndBindWithIncludes(
@@ -573,6 +573,112 @@ describe("cross-file ref validation", () => {
     );
 
     expect(diagnostics.some((d) => d.code === "B007")).toBe(false);
+  });
+
+  test("bind-time @params types: matching args emit no B015", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const { diagnostics } = await parseAndBindWithIncludes(
+      `@include(path: "child.ldoc", args: { name: "Alice", age: 30, flags: ["x"], meta: { ok: true } })`,
+      {
+        sourcePath: mainPath,
+        loadFile: createMapLoader({
+          [childPath]: `@params(types: { name: "string", age: "number", flags: "array", meta: "object" })\n[Signer]`,
+        }),
+      },
+    );
+
+    expect(diagnostics.some((d) => d.code === "B015")).toBe(false);
+  });
+
+  test("bind-time @params types: mismatch emits B015", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    let caught: any;
+    try {
+      await parseAndBindWithIncludes(
+        `@include(path: "child.ldoc", args: { age: "30" })`,
+        {
+          sourcePath: mainPath,
+          loadFile: createMapLoader({
+            [childPath]: `@params(types: { age: "number" })\n[Signer]`,
+          }),
+        },
+      );
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeDefined();
+    const diagnostics: any[] = caught.diagnostics ?? [];
+    const typeDiags = diagnostics.filter((d: any) => d.code === "B015");
+    expect(typeDiags).toHaveLength(1);
+    expect(typeDiags[0]!.message).toContain("age");
+  });
+
+  test("bind-time @params types: optional type can be omitted", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const { diagnostics } = await parseAndBindWithIncludes(
+      `@include(path: "child.ldoc", args: { name: "Alice" })`,
+      {
+        sourcePath: mainPath,
+        loadFile: createMapLoader({
+          [childPath]: `@params(types: { name: "string", title: "string?" })\n[Signer]`,
+        }),
+      },
+    );
+
+    expect(diagnostics.some((d) => d.code === "B007")).toBe(false);
+    expect(diagnostics.some((d) => d.code === "B015")).toBe(false);
+  });
+
+  test("bind-time @params types: malformed literals emit B014", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    let caught: any;
+    try {
+      await parseAndBindWithIncludes(
+        `@include(path: "child.ldoc", args: { name: "Alice" })`,
+        {
+          sourcePath: mainPath,
+          loadFile: createMapLoader({
+            [childPath]: `@params(types: { name: "str" })\n[Signer]`,
+          }),
+        },
+      );
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeDefined();
+    const diagnostics: any[] = caught.diagnostics ?? [];
+    const malformedDiags = diagnostics.filter((d: any) => d.code === "B014");
+    expect(malformedDiags).toHaveLength(1);
+  });
+
+  test("bind-time @params types: keys must be in names when names is provided", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    let caught: any;
+    try {
+      await parseAndBindWithIncludes(
+        `@include(path: "child.ldoc", args: { extra: "x" })`,
+        {
+          sourcePath: mainPath,
+          loadFile: createMapLoader({
+            [childPath]: `@params(names: ["name"], types: { extra: "string" })\n[Signer]`,
+          }),
+        },
+      );
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeDefined();
+    const diagnostics: any[] = caught.diagnostics ?? [];
+    const malformedDiags = diagnostics.filter((d: any) => d.code === "B014");
+    expect(malformedDiags).toHaveLength(1);
   });
 });
 

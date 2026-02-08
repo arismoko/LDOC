@@ -17,7 +17,11 @@ import { error as diagError, warning as diagWarning, DiagnosticCode } from "../t
 import { createSymbolTable, freezeSymbolTable } from "../types/symbols.ts";
 import { validate } from "./validator.ts";
 import { resolveImports, type IncludeEdge } from "./resolver.ts";
-import { readParamsNames, validateIncludeParams } from "../shared/include-params.ts";
+import {
+  readParamsContract,
+  validateIncludeParams,
+  validateIncludeParamTypes,
+} from "../shared/include-params.ts";
 
 /**
  * Options for the binder.
@@ -319,13 +323,12 @@ function validateIncludeEdges(edges: IncludeEdge[], diagnostics: Diagnostic[]): 
   for (const edge of edges) {
     if (!edge.document) continue; // parse/load failed — already reported
 
-    const { names, diagnostics: paramsDiags } = readParamsNames(edge.document);
+    const { names, types, diagnostics: paramsDiags } = readParamsContract(edge.document);
     diagnostics.push(...paramsDiags);
-
-    if (names.length === 0) continue; // no @params declared
 
     const includeArgs = toIncludeArgs(edge.directive.args?.args);
     diagnostics.push(...validateIncludeParams(names, includeArgs, edge.directive.loc));
+    diagnostics.push(...validateIncludeParamTypes(types, includeArgs, edge.directive.loc));
   }
 }
 

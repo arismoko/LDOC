@@ -577,9 +577,24 @@ Headers/footers use structural content with region directives:
 @footer{
   @center[Confidential]
 }
+
+@header(variant: "first"){
+  @left[Mutual NDA — First Page]
+}
+
+@footer(variant: "even"){
+  @right[Confidential]
+}
 ```
 
 `page` and `pages` are implementation-defined values provided by the emitter during compilation for DOCX targets.
+
+Rules:
+
+- `@header` and `@footer` accept optional `variant` arg with values `"default" | "first" | "even"`.
+- Omitted `variant` means `"default"`.
+- Invalid `variant` values MUST produce a diagnostic and SHOULD recover by using `"default"`.
+- Multiple directives targeting the same slot (for example two `@header(variant: "first")`) MUST produce a diagnostic; implementations SHOULD use the last declaration.
 
 ---
 
@@ -651,7 +666,23 @@ Parameters are declared as JSON5 args:
 
 ```ldoc
 @params(names: ["name", "title"])
+
+@params(types: { name: "string", title: "string?", parties: "array" })
+
+@params(
+  names: ["name", "title"],
+  types: { name: "string", title: "string?" },
+)
 ```
+
+Type literals are: `string`, `number`, `boolean`, `object`, `array`, with optional `?` suffix.
+
+Rules:
+
+- `@params` MAY declare `names`, `types`, or both.
+- A `?` suffix means the argument is optional (may be omitted).
+- When both `names` and `types` are provided, each `types` key MUST also appear in `names`.
+- Type checking is exact and coercion is not allowed.
 
 ### 16.2 Including a file
 
@@ -665,6 +696,7 @@ Parameters are declared as JSON5 args:
 Rules:
 
 - If a file declares `@params`, the include MUST provide those names in `args`.
+- If a file declares `@params(types: ...)`, include args MUST match declared types.
 - Include parameters create a local scope for that file.
 - Includes SHOULD be pure: included files SHOULD NOT mutate caller state (unless explicitly allowed).
 
@@ -753,7 +785,6 @@ Recommended stages:
 - Markdown headings (`#`) and inline emphasis (`**bold**`, etc.) are deferred (may be added as pure sugar later).
 - Dynamic “Lua-defined directives” (metamethod directives, user-defined directive surfaces) are deferred; directives are static/registered for LSP and diagnostics quality.
 - Control flow directives (`@if`, `@for`) are deferred until scoping + evaluation semantics are finalized (they can be reintroduced later powered by Lua).
-- Typed include params (e.g. `@params(name: "string")`) are deferred; v3 core uses name-list params only (`@params(names: [...])`).
 - Expression-valued args (direct `$(...)` inside directive args objects) are deferred for v3 core.
 
 ### 19.1 Tracking deferred sugar and UX ideas
@@ -770,7 +801,6 @@ Rules:
 
 - Directive aliases (for example `@center{...}` sugar for `@align(value: "center"){...}`).
 - Inline emphasis sugar mapped to existing style channels.
-- Typed include param contracts and optionality (`?`) semantics.
 - Expression args wrappers and evaluation timing rules.
 - Quality-of-life diagnostics (unknown directive suggestions, fix-it hints for misplaced region directives).
 

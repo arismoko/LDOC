@@ -9,13 +9,23 @@ import { Document, Packer, Paragraph, Footer, Header } from "docx";
 import type { IPropertiesOptions, ISectionOptions, Table, IStylesOptions } from "docx";
 
 import type { StyledDocument, NumberingDefinition } from "../../types/styled.ts";
-import type { Block, Document as DocIR, Section, HeaderFooter } from "../../types/document-ir.ts";
+import type {
+  Block,
+  Document as DocIR,
+  HeaderFooterConfig,
+} from "../../types/document-ir.ts";
 import type { Diagnostic } from "../../types/diagnostics.ts";
 
 import { createNumberingConfig, ensureDefaultNumberingDefs } from "./numbering.ts";
 import { toStyleDefinition } from "./styles.ts";
 import { emitBlocks, type EmitContext, type DocxBlock } from "./nodes.ts";
-import { SectionBuilder, compileHeader, compileFooter } from "./sections.ts";
+import {
+  SectionBuilder,
+  compileHeader,
+  compileFooter,
+  type SectionHeaders,
+  type SectionFooters,
+} from "./sections.ts";
 import { bookmarkSafeName } from "../../shared/bookmarks.ts";
 
 // =============================================================================
@@ -169,7 +179,7 @@ function compileDocument(styledDocument: StyledDocument, ctx: EmitContext): Docu
   const { document: docIR, documentStyles, styleDefinitions, numberingDefinitions } = styledDocument;
   
   // Build sections
-  const sections = compileSections(docIR, documentStyles, ctx);
+  const sectionResult = compileSections(docIR, documentStyles, ctx);
   
   // Build styles configuration
   const styles = compileStyles(styleDefinitions);
@@ -184,8 +194,9 @@ function compileDocument(styledDocument: StyledDocument, ctx: EmitContext): Docu
   const documentOptions: IPropertiesOptions = {
     styles,
     numbering,
-    sections,
+    sections: sectionResult.sections,
     footnotes: Object.keys(footnotes).length > 0 ? footnotes : undefined,
+    evenAndOddHeaderAndFooters: sectionResult.evenAndOddHeaderAndFooters || undefined,
   };
   
   return new Document(documentOptions);
@@ -198,22 +209,19 @@ function compileSections(
   docIR: DocIR,
   documentStyles: StyledDocument["documentStyles"],
   ctx: EmitContext
-): ISectionOptions[] {
+): { sections: ISectionOptions[]; evenAndOddHeaderAndFooters: boolean } {
   // Find header/footer from metadata (set by @header/@footer directives),
   // falling back to Section blocks in the document body.
-  const headerConfig = docIR.metadata?.headers?.default
-    ?? findFirstHeaderFooter(docIR.blocks, "header");
-  const footerConfig = docIR.metadata?.footers?.default
-    ?? findFirstHeaderFooter(docIR.blocks, "footer");
-  
-  // Build headers/footers
-  const headers = headerConfig ? {
-    default: compileHeader(headerConfig, ctx),
-  } : {};
-  
-  const footers = footerConfig ? {
-    default: compileFooter(footerConfig, ctx),
-  } : {};
+  const headerConfig = hasAnyHeaderFooterVariant(docIR.metadata?.headers)
+    ? docIR.metadata.headers
+    : findFirstHeaderFooterConfig(docIR.blocks, "header");
+  const footerConfig = hasAnyHeaderFooterVariant(docIR.metadata?.footers)
+    ? docIR.metadata.footers
+    : findFirstHeaderFooterConfig(docIR.blocks, "footer");
+
+  // Build headers/footers for all configured variants.
+  const headers = compileHeaders(headerConfig, ctx);
+  const footers = compileFooters(footerConfig, ctx);
   
   // Create section builder
   const builder = new SectionBuilder(
@@ -263,29 +271,70 @@ function compileSections(
 
   flushPending(pending);
   
-  return builder.finish();
+  return {
+    sections: builder.finish(),
+    evenAndOddHeaderAndFooters: Boolean(headers.even || footers.even),
+  };
 }
 
 /**
- * Find the first header or footer in the document.
+ * Find the first non-empty header/footer config in the document.
  */
-function findFirstHeaderFooter(
+function findFirstHeaderFooterConfig(
   blocks: Block[],
   kind: "header" | "footer"
-): HeaderFooter | undefined {
+): HeaderFooterConfig | undefined {
   for (const block of blocks) {
     if (block.type !== "Section") {
       continue;
     }
 
-    const config = kind === "header"
-      ? block.headers?.default
-      : block.footers?.default;
-    if (config && config.kind === kind) {
+    const config = kind === "header" ? block.headers : block.footers;
+    if (hasAnyHeaderFooterVariant(config)) {
       return config;
     }
   }
   return undefined;
+}
+
+function hasAnyHeaderFooterVariant(config?: HeaderFooterConfig): boolean {
+  return Boolean(config?.default || config?.first || config?.even);
+}
+
+function compileHeaders(config: HeaderFooterConfig | undefined, ctx: EmitContext): SectionHeaders {
+  const headers: SectionHeaders = {};
+  if (!config) {
+    return headers;
+  }
+
+  if (config.default) {
+    headers.default = compileHeader(config.default, ctx);
+  }
+  if (config.first) {
+    headers.first = compileHeader(config.first, ctx);
+  }
+  if (config.even) {
+    headers.even = compileHeader(config.even, ctx);
+  }
+  return headers;
+}
+
+function compileFooters(config: HeaderFooterConfig | undefined, ctx: EmitContext): SectionFooters {
+  const footers: SectionFooters = {};
+  if (!config) {
+    return footers;
+  }
+
+  if (config.default) {
+    footers.default = compileFooter(config.default, ctx);
+  }
+  if (config.first) {
+    footers.first = compileFooter(config.first, ctx);
+  }
+  if (config.even) {
+    footers.even = compileFooter(config.even, ctx);
+  }
+  return footers;
 }
 
 /**

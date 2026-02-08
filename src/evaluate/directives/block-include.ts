@@ -13,7 +13,11 @@ import {
   error as createError,
 } from "../../types/diagnostics.ts";
 import { defaultIncludeRoot, resolveIncludeFilePath } from "../../shared/include-path.ts";
-import { readParamsNames, validateIncludeParams } from "../../shared/include-params.ts";
+import {
+  readParamsContract,
+  validateIncludeParams,
+  validateIncludeParamTypes,
+} from "../../shared/include-params.ts";
 import { parseSource } from "../../parse/index.ts";
 import { bindSync } from "../../bind/index.ts";
 
@@ -140,11 +144,17 @@ export const handleInclude: BlockDirectiveHandler = async (node, ctx) => {
   }
 
   const includeArgs = toIncludeArgs(args.args);
-  const { names: requiredNames, diagnostics: paramsDiags } = readParamsNames(parsed.cst);
+  const { names: requiredNames, types: typeContracts, diagnostics: paramsDiags } = readParamsContract(parsed.cst);
   ctx.diagnostics.push(...paramsDiags);
   const arityDiags = validateIncludeParams(requiredNames, includeArgs, node.loc);
   ctx.diagnostics.push(...arityDiags);
   if (arityDiags.length > 0) {
+    return [];
+  }
+
+  const typeDiags = validateIncludeParamTypes(typeContracts, includeArgs, node.loc);
+  ctx.diagnostics.push(...typeDiags);
+  if (typeDiags.length > 0) {
     return [];
   }
 

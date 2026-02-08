@@ -92,6 +92,79 @@ describe("include evaluation", () => {
     ).rejects.toThrow("@params names must be an array of non-empty strings");
   });
 
+  test("include enforces typed @params contracts", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const loadFile = createMapLoader({
+      [childPath]: `@params(types: { name: "string", age: "number", flags: "array", meta: "object" })
+[Signer: $(data.name)]
+`,
+    });
+
+    const source = `@include(path: "child.ldoc", args: { name: "Alice", age: 30, flags: ["x"], meta: { ok: true } })`;
+    const { diagnostics } = await compileToDocument(source, {
+      sourcePath: mainPath,
+      loadFile,
+    });
+
+    expect(diagnostics.some((d) => d.code === "B015")).toBe(false);
+  });
+
+  test("include reports typed @params mismatch", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const loadFile = createMapLoader({
+      [childPath]: `@params(types: { age: "number" })
+[Signer]
+`,
+    });
+
+    const source = `@include(path: "child.ldoc", args: { age: "30" })`;
+    await expect(
+      compileToDocument(source, {
+        sourcePath: mainPath,
+        loadFile,
+      }),
+    ).rejects.toThrow("must be number");
+  });
+
+  test("include allows omitted optional typed params", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const loadFile = createMapLoader({
+      [childPath]: `@params(types: { name: "string", title: "string?" })
+[Signer: $(data.name)]
+`,
+    });
+
+    const source = `@include(path: "child.ldoc", args: { name: "Alice" })`;
+    const { diagnostics } = await compileToDocument(source, {
+      sourcePath: mainPath,
+      loadFile,
+    });
+
+    expect(diagnostics.some((d) => d.code === "B007")).toBe(false);
+    expect(diagnostics.some((d) => d.code === "B015")).toBe(false);
+  });
+
+  test("include reports malformed typed @params literals", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const loadFile = createMapLoader({
+      [childPath]: `@params(types: { name: "str" })
+[Signer]
+`,
+    });
+
+    const source = `@include(path: "child.ldoc", args: { name: "Alice" })`;
+    await expect(
+      compileToDocument(source, {
+        sourcePath: mainPath,
+        loadFile,
+      }),
+    ).rejects.toThrow("Invalid include param type");
+  });
+
   test("include rejects paths that escape include root", async () => {
     const source = `@include(path: "../outside.ldoc")`;
     await expect(

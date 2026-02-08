@@ -89,6 +89,71 @@ describe("layout evaluation", () => {
     }
   });
 
+  test("header/footer variant args populate first/even metadata slots", async () => {
+    const source = `@header(variant: "first"){
+  @left[First page header]
+}
+@header(variant: "even"){
+  @left[Even page header]
+}
+@footer(variant: "even"){
+  @center[Even page footer]
+}
+[Body]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    expect(document.metadata.headers?.first?.kind).toBe("header");
+    expect(document.metadata.headers?.even?.kind).toBe("header");
+    expect(document.metadata.footers?.even?.kind).toBe("footer");
+
+    const firstHeader = document.metadata.headers?.first;
+    expect(firstHeader?.content[0]?.type).toBe("Paragraph");
+    if (firstHeader?.content[0]?.type === "Paragraph") {
+      expect(paragraphText(firstHeader.content[0])).toBe("First page header");
+    }
+
+    const evenHeader = document.metadata.headers?.even;
+    expect(evenHeader?.content[0]?.type).toBe("Paragraph");
+    if (evenHeader?.content[0]?.type === "Paragraph") {
+      expect(paragraphText(evenHeader.content[0])).toBe("Even page header");
+    }
+  });
+
+  test("invalid header variant falls back to default and warns", async () => {
+    const source = `@header(variant: "odd"){
+  @left[Fallback header]
+}
+[Body]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(document.metadata.headers?.default?.kind).toBe("header");
+    expect(diagnostics.some((d) => d.message.includes("variant must be one of"))).toBe(true);
+  });
+
+  test("duplicate header slot warns and latest value wins", async () => {
+    const source = `@header(variant: "first"){
+  @left[First header]
+}
+@header(variant: "first"){
+  @left[Replacement header]
+}
+[Body]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.message.includes("Duplicate @header(variant: \"first\")"))).toBe(true);
+
+    const firstHeader = document.metadata.headers?.first;
+    expect(firstHeader?.content[0]?.type).toBe("Paragraph");
+    if (firstHeader?.content[0]?.type === "Paragraph") {
+      expect(paragraphText(firstHeader.content[0])).toBe("Replacement header");
+    }
+  });
+
   test("@document(margins: ...) with 4-value string stores layout in metadata", async () => {
     const source = `@document(margins: "1in 1in 1in 1.25in")
 [Body]

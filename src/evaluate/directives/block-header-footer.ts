@@ -6,13 +6,56 @@ import type * as CST from "../../types/cst.ts";
 import type { Directive } from "../../types/cst.ts";
 import type { Block, HeaderFooter } from "../../types/document-ir.ts";
 import type { BlockDirectiveHandler, EvalContext } from "../handler.ts";
+import { DiagnosticCode, warning as createWarning } from "../../types/diagnostics.ts";
 import { alignmentFromRegion, applyAlignmentToBlocks } from "./shared/alignment.ts";
+
+type HeaderFooterVariant = "default" | "first" | "even";
+
+function resolveVariant(node: Directive, ctx: EvalContext): HeaderFooterVariant {
+  const value = node.args?.variant;
+  if (value === undefined) {
+    return "default";
+  }
+
+  if (value === "default" || value === "first" || value === "even") {
+    return value;
+  }
+
+  ctx.diagnostics.push(
+    createWarning(
+      DiagnosticCode.PARSE_ERROR,
+      `@${node.name} variant must be one of: \"default\", \"first\", \"even\". Falling back to \"default\"`,
+      node.loc,
+    ),
+  );
+  return "default";
+}
+
+function warnDuplicateSlot(kind: HeaderFooter["kind"], variant: HeaderFooterVariant, node: Directive, ctx: EvalContext): void {
+  const existing = kind === "header"
+    ? ctx.metadata.headers?.[variant]
+    : ctx.metadata.footers?.[variant];
+
+  if (!existing) {
+    return;
+  }
+
+  const existingAt = `line ${existing.loc?.line ?? "?"}`;
+  ctx.diagnostics.push(
+    createWarning(
+      DiagnosticCode.PARSE_ERROR,
+      `Duplicate @${kind}(variant: \"${variant}\") overrides previous value from ${existingAt}`,
+      node.loc,
+    ),
+  );
+}
 
 function isHeaderFooterRegionDirective(node: CST.Block): node is Directive & { name: "left" | "center" | "right" } {
   return node.kind === "Directive" && (node.name === "left" || node.name === "center" || node.name === "right");
 }
 
 async function evaluateHeaderFooter(node: Directive, kind: HeaderFooter["kind"], ctx: EvalContext): Promise<void> {
+  const variant = resolveVariant(node, ctx);
   const content: Block[] = [];
 
   if (node.body && node.body.kind === "StructuralBody") {
@@ -34,17 +77,19 @@ async function evaluateHeaderFooter(node: Directive, kind: HeaderFooter["kind"],
     loc: node.loc,
   };
 
+  warnDuplicateSlot(kind, variant, node, ctx);
+
   if (kind === "header") {
     ctx.metadata.headers = {
       ...(ctx.metadata.headers ?? {}),
-      default: headerFooter,
+      [variant]: headerFooter,
     };
     return;
   }
 
   ctx.metadata.footers = {
     ...(ctx.metadata.footers ?? {}),
-    default: headerFooter,
+    [variant]: headerFooter,
   };
 }
 

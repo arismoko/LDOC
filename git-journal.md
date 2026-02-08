@@ -103,53 +103,92 @@ Full architectural audit covering every compiler phase. Evaluator split from 1,2
 
 ---
 
-# 5. PR: Professional output polish
+# 5. PR: Professional output polish — DONE (merged to `main`)
 
-**Branch**: `feat/professional-output`
+**Branch**: `feat/professional-output` — 7 commits, 4 review rounds (Oracle + Codex)
 
-Visual and formatting emission for real legal document output. Enabled by PR #4's anchor IR cleanup; no synthetic anchor-wrapper workaround needed.
+Visual and formatting emission for real legal document output. Enabled by PR #4's anchor IR cleanup.
 
-### A — `fix(emit): wire document orientation (R4-3)`
+- Wired `@document(orientation: "landscape")` to DOCX section properties with portrait-normalization.
+- Completed `toParagraphOptions()` — indent, spacing, border, keep flags, shading, highlight.
+- Split Box from Blockquote IR; `@blockquote` directive with left-border indent; `@box` as single-cell bordered table.
+- Table layout controls: `headerRows`, `cellPadding`, `cantSplit`, horizontal/vertical merge markers (`>`, `^`).
+- Full diagnostic coverage: E010–E018 for table validation, type mismatches, invalid merge markers.
+- Vertical merge chain propagation fix for 3+ row spans.
 
-Deferred from PR #3 review. `@document(orientation: "landscape")` is parsed but not wired to DOCX section properties.
+**Final stats**: 182 tests, 411 expect() calls, 0 type errors.
 
-**Done when**: `@document(orientation: "landscape")` produces landscape pages.
+---
 
-### B — `feat(emit): paragraph formatting controls`
+# 6. PR: Footnotes end-to-end (spec parity) — DONE (merged to `main`)
 
-Legal docs need full paragraph control. Indent/spacing/keep flags are partially wired; remaining gaps (notably tab stops and widow/orphan behavior) need completion and coverage tests.
+**Branch**: `feat/footnotes-core` — merged via PR #6
 
-- `src/emit/docx/styles.ts`: audit and complete `toParagraphOptions()` — indent (left, right, hanging, firstLine), tabStops, widowControl, keepNext, keepLines, spacing (before, after, line).
-- Add tests for each property.
+Closed §15.3 end-to-end:
 
-**Done when**: `@style(p: { indent: { left: "0.5in", hanging: "0.25in" } })[text]` renders correctly; `keepNext` works.
+- Added `@footnote` directive contract + LSP completion.
+- Implemented structural and inline footnote handlers with deferred registration.
+- Stabilized DOCX footnote emission (ordering, include-boundary ordering, non-paragraph recovery diagnostics).
+- Added IR-level and OOXML-level regression coverage.
 
-### C — `fix(emit): add blockquote/box visual styling`
+**Final stats at merge**: 192 tests, 463 expect() calls, 0 type errors.
 
-`@box{...}` maps to `Blockquote` IR but emits with no visual distinction — no border, no indent.
+---
 
-- `src/emit/docx/nodes.ts`: in `emitBlockquote()`, apply left border + indentation.
+# 7. PR: Args-first deferred tranche (header/footer variants + typed include params)
 
-**Done when**: `@box{ [Notice text.] }` renders with visible left border and indent in Word.
+**Branch**: `feat/args-first-deferred-tranche-1`
 
-### D — `feat(emit): table layout controls`
+Apply an args-first rule to deferred items: extend existing directives instead of creating new directive names. Scope this PR to two high-ROI deferred features with tight tests.
 
-Legal schedules need header row repeat, cell padding, and no-split rows.
+### A — `spec: formalize args-first surfaces for this tranche`
 
-- End-to-end support across evaluator → IR/types → contracts → DOCX emit for `@table(headerRows: 1)`, `@table(cellPadding: "0.05in")`, `@row(cantSplit: true)`.
-- `src/bind/contracts.ts`: validate new args.
+- `LDOC-V3-SPEC.md`: define
+  - `@header(variant: "default" | "first" | "even")`
+  - `@footer(variant: "default" | "first" | "even")`
+  - `@params(types: { key: "string|number|boolean|object|array[?]" })`
+- `SUGAR_BACKLOG.md`: mark `SG-001` active for this PR.
 
-**Done when**: header rows repeat on page breaks; `cantSplit` rows don't break.
+**Done when**: spec and backlog clearly define accepted args, fallback behavior, and diagnostics for invalid values/types.
+
+### B — `feat(evaluate+emit): wire header/footer variant args`
+
+- `src/bind/contracts.ts`: allow `variant` arg on `@header`/`@footer`.
+- `src/evaluate/directives/block-header-footer.ts`: route header/footer body to metadata slot (`default`/`first`/`even`) from `variant`.
+- `src/emit/docx/index.ts` and `src/emit/docx/sections.ts`: read and emit all configured slots (not only `default`).
+
+**Done when**: variant-specific header/footer content is emitted to the correct DOCX references, with diagnostics for invalid `variant` or duplicate slot overwrites.
+
+### C — `feat(bind): enforce typed include params contracts (no coercion)`
+
+- `src/bind/contracts.ts`: permit `types` on `@params`.
+- `src/shared/include-params.ts` + binder/validator wiring: validate include callsite args against child `@params(types: ...)` declarations.
+- `src/types/diagnostics.ts`: add explicit codes for malformed type literals and include arg type mismatch.
+
+**Done when**: include arg type mismatches produce source-located diagnostics; existing untyped `@params(names: [...])` behavior remains unchanged.
+
+### D — `test: add focused regression coverage`
+
+- `src/evaluate/layout.test.ts` + `src/emit/docx/ooxml-harness.test.ts`: default/first/even header/footer variant behavior.
+- `src/evaluate/include.test.ts` + binder tests: typed include params happy/mismatch/malformed cases.
+
+**Done when**: all new argument surfaces have positive + negative tests and no silent fallback behavior.
+
+**Explicit non-goals for PR #7**
+
+- No new directives for these capabilities (`@headerFirst`, `@paramType`, etc.).
+- No direct expression-valued args (`SG-002`) and no runtime coercion/casting.
+- No markdown sugar (`SG-003`/`SG-004`/`SG-005`) and no control-flow directives (`@if`, `@for`).
 
 ---
 
 ## Deferred (not in v3 core path)
 
-- Typed include params (`SG-001`, partial: arity validation shipped in PR #4; type annotations/coercion deferred)
+- Typed include params (`SG-001`, partial: arity validation shipped in PR #4; type annotations now scheduled in PR #7)
 - Direct expression args (`SG-002`)
 - Markdown emphasis sugar (`SG-004`)
 - Table of contents generation
-- Section-specific header/footer variants (first page, odd/even)
+- Section-specific header/footer variants (first/even via `variant` arg now scheduled in PR #7)
 - Images/logo embedding API
 - Watermarks and background text
 - Defined-terms system (first occurrence styling)
