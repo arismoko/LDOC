@@ -20,6 +20,19 @@ export interface ResolverOptions {
 }
 
 /**
+ * One entry per syntactic @include occurrence.
+ * Maps the include directive to its resolved document (if loading succeeded).
+ */
+export interface IncludeEdge {
+  /** The @include directive node from the source CST */
+  directive: Directive;
+  /** Resolved absolute path of the included file */
+  resolvedPath: string;
+  /** Parsed document of the included file (undefined if load/parse failed) */
+  document?: Document;
+}
+
+/**
  * Result of import resolution.
  */
 export interface ResolveResult {
@@ -29,6 +42,8 @@ export interface ResolveResult {
   importedPaths: Set<string>;
   /** CST documents from included files (for symbol collection) */
   parsedDocuments: Document[];
+  /** Per-include-site edges for arity validation (one per @include occurrence) */
+  includeEdges: IncludeEdge[];
 }
 
 /**
@@ -39,6 +54,8 @@ export class ImportResolver {
   private readonly diagnostics: Diagnostic[] = [];
   private readonly importedPaths = new Set<string>();
   private readonly parsedDocuments: Document[] = [];
+  private readonly includeEdges: IncludeEdge[] = [];
+  private readonly docCache = new Map<string, Document>();
   private readonly visiting = new Set<string>();
   private includeRoot?: string;
 
@@ -75,7 +92,8 @@ export class ImportResolver {
     return block.args.path;
   }
 
-  private async visitInclude(importPathRaw: string, includeLoc: { line: number; column: number; endLine: number; endColumn: number }, sourcePath: string): Promise<void> {
+  private async visitInclude(includeDirective: Directive, importPathRaw: string, sourcePath: string): Promise<void> {
+    const includeLoc = includeDirective.loc;
     const includeRoot = this.includeRoot ?? defaultIncludeRoot(sourcePath);
     const resolved = resolveIncludeFilePath({
       includePath: importPathRaw,
@@ -106,7 +124,12 @@ export class ImportResolver {
       return;
     }
 
+    // If already loaded, record edge from cache and return early
     if (this.importedPaths.has(resolvedPath)) {
+      const cachedDoc = this.docCache.get(resolvedPath);
+      if (cachedDoc) {
+        this.includeEdges.push({ directive: includeDirective, resolvedPath, document: cachedDoc });
+      }
       return;
     }
 
@@ -117,12 +140,15 @@ export class ImportResolver {
 
       const parseErrors = parseResult.diagnostics.filter((d) => d.severity === "error");
       if (parseErrors.length > 0) {
+        this.includeEdges.push({ directive: includeDirective, resolvedPath });
         return;
       }
 
       await this.walkBlocks(parseResult.cst.children, resolvedPath);
       this.importedPaths.add(resolvedPath);
       this.parsedDocuments.push(parseResult.cst);
+      this.docCache.set(resolvedPath, parseResult.cst);
+      this.includeEdges.push({ directive: includeDirective, resolvedPath, document: parseResult.cst });
     } catch (cause) {
       this.diagnostics.push(
         error(
@@ -131,6 +157,7 @@ export class ImportResolver {
           includeLoc,
         ),
       );
+      this.includeEdges.push({ directive: includeDirective, resolvedPath });
     } finally {
       this.visiting.delete(resolvedPath);
     }
@@ -141,7 +168,7 @@ export class ImportResolver {
       if (block.kind === "Directive" && block.name === "include") {
         const includePath = this.parseIncludePath(block);
         if (includePath) {
-          await this.visitInclude(includePath, block.loc, sourcePath);
+          await this.visitInclude(block, includePath, sourcePath);
         }
       }
 
@@ -170,6 +197,7 @@ export class ImportResolver {
       diagnostics: this.diagnostics,
       importedPaths: this.importedPaths,
       parsedDocuments: this.parsedDocuments,
+      includeEdges: this.includeEdges,
     };
   }
 }

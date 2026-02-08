@@ -64,16 +64,13 @@ describe("include evaluation", () => {
 
     const source = `@include(path: "child.ldoc", args: { name: "Alice" })
 [secret: $(defs.secret)]`;
-    const { diagnostics, document } = await compileToDocument(source, {
-      sourcePath: mainPath,
-      loadFile,
-    });
-
-    expect(diagnostics.some((d) => d.code === "B007")).toBe(true);
-
-    const leakText = paragraphText(document.blocks[0]!);
-    expect(leakText).toBe("secret: ");
-    expect(document.blocks.length).toBe(1);
+    // B007 is now caught at bind phase — compileToDocument throws
+    await expect(
+      compileToDocument(source, {
+        sourcePath: mainPath,
+        loadFile,
+      }),
+    ).rejects.toThrow("Missing include arg 'title'");
   });
 
   test("include reports malformed @params declaration", async () => {
@@ -86,12 +83,13 @@ describe("include evaluation", () => {
     });
 
     const source = `@include(path: "child.ldoc", args: { ok: "yes" })`;
-    const { diagnostics } = await compileToDocument(source, {
-      sourcePath: mainPath,
-      loadFile,
-    });
-
-    expect(diagnostics.some((d) => d.code === "P006")).toBe(true);
+    // P006 is now caught at bind phase — compileToDocument throws
+    await expect(
+      compileToDocument(source, {
+        sourcePath: mainPath,
+        loadFile,
+      }),
+    ).rejects.toThrow("@params names must be an array of non-empty strings");
   });
 
   test("include rejects paths that escape include root", async () => {

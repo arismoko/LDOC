@@ -13,6 +13,7 @@ import {
   error as createError,
 } from "../../types/diagnostics.ts";
 import { defaultIncludeRoot, resolveIncludeFilePath } from "../../shared/include-path.ts";
+import { readParamsNames, validateIncludeParams } from "../../shared/include-params.ts";
 import { parseSource } from "../../parse/index.ts";
 import { bindSync } from "../../bind/index.ts";
 
@@ -40,66 +41,6 @@ function toIncludeArgs(value: unknown): Record<string, unknown> {
   }
 
   return value as Record<string, unknown>;
-}
-
-function readParamsNames(cst: CST.Document, ctx: EvalContext): string[] {
-  const paramsDirective = cst.children.find(
-    (block): block is Directive => block.kind === "Directive" && block.name === "params",
-  );
-
-  if (!paramsDirective) {
-    return [];
-  }
-
-  const args = paramsDirective.args ?? {};
-  const names = args.names;
-  if (!Array.isArray(names)) {
-    ctx.diagnostics.push(
-      createError(
-        DiagnosticCode.PARSE_ERROR,
-        "@params requires names: [\"name\", ...]",
-        paramsDirective.loc,
-      ),
-    );
-    return [];
-  }
-
-  const rawNames = names as unknown[];
-  const validNames = rawNames.filter((item): item is string => typeof item === "string" && item.length > 0);
-  if (validNames.length !== rawNames.length) {
-    ctx.diagnostics.push(
-      createError(
-        DiagnosticCode.PARSE_ERROR,
-        "@params names must be an array of non-empty strings",
-        paramsDirective.loc,
-      ),
-    );
-    return [];
-  }
-
-  return validNames;
-}
-
-function validateIncludeParams(
-  requiredNames: string[],
-  args: Record<string, unknown>,
-  includeLoc: Directive["loc"],
-  ctx: EvalContext,
-): boolean {
-  let valid = true;
-  for (const name of requiredNames) {
-    if (!(name in args)) {
-      valid = false;
-      ctx.diagnostics.push(
-        createError(
-          DiagnosticCode.ARITY_MISMATCH,
-          `Missing include arg '${name}' required by @params(names: [...])`,
-          includeLoc,
-        ),
-      );
-    }
-  }
-  return valid;
 }
 
 export const handleInclude: BlockDirectiveHandler = async (node, ctx) => {
@@ -199,8 +140,11 @@ export const handleInclude: BlockDirectiveHandler = async (node, ctx) => {
   }
 
   const includeArgs = toIncludeArgs(args.args);
-  const requiredNames = readParamsNames(parsed.cst, ctx);
-  if (!validateIncludeParams(requiredNames, includeArgs, node.loc, ctx)) {
+  const { names: requiredNames, diagnostics: paramsDiags } = readParamsNames(parsed.cst);
+  ctx.diagnostics.push(...paramsDiags);
+  const arityDiags = validateIncludeParams(requiredNames, includeArgs, node.loc);
+  ctx.diagnostics.push(...arityDiags);
+  if (arityDiags.length > 0) {
     return [];
   }
 

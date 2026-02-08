@@ -16,7 +16,8 @@ import type { Diagnostic } from "../types/diagnostics.ts";
 import { error as diagError, warning as diagWarning, DiagnosticCode } from "../types/diagnostics.ts";
 import { createSymbolTable, freezeSymbolTable } from "../types/symbols.ts";
 import { validate } from "./validator.ts";
-import { resolveImports } from "./resolver.ts";
+import { resolveImports, type IncludeEdge } from "./resolver.ts";
+import { readParamsNames, validateIncludeParams } from "../shared/include-params.ts";
 
 /**
  * Options for the binder.
@@ -84,6 +85,9 @@ export class Binder {
         collectAnchors(includedDoc.children, symbols, diagnostics);
         includedDocs.push(includedDoc);
       }
+
+      // Validate @include args against @params arity (§16: MUST provide declared names)
+      validateIncludeEdges(importResult.includeEdges, diagnostics);
     }
 
     // Validate refs after all symbols (entry + included) are collected
@@ -298,6 +302,34 @@ function validateRefsInInline(node: Inline, symbols: SymbolTable, diagnostics: D
       }
     }
   }
+}
+
+/**
+ * Validate @include args against @params arity for each include edge.
+ * One entry per syntactic @include occurrence (not per unique file).
+ */
+function validateIncludeEdges(edges: IncludeEdge[], diagnostics: Diagnostic[]): void {
+  for (const edge of edges) {
+    if (!edge.document) continue; // parse/load failed — already reported
+
+    const { names, diagnostics: paramsDiags } = readParamsNames(edge.document);
+    diagnostics.push(...paramsDiags);
+
+    if (names.length === 0) continue; // no @params declared
+
+    const includeArgs = toIncludeArgs(edge.directive.args?.args);
+    diagnostics.push(...validateIncludeParams(names, includeArgs, edge.directive.loc));
+  }
+}
+
+/**
+ * Coerce @include args value to a Record.
+ */
+function toIncludeArgs(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
 }
 
 /**

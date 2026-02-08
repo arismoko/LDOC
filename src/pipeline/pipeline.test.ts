@@ -445,6 +445,93 @@ describe("cross-file ref validation", () => {
 
     expect(diagnostics.some((d) => d.code === "B020")).toBe(true);
   });
+
+  test("bind-time @params arity: missing required arg emits B007", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    // B007 is an error, so parseAndBindWithIncludes throws via throwOnBindErrors.
+    // Use tryCompile or catch the pipeline error to inspect diagnostics.
+    let caught: any;
+    try {
+      await parseAndBindWithIncludes(
+        `@include(path: "child.ldoc", args: { name: "Alice" })`,
+        {
+          sourcePath: mainPath,
+          loadFile: createMapLoader({
+            [childPath]: `@params(names: ["name", "title"])\n[Signer]`,
+          }),
+        },
+      );
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeDefined();
+    const diagnostics: any[] = caught.diagnostics ?? [];
+    const arityDiags = diagnostics.filter((d: any) => d.code === "B007");
+    expect(arityDiags).toHaveLength(1);
+    expect(arityDiags[0]!.message).toContain("title");
+  });
+
+  test("bind-time @params arity: all required args present emits no B007", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const { diagnostics } = await parseAndBindWithIncludes(
+      `@include(path: "child.ldoc", args: { name: "Alice", title: "CEO" })`,
+      {
+        sourcePath: mainPath,
+        loadFile: createMapLoader({
+          [childPath]: `@params(names: ["name", "title"])\n[Signer]`,
+        }),
+      },
+    );
+
+    expect(diagnostics.some((d) => d.code === "B007")).toBe(false);
+  });
+
+  test("bind-time @params arity: same file included twice with different args", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    // Second include is missing "title" — B007 error causes throw
+    let caught: any;
+    try {
+      await parseAndBindWithIncludes(
+        `@include(path: "child.ldoc", args: { name: "Alice", title: "CEO" })\n@include(path: "child.ldoc", args: { name: "Bob" })`,
+        {
+          sourcePath: mainPath,
+          loadFile: createMapLoader({
+            [childPath]: `@params(names: ["name", "title"])\n[Signer]`,
+          }),
+        },
+      );
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeDefined();
+    const diagnostics: any[] = caught.diagnostics ?? [];
+    // First include has all args — no B007
+    // Second include missing "title" — one B007
+    const arityDiags = diagnostics.filter((d: any) => d.code === "B007");
+    expect(arityDiags).toHaveLength(1);
+    expect(arityDiags[0]!.message).toContain("title");
+  });
+
+  test("bind-time @params arity: no @params in included file emits no B007", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const { diagnostics } = await parseAndBindWithIncludes(
+      `@include(path: "child.ldoc")`,
+      {
+        sourcePath: mainPath,
+        loadFile: createMapLoader({
+          [childPath]: `[Plain content]`,
+        }),
+      },
+    );
+
+    expect(diagnostics.some((d) => d.code === "B007")).toBe(false);
+  });
 });
 
 // =============================================================================
