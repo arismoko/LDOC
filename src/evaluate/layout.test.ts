@@ -433,4 +433,24 @@ describe("layout evaluation", () => {
     const block = document.blocks[0];
     expect(block?.type).toBe("Box");
   });
+
+  test("@table(headerRows: 1.5) emits warning for non-integer", async () => {
+    const source = `@table(headerRows: 1.5){
+  @row(cells: ["A", "B"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E013")).toBe(true);
+  });
+
+  test("@table(headerRows: -1) emits warning for negative value", async () => {
+    const source = `@table(headerRows: -1){
+  @row(cells: ["A", "B"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E013")).toBe(true);
+  });
 });

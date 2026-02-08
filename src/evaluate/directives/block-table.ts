@@ -8,7 +8,7 @@ import type { BlockDirectiveHandler, EvalContext } from "../handler.ts";
 import { parseLengthToTwips } from "../../shared/units.ts";
 import type { Diagnostic } from "../../types/diagnostics.ts";
 
-function toCellText(value: unknown): string {
+function toCellText(value: unknown, diagnostics: Diagnostic[], loc: Directive["loc"]): string {
   if (typeof value === "string") {
     return value;
   }
@@ -17,6 +17,13 @@ function toCellText(value: unknown): string {
     return String(value);
   }
 
+  // Unsupported types: objects, arrays, null, undefined
+  diagnostics.push({
+    severity: "warning",
+    code: "E012",
+    message: `Unsupported cell value type: ${value === null ? "null" : typeof value}. Expected string, number, or boolean.`,
+    location: loc ?? { line: 1, column: 0, endLine: 1, endColumn: 0 },
+  });
   return "";
 }
 
@@ -54,7 +61,19 @@ function evaluateTableDirective(node: Directive, diagnostics: Diagnostic[]): Tab
   const rowColumnOwners: TableCell[][] = [];
 
   // Parse table-level args
-  const headerRows = typeof tableArgs.headerRows === "number" ? tableArgs.headerRows : undefined;
+  let headerRows: number | undefined;
+  if (typeof tableArgs.headerRows === "number") {
+    if (Number.isInteger(tableArgs.headerRows) && tableArgs.headerRows >= 0) {
+      headerRows = tableArgs.headerRows;
+    } else {
+      diagnostics.push({
+        severity: "warning",
+        code: "E013",
+        message: `Invalid headerRows value: ${tableArgs.headerRows}. Must be a non-negative integer.`,
+        location: node.loc ?? { line: 1, column: 0, endLine: 1, endColumn: 0 },
+      });
+    }
+  }
   let cellPadding: number | undefined;
   if (typeof tableArgs.cellPadding === "string" || typeof tableArgs.cellPadding === "number") {
     try {
@@ -77,7 +96,7 @@ function evaluateTableDirective(node: Directive, diagnostics: Diagnostic[]): Tab
     let column = 0;
 
     for (const rawValue of values) {
-      const cellValue = toCellText(rawValue);
+      const cellValue = toCellText(rawValue, diagnostics, rowNode.loc);
 
       if (cellValue === ">") {
         const leftCell = columnOwners[column - 1];
