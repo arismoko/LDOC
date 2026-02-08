@@ -58,85 +58,42 @@ Fixed all spec promises that failed silently — compiler accepted input, did no
 
 ---
 
-# 4. PR: Architectural Debt Purge
+# 4. PR: Architectural Debt Purge — DONE (merged to `main`)
 
-**Branch**: `refactor/architectural-debt`
-**Plan**: `PRESCRIPTION.md` (9-step commit plan, success criteria, risk assessment)
-**Audit**: `REVIEW.md` (oracle findings for 7 issues)
-**Spec changes**: `LDOC-V3-SPEC.md` §15.3 (footnotes), §18 (architecture invariants), §18.2 (conformance)
+**Branch**: `refactor/architectural-debt` — 20 commits, 6 review rounds (Codex + oracle)
+**Plan**: `PRESCRIPTION.md` | **Audit**: `REVIEW.md` | **Spec**: `LDOC-V3-SPEC.md` §15.3, §18, §18.2
 
-Full architectural audit landed 7 issues covering every compiler phase. Evaluator modularization promoted to Step 3 so subsequent changes (anchor IR, @lua, dead code) target isolated handler files instead of repeatedly patching a 1,227-line monolith.
+Full architectural audit covering every compiler phase. Evaluator split from 1,227-line monolith into per-directive handlers. 9 prescription steps + 6 review fix rounds.
 
-### Implementation order (see PRESCRIPTION.md for full details)
+### What changed
 
-1. Parse args once → CST nodes
-2. Remove downstream args re-parsing
-3. **Evaluator modularization** (handler/registry/per-directive files)
-4. Binder anchors + ref validation + remove hollow `SymbolTable.styles`
-5. Anchor IR → block `Anchor`, remove inline `Bookmark`
-6. `@lua` raw-body parsing (balanced brace scanner)
-7. SOL list marker gating
-8. Dead code purge (CST `Include`, IR `Heading`)
-9. Phase boundary hardening
+**Parse phase**:
+- Args parsed once into CST nodes; downstream re-parsing removed.
+- `@lua{...}` raw-body via balanced brace scanner; `@lua[...]` sugar rejected (P005).
+- SOL list marker gating; mid-line stacked `@@` preserved as text.
+- Raw-body token sync uses precomputed line-start offsets (linear).
+- Tagged union for `ParseArgsResult` (fixes `@foo(ok: false)` false-positive).
+- Diagnostic locations rebased to source coordinates for args spans.
 
-**Done when**: All 10 success criteria in `PRESCRIPTION.md` are met (109+ tests, 0 type errors, all architectural invariants enforced).
+**Bind phase**:
+- Evaluator modularized into handler registry + per-directive files.
+- `@anchor`/`@ref` validation with cross-file resolution via `parsedDocuments`.
+- `@params` arity validation at bind time via `includeEdges` (§16).
+- Duplicate anchor detection per include site (not per unique file).
+- `BinderOptions` flags for selective validation.
+- `deepFreeze` on symbol table; `structuredClone` for runtime defs (§18.1.1).
+- Shared helpers in `src/shared/include-params.ts` (DRY with evaluator).
 
-### Review fix rounds (post-prescription)
+**IR / Types**:
+- Anchors modeled as block `Anchor` nodes; inline `Bookmark` removed.
+- Dead CST surfaces removed (Table, TableRow, LayoutDirective, Include, IR Heading).
+- Dead style-cycle branch and `STYLE_CYCLE` diagnostic removed.
+- `Object.create(null)` in args parser (prototype safety).
+- All bare diagnostic code strings replaced with `DiagnosticCode.X` constants.
 
-#### Round 1 — `1a0e845` (Codex review)
-- Cross-file anchor resolution: `src/bind/resolver.ts` exposes `parsedDocuments`, binder collects anchors from included files.
-- Emitter fallback: `src/emit/docx/nodes.ts` restored `ctx.bookmarks.has(anchorId)` guard in `emitCrossRef`.
-- Removed dead `ArgsObject` import from `src/bind/binder.ts`.
+**Phase boundaries**: Hardened parse → bind → evaluate contracts. Dead code across all phases purged.
 
-#### Round 2 — `04f88dc` (oracle pre-review)
-- Removed dead `symbols` field from `ResolveResult`/`ImportResolver`.
-- Added recursive `deepFreeze` for `DefSymbol.value` in `src/types/symbols.ts`.
-- Validate refs for included docs too in `src/bind/binder.ts`.
-- Malformed `@anchor` emits warning instead of silent skip.
-- Cross-file ref regression tests + nested def-value freeze test.
-
-#### Round 3 — `fbc5121` (oracle pre-review)
-- Removed unused CST variants from `src/types/cst.ts` (Table, TableRow, LayoutDirective, etc.).
-- Added `BinderOptions` flags (`validateDirectives`, `validateRefs`) to `src/bind/binder.ts`.
-- Fixed nested-include false B009 warnings in `src/evaluate/directives/block-include.ts`.
-- Added tests for include-file directive validation (B020) and nested include false warnings.
-
-#### Round 4 — `4bbb193` (Codex review + oracle pre-review)
-
-**Tagged union for `ParseArgsResult`** (P1 — Codex review):
-- `isArgsParseError` type guard checked `"ok" in result` which false-positived on user args like `@foo(ok: false)`.
-- Replaced untagged `ArgsObject | ParseArgsResult` return with proper discriminated union `ParseArgsSuccess | ParseArgsError` on `ok` field.
-- Removed dead `isArgsParseError` function.
-
-**Raw-body sugar rejection** (P1 — Codex review):
-- `@lua[...]` paragraph sugar bypassed the raw parser entirely — Lua code silently treated as structural body.
-- Parser now rejects `@lua[...]` with P005 warning and drops body. `@lua{...}` unchanged.
-- Hoisted `getDirectiveContract(name)` above both body branches (DRY fix).
-
-**Dead code removal** (P0):
-- Removed unreachable StructuralBody fallback in `block-lua.ts` — parser always produces RawBody for `@lua{...}` and rejects `@lua[...]`.
-- Non-RawBody path now emits diagnostic error for pipeline invariant violation instead of silent return.
-
-**Prototype safety** (P1 — oracle pre-review):
-- `parseJSON5Object` uses `Object.create(null)` — prevents prototype pollution / `hasOwnProperty` shadowing.
-- `hasOwnProperty(keyText)` replaced with `keyText in result`.
-
-**Diagnostic location rebasing** (P1 — oracle pre-review):
-- All 3 `parseArgsToObject` callsites now pass LPAREN token location instead of directive start.
-- Inner JSON5 parser column offsets rebased to source-file coordinates.
-- Inner error code preserved through rebase (`result.error?.code ?? DiagnosticCode.PARSE_ERROR`).
-
-**Bare string diagnostic codes** (P1 — discovered during fix):
-- All 16 bare `'PARSE_ERROR'`/`'DUPLICATE_DEFINITION'` strings in `args.ts` replaced with `DiagnosticCode.X` constants.
-
-**Tests**: 8 new regression tests (151 total, 346 expect() calls).
-
-#### Round 5 — pending commit (Codex review follow-up)
-
-- **Raw-body token advancement precision** (P1): in `src/parse/parser.ts`, `parseRawBody` now stops token advancement at the first token whose offset is at/after the matched closing brace and only consumes `RBRACE` on exact offset match. Prevents over-consuming a later brace token if token/source offsets diverge.
-- **Multiline args diagnostic rebasing** (P2): in `src/shared/args.ts`, args parse diagnostics now rebase via newline-aware `advancePosition()` so multiline args point to the correct source line/column.
-- **Regression tests**: added raw-body brace consumption guard + multiline args location test in `src/pipeline/pipeline.test.ts`.
-- **Verification**: `npx tsc --noEmit` clean; `bun test` = 153 pass, 356 expect() calls.
+**Final stats**: 162 tests, 374 expect() calls, 0 type errors.
 
 ---
 
