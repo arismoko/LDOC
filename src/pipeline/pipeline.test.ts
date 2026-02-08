@@ -517,7 +517,49 @@ describe("cross-file ref validation", () => {
     expect(arityDiags[0]!.message).toContain("title");
   });
 
-  test("bind-time @params arity: no @params in included file emits no B007", async () => {
+   test("duplicate @anchor across include sites emits B004", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    // Same file included twice — its @anchor(id: "sec1") should flag as duplicate
+    let caught: any;
+    try {
+      await parseAndBindWithIncludes(
+        `@include(path: "child.ldoc")\n@include(path: "child.ldoc")`,
+        {
+          sourcePath: mainPath,
+          loadFile: createMapLoader({
+            [childPath]: `@anchor(id: "sec1")\n[Section One]`,
+          }),
+        },
+      );
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeDefined();
+    const diagnostics: any[] = caught.diagnostics ?? [];
+    const dupDiags = diagnostics.filter((d: any) => d.code === "B004" && d.message.includes("anchor"));
+    expect(dupDiags).toHaveLength(1);
+    expect(dupDiags[0]!.message).toContain("sec1");
+  });
+
+   test("single include with @anchor emits no duplicate B004", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const { diagnostics } = await parseAndBindWithIncludes(
+      `@include(path: "child.ldoc")`,
+      {
+        sourcePath: mainPath,
+        loadFile: createMapLoader({
+          [childPath]: `@anchor(id: "sec1")\n[Section One]`,
+        }),
+      },
+    );
+
+    expect(diagnostics.some((d) => d.code === "B004")).toBe(false);
+  });
+
+   test("bind-time @params arity: no @params in included file emits no B007", async () => {
     const mainPath = "/virtual/main.ldoc";
     const childPath = resolvePath("/virtual", "child.ldoc");
     const { diagnostics } = await parseAndBindWithIncludes(

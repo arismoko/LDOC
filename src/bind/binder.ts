@@ -77,13 +77,20 @@ export class Binder {
         loadFile: this.options.loadFile,
       });
       diagnostics.push(...importResult.diagnostics);
-      // Collect only anchors from included files (defs are scoped to their file)
+      // Validate directives per unique included file (deduplicated by path)
       for (const includedDoc of importResult.parsedDocuments) {
         if (shouldValidateDirectives) {
           diagnostics.push(...validate(includedDoc));
         }
-        collectAnchors(includedDoc.children, symbols, diagnostics);
         includedDocs.push(includedDoc);
+      }
+
+      // Collect anchors per include site (not per unique file) so that
+      // @anchor in a file included twice is flagged as a duplicate definition.
+      for (const edge of importResult.includeEdges) {
+        if (edge.document) {
+          collectAnchors(edge.document.children, symbols, diagnostics);
+        }
       }
 
       // Validate @include args against @params arity (§16: MUST provide declared names)
