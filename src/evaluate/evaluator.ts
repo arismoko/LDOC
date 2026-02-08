@@ -33,7 +33,7 @@ import type {
 import type { SymbolTable } from "../types/symbols.ts";
 import { defaultIncludeRoot } from "../shared/include-path.ts";
 import { createEnv, evaluate as evaluateLua } from "./lua/runtime.ts";
-import type { EvalContext, EvaluateOptions, SourceLoader } from "./handler.ts";
+import type { EvalContext, EvaluateOptions, FootnoteRuntimeState, SourceLoader } from "./handler.ts";
 import { getBlockDirectiveHandler, getInlineDirectiveHandler } from "./registry.ts";
 import {
   warning as createWarning,
@@ -52,17 +52,15 @@ interface EvaluationState {
   includeRoot?: string;
   loadFile?: SourceLoader;
   includeStack: string[];
-  footnoteNamespace: string;
-  footnoteCounter: number;
-  deferredFootnotes: Footnote[];
+  footnoteState: FootnoteRuntimeState;
 }
 
 // Module-level counter to ensure unique footnote namespaces across evaluate() calls
 let footnoteNamespaceCounter = 0;
 
 function allocateFootnoteLabel(state: EvaluationState): string {
-  state.footnoteCounter += 1;
-  return `fn_${state.footnoteNamespace}_${state.footnoteCounter}`;
+  state.footnoteState.counter += 1;
+  return `fn_${state.footnoteState.namespace}_${state.footnoteState.counter}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,14 +96,18 @@ function createContext(state: EvaluationState): EvalContext {
     },
 
     // Re-entry point for @include (breaks circular dependency)
-    evaluateSubdocument: (cst, symbols, options) => evaluate(cst, symbols, options),
+    evaluateSubdocument: (cst, symbols, options) => evaluate(cst, symbols, {
+      ...options,
+      footnoteState: state.footnoteState,
+      suppressDeferredFootnoteAppend: true,
+    }),
 
     // Footnote support
     allocateFootnoteLabel: () => allocateFootnoteLabel(state),
     queueFootnote: (content, loc) => {
       const label = allocateFootnoteLabel(state);
       const footnote: Footnote = { type: "Footnote", label, content, loc };
-      state.deferredFootnotes.push(footnote);
+      state.footnoteState.deferred.push(footnote);
       return label;
     },
   };
@@ -331,7 +333,11 @@ export async function evaluate(
   const data = options.variables ?? {};
   const luaEngine = await createEnv(data, defs, styles);
 
-  footnoteNamespaceCounter += 1;
+  const footnoteState: FootnoteRuntimeState = options.footnoteState ?? {
+    namespace: String(++footnoteNamespaceCounter),
+    counter: 0,
+    deferred: [],
+  };
 
   const state: EvaluationState = {
     diagnostics,
@@ -344,15 +350,17 @@ export async function evaluate(
     includeRoot: options.includeRoot ?? (options.sourcePath ? defaultIncludeRoot(options.sourcePath) : undefined),
     loadFile: options.loadFile,
     includeStack: options.includeStack ?? (options.sourcePath ? [options.sourcePath] : []),
-    footnoteNamespace: String(footnoteNamespaceCounter),
-    footnoteCounter: 0,
-    deferredFootnotes: [],
+    footnoteState,
   };
 
   const blocks = await evaluateBlocks(cst.children, state);
 
-  // Append deferred (inline) footnotes after all document blocks
-  blocks.push(...state.deferredFootnotes);
+  // Append deferred (inline) footnotes after all document blocks.
+  // Nested include evaluations share footnoteState but suppress local append,
+  // so top-level evaluate preserves global encounter order.
+  if (!options.suppressDeferredFootnoteAppend) {
+    blocks.push(...state.footnoteState.deferred);
+  }
 
   const document: Document = {
     type: "Document",

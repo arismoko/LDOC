@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { resolve as resolvePath } from "node:path";
 
 import { compileToOoxml } from "./test-utils.ts";
+
+function createMapLoader(files: Record<string, string>) {
+  return async (path: string): Promise<string> => {
+    const value = files[path];
+    if (value === undefined) {
+      throw new Error(`Missing fixture file: ${path}`);
+    }
+    return value;
+  };
+}
 
 describe("ooxml harness", () => {
   test("exposes document, numbering, and styles parts", async () => {
@@ -343,5 +354,35 @@ describe("ooxml harness", () => {
 
     // Footnotes part should still be emitted.
     expect(pkg.hasPart("word/footnotes.xml")).toBe(true);
+  });
+
+  test("footnote reference numbering preserves encounter order with @include", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const source = `[Parent@footnote{Parent note}.]
+@include(path: "child.ldoc")
+`;
+
+    const pkg = await compileToOoxml(source, {
+      sourcePath: mainPath,
+      loadFile: createMapLoader({
+        [childPath]: `[Child@footnote{Child note}.]\n`,
+      }),
+    });
+
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    const idMatches = [...docXml.matchAll(/w:footnoteReference w:id="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(idMatches.length).toBeGreaterThanOrEqual(2);
+    expect(idMatches[0]).toBe(1);
+    expect(idMatches[1]).toBe(2);
+
+    const footnotesXml = await pkg.readPart("word/footnotes.xml");
+    const parentPos = footnotesXml.indexOf("Parent note");
+    const childPos = footnotesXml.indexOf("Child note");
+    expect(parentPos).toBeGreaterThanOrEqual(0);
+    expect(childPos).toBeGreaterThanOrEqual(0);
+    expect(parentPos).toBeLessThan(childPos);
   });
 });

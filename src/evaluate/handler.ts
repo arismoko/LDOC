@@ -13,6 +13,7 @@ import type {
   Block,
   DocumentMetadata,
   EvaluateResult,
+  Footnote,
   Inline,
 } from "../types/document-ir.ts";
 import type { SourceLocation } from "../types/source-location.ts";
@@ -26,6 +27,16 @@ export interface EvaluateOptions {
   includeRoot?: string;
   loadFile?: SourceLoader;
   includeStack?: string[];
+  /** Internal shared footnote state for include evaluation ordering */
+  footnoteState?: FootnoteRuntimeState;
+  /** Internal: skip appending deferred footnotes to returned blocks */
+  suppressDeferredFootnoteAppend?: boolean;
+}
+
+export interface FootnoteRuntimeState {
+  namespace: string;
+  counter: number;
+  deferred: Footnote[];
 }
 
 export type EvaluateSubdocument = (
