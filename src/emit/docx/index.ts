@@ -118,6 +118,7 @@ function createEmitContext(
     numberingInstances: new Map(),
     lastNumberingInstance: new Map(),
     lastNumberingReference: new Map(),
+    blockquoteLevel: 0,
   };
 }
 
@@ -133,7 +134,7 @@ function collectBookmarks(doc: DocIR, ctx: EmitContext): void {
     }
     
     // Recurse into nested structures
-    if (block.type === "Blockquote" || block.type === "Section") {
+    if (block.type === "Blockquote" || block.type === "Box" || block.type === "Section") {
       for (const child of block.content) {
         visitBlock(child);
       }
@@ -225,7 +226,8 @@ function compileSections(
       right: documentStyles.marginRight,
     },
     headers,
-    footers
+    footers,
+    documentStyles.orientation,
   );
   
   const flushPending = (pendingBlocks: Block[]): void => {

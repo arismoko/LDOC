@@ -110,6 +110,11 @@ export function toParagraphOptions(style: ComputedStyle): IParagraphOptions {
   // Paragraph style reference
   setIf(opts, "style", style.paragraphStyleId);
 
+  // Paragraph shading (background color at paragraph level)
+  if (style.backgroundColor) {
+    opts.shading = { fill: style.backgroundColor };
+  }
+
   return opts;
 }
 
@@ -198,20 +203,51 @@ export function toStyleDefinition(def: StyleDefinition): IParagraphStyleOptions 
   setIf(run, "smallCaps", style.smallCaps);
   setIf(run, "allCaps", style.allCaps);
   setIf(run, "color", style.color);
+  setIf(run, "highlight", style.highlightColor as IRunOptions["highlight"]);
+  if (style.backgroundColor) {
+    run.shading = { fill: style.backgroundColor };
+  }
 
-  // Paragraph properties
+  // Paragraph alignment
   if (style.textAlign) {
     paragraph.alignment = toAlignment(style.textAlign);
   }
-  if (style.spaceBefore !== undefined || style.spaceAfter !== undefined) {
+
+  // Paragraph spacing
+  if (style.spaceBefore !== undefined || style.spaceAfter !== undefined || style.lineHeight !== undefined) {
     paragraph.spacing = {
       before: style.spaceBefore,
       after: style.spaceAfter,
+      line: style.lineHeight,
     };
   }
-  if (style.indentLeft !== undefined) {
-    paragraph.indent = { left: style.indentLeft };
+
+  // Paragraph indentation
+  if (style.indentLeft !== undefined || style.indentRight !== undefined ||
+      style.indentFirstLine !== undefined || style.indentHanging !== undefined) {
+    paragraph.indent = {
+      left: style.indentLeft,
+      right: style.indentRight,
+      firstLine: style.indentFirstLine,
+      hanging: style.indentHanging,
+    };
   }
+
+  // Paragraph borders
+  const hasBorder = style.borderTop || style.borderBottom || style.borderLeft || style.borderRight;
+  if (hasBorder) {
+    const border: Mutable<NonNullable<IParagraphOptions["border"]>> = {};
+    if (style.borderTop) border.top = toBorder(style.borderTop);
+    if (style.borderBottom) border.bottom = toBorder(style.borderBottom);
+    if (style.borderLeft) border.left = toBorder(style.borderLeft);
+    if (style.borderRight) border.right = toBorder(style.borderRight);
+    paragraph.border = border;
+  }
+
+  // Keep properties
+  setIf(paragraph, "keepNext", style.keepWithNext);
+  setIf(paragraph, "keepLines", style.keepTogether);
+  setIf(paragraph, "pageBreakBefore", style.pageBreakBefore);
 
   return {
     id: def.id,

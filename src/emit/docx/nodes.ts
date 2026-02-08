@@ -17,8 +17,13 @@ import {
   Tab as DocxTab,
   PageNumber,
   BorderStyle,
+  Table as DocxTableClass,
+  TableRow as DocxTableRow,
+  TableCell as DocxTableCell,
+  WidthType,
+  TableLayoutType,
 } from "docx";
-import type { Table as DocxTable, IRunOptions } from "docx";
+import type { Table as DocxTable, IParagraphOptions } from "docx";
 
 import type {
   Block,
@@ -26,14 +31,9 @@ import type {
   Paragraph as ParagraphNode,
   List,
   ListItem,
-  Table,
-  TableRow,
-  TableCell,
   Blockquote,
+  Box,
   Section,
-  PageBreak as PageBreakNode,
-  ColumnBreak as ColumnBreakNode,
-  HorizontalRule,
   Footnote,
   Text,
   Styled,
@@ -48,8 +48,6 @@ import type {
   FootnoteRef,
   CrossRef,
   Anchor,
-  HardBreak,
-  Tab,
   Field,
   StyleRef,
 } from "../../types/document-ir.ts";
@@ -60,6 +58,7 @@ import { toRunOptions, toParagraphOptions } from "./styles.ts";
 import { getNumberingReference } from "./numbering.ts";
 import { emitTable } from "./tables.ts";
 import { bookmarkSafeName } from "../../shared/bookmarks.ts";
+import { type Mutable } from "./utils.ts";
 
 /** Synthetic location for diagnostics when node has no source location */
 const SYNTHETIC_LOC: SourceLocation = { line: 1, column: 0, endLine: 1, endColumn: 0 };
@@ -95,6 +94,8 @@ export interface EmitContext {
   lastNumberingInstance: Map<string, number>;
   /** Tracks the last reference used per continuation key (for continue after start) */
   lastNumberingReference: Map<string, string>;
+  /** Current blockquote nesting level (0 = not in blockquote) */
+  blockquoteLevel: number;
 }
 
 /**
@@ -125,6 +126,8 @@ export function emitBlock(block: Block, ctx: EmitContext): DocxBlock[] {
       return [emitTable(block, ctx)];
     case "Blockquote":
       return emitBlockquote(block, ctx);
+    case "Box":
+      return emitBox(block, ctx);
     case "Section":
       return emitSection(block, ctx);
     case "PageBreak":
@@ -154,9 +157,12 @@ function emitParagraph(node: ParagraphNode, ctx: EmitContext): DocxBlock[] {
   const style = resolveNodeStyle(node.style, ctx);
   const children = emitInlines(node.content, ctx, style);
   
+  const paragraphOpts = toParagraphOptions(style);
+  applyContainerStyles(paragraphOpts, ctx);
+  
   return [
     new Paragraph({
-      ...toParagraphOptions(style),
+      ...paragraphOpts,
       children,
     }),
   ];
@@ -240,9 +246,11 @@ function emitListItem(
   
   // Main list item paragraph with numbering
   if (item.content.length > 0) {
+    const paragraphOpts = toParagraphOptions(style);
+    applyContainerStyles(paragraphOpts, ctx);
     results.push(
       new Paragraph({
-        ...toParagraphOptions(style),
+        ...paragraphOpts,
         children,
         numbering: {
           reference,
@@ -289,6 +297,11 @@ function emitListContinuationParagraph(
         },
       };
 
+  // Apply container styles (blockquote border/indent) AFTER resolving
+  // continuation indent — otherwise applyContainerStyles sets indent.left
+  // and the ?? continuationIndent fallback never fires.
+  applyContainerStyles(optionsWithIndent, ctx);
+
   return new Paragraph({
     ...optionsWithIndent,
     children,
@@ -306,24 +319,99 @@ function getListContinuationIndent(
 }
 
 function emitBlockquote(node: Blockquote, ctx: EmitContext): DocxBlock[] {
-  // Blockquotes render as indented, italic paragraphs with left border
-  const results: DocxBlock[] = [];
-  
-  for (const child of node.content) {
-    const blocks = emitBlock(child, ctx);
-    for (const block of blocks) {
-      if (block instanceof Paragraph) {
-        // Add blockquote styling (left border, indent, italic)
-        // Note: We'd need to modify the paragraph options here
-        // For now, just pass through - full styling in Phase 6
-        results.push(block);
-      } else {
-        results.push(block);
-      }
-    }
+  // Create a child context with incremented blockquote level
+  const childCtx: EmitContext = { ...ctx, blockquoteLevel: ctx.blockquoteLevel + 1 };
+  return emitBlocks(node.content, childCtx);
+}
+
+/** Indent per blockquote nesting level (400 twips ≈ 0.28 inches) */
+const BLOCKQUOTE_INDENT = 400;
+
+/**
+ * Apply container styling (blockquote / box) to paragraph options.
+ * Centralized to avoid duplication between emitParagraph, emitListItem,
+ * and emitListContinuationParagraph.
+ */
+function applyContainerStyles(opts: Mutable<IParagraphOptions>, ctx: EmitContext): void {
+  if (ctx.blockquoteLevel > 0) {
+    applyBlockquoteStyle(opts, ctx.blockquoteLevel);
   }
-  
-  return results;
+}
+
+/**
+ * Apply blockquote visual styling to paragraph options (mutates in place).
+ * - Left border: 2pt grey
+ * - Left indent: 400 twips per nesting level
+ */
+function applyBlockquoteStyle(opts: Mutable<IParagraphOptions>, level: number): void {
+  // Left border — grey, 2pt
+  const border = (opts.border ?? {}) as Mutable<NonNullable<IParagraphOptions["border"]>>;
+  border.left = {
+    color: "999999",
+    size: 16, // 2pt in eighths
+    style: BorderStyle.SINGLE,
+    space: 4,
+  };
+  opts.border = border;
+
+  // Left indent stacks with existing indent
+  const existingLeft = (opts.indent as { left?: number } | undefined)?.left ?? 0;
+  opts.indent = {
+    ...opts.indent,
+    left: existingLeft + BLOCKQUOTE_INDENT * level,
+  };
+}
+
+/** Box border width (1pt in eighths = 8) */
+const BOX_BORDER_SIZE = 8;
+
+/**
+ * Emit a Box as a single-cell table with borders on all four sides.
+ *
+ * OOXML has no native "bordered container" primitive for flow content;
+ * a 1×1 table is the standard interoperable pattern (used by Word for
+ * text boxes, callouts, and "Borders and Shading" groups).
+ */
+function emitBox(node: Box, ctx: EmitContext): DocxBlock[] {
+  const children = emitBlocks(node.content, ctx);
+  // Ensure at least one paragraph in cell (DOCX requirement)
+  const content = children.length > 0 ? children : [new Paragraph({})];
+
+  const borderSide = {
+    color: "000000",
+    size: BOX_BORDER_SIZE,
+    style: BorderStyle.SINGLE,
+  };
+
+  const cell = new DocxTableCell({
+    children: content as (Paragraph | DocxTableClass)[],
+    margins: { top: 100, bottom: 100, left: 150, right: 150 },
+    borders: {
+      top: borderSide,
+      bottom: borderSide,
+      left: borderSide,
+      right: borderSide,
+    },
+  });
+
+  const row = new DocxTableRow({ children: [cell] });
+
+  const table = new DocxTableClass({
+    rows: [row],
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    layout: TableLayoutType.AUTOFIT,
+    // Suppress interior grid lines (single cell, but be explicit)
+    borders: {
+      top: borderSide,
+      bottom: borderSide,
+      left: borderSide,
+      right: borderSide,
+      insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+      insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+    },
+  });
+
+  return [table];
 }
 
 function emitSection(node: Section, ctx: EmitContext): DocxBlock[] {

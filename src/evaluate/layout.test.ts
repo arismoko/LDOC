@@ -56,9 +56,9 @@ describe("layout evaluation", () => {
 
     const { document } = await compileToDocument(source);
     const block = document.blocks[0];
-    expect(block?.type).toBe("Blockquote");
+    expect(block?.type).toBe("Box");
 
-    if (block?.type === "Blockquote") {
+    if (block?.type === "Box") {
       const firstChild = block.content[0];
       expect(firstChild?.type).toBe("Paragraph");
       if (firstChild?.type === "Paragraph") {
@@ -385,5 +385,153 @@ describe("layout evaluation", () => {
 
     const { diagnostics } = await compileToDocument(source);
     expect(diagnostics.some((d) => d.message.includes("Invalid margin value"))).toBe(true);
+  });
+
+  test("@table(cellPadding: ...) with invalid value emits warning", async () => {
+    const source = `@table(cellPadding: "not-a-length"){
+  @row(cells: ["Data"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E011")).toBe(true);
+  });
+
+  test("@table with non-@row children emits warning", async () => {
+    const source = `@table{
+  @row(cells: ["A", "B"])
+  [Stray paragraph.]
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E010")).toBe(true);
+  });
+
+  test("@blockquote produces Blockquote IR node", async () => {
+    const source = `@blockquote{
+  [Quoted text.]
+}
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const block = document.blocks[0];
+    expect(block?.type).toBe("Blockquote");
+  });
+
+  test("@box produces Box IR node (not Blockquote)", async () => {
+    const source = `@box{
+  [Boxed text.]
+}
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const block = document.blocks[0];
+    expect(block?.type).toBe("Box");
+  });
+
+  test("@table(headerRows: 1.5) emits warning for non-integer", async () => {
+    const source = `@table(headerRows: 1.5){
+  @row(cells: ["A", "B"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E013")).toBe(true);
+  });
+
+  test("@table(headerRows: -1) emits warning for negative value", async () => {
+    const source = `@table(headerRows: -1){
+  @row(cells: ["A", "B"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E013")).toBe(true);
+  });
+
+  test("merge marker > at column 0 emits E014 warning", async () => {
+    const source = `@table{
+  @row(cells: [">", "B"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E014")).toBe(true);
+  });
+
+  test("merge marker ^ in first row emits E015 warning", async () => {
+    const source = `@table{
+  @row(cells: ["A", "^"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E015")).toBe(true);
+  });
+
+  test("headerRows with string type emits E016 warning", async () => {
+    const source = `@table(headerRows: "1"){
+  @row(cells: ["A", "B"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E016")).toBe(true);
+  });
+
+  test("cellPadding with boolean type emits E017 warning", async () => {
+    const source = `@table(cellPadding: true){
+  @row(cells: ["A", "B"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E017")).toBe(true);
+  });
+
+  test("@row with non-array cells emits E018 warning", async () => {
+    const source = `@table{
+  @row(cells: "not-an-array")
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E018")).toBe(true);
+  });
+
+  test("unsupported cell value type emits E012 warning", async () => {
+    const source = `@table{
+  @row(cells: [null])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E012")).toBe(true);
+  });
+
+  test("vertical merge ^ chains across 3+ rows", async () => {
+    const source = `@table{
+  @row(cells: ["A", "B"])
+  @row(cells: ["^", "C"])
+  @row(cells: ["^", "D"])
+}
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    // No spurious E015 warnings
+    expect(diagnostics.some((d) => d.code === "E015")).toBe(false);
+
+    const table = document.blocks[0];
+    expect(table?.type).toBe("Table");
+    if (table?.type === "Table") {
+      // First row, first cell should have rowspan 3
+      const firstCell = table.rows[0]?.cells[0];
+      expect(firstCell?.rowspan).toBe(3);
+    }
   });
 });

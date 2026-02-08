@@ -25,6 +25,11 @@ export function applyAlignmentToBlock(block: Block, align: HorizontalAlign): Blo
         ...block,
         content: block.content.map((child) => applyAlignmentToBlock(child, align)),
       };
+    case "Box":
+      return {
+        ...block,
+        content: block.content.map((child) => applyAlignmentToBlock(child, align)),
+      };
     case "Section":
       return {
         ...block,

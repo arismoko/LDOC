@@ -156,6 +156,10 @@ export interface Table extends IRBase {
   style?: StyleRef;
   /** Column widths in twips (optional - can be auto) */
   columnWidths?: number[];
+  /** Number of header rows (repeat at top of each page) */
+  headerRows?: number;
+  /** Cell padding in twips (uniform for all cells) */
+  cellPadding?: number;
 }
 
 export interface TableRow extends IRBase {
@@ -163,6 +167,8 @@ export interface TableRow extends IRBase {
   cells: TableCell[];
   /** Is this a header row? */
   isHeader?: boolean;
+  /** Prevent row from splitting across pages */
+  cantSplit?: boolean;
   style?: StyleRef;
 }
 
@@ -180,6 +186,12 @@ export interface TableCell extends IRBase {
 
 export interface Blockquote extends IRBase {
   type: "Blockquote";
+  content: Block[];
+  style?: StyleRef;
+}
+
+export interface Box extends IRBase {
+  type: "Box";
   content: Block[];
   style?: StyleRef;
 }
@@ -355,6 +367,7 @@ export type Block =
   | List
   | Table
   | Blockquote
+  | Box
   | Section
   | PageBreak
   | ColumnBreak

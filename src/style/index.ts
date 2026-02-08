@@ -42,6 +42,8 @@ export interface StyleOptions {
     left?: number;
     right?: number;
   };
+  /** Page orientation (default: portrait) */
+  orientation?: "portrait" | "landscape";
 }
 
 const DEFAULT_OPTIONS = {
@@ -108,6 +110,7 @@ function buildDocumentStyles(opts: StyleOptions): DocumentStyles {
     marginBottom: margins.bottom ?? DEFAULT_OPTIONS.margins.bottom,
     marginLeft: margins.left ?? DEFAULT_OPTIONS.margins.left,
     marginRight: margins.right ?? DEFAULT_OPTIONS.margins.right,
+    orientation: opts.orientation,
   };
 }
 

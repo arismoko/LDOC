@@ -4,7 +4,7 @@
  * Manages section creation for headers, footers, and column layouts.
  */
 
-import { Header, Footer, Paragraph, SectionType } from "docx";
+import { Header, Footer, Paragraph, PageOrientation, SectionType } from "docx";
 import type { ISectionOptions, Table, ISectionPropertiesOptions } from "docx";
 
 import type { HeaderFooter } from "../../types/document-ir.ts";
@@ -43,6 +43,7 @@ export class SectionBuilder {
     private readonly margins: { top: number; bottom: number; left: number; right: number },
     private readonly headers: SectionHeaders = {},
     private readonly footers: SectionFooters = {},
+    private readonly orientation?: "portrait" | "landscape",
   ) {}
 
   /**
@@ -76,6 +77,24 @@ export class SectionBuilder {
     return this.sections;
   }
 
+  private get pageSizeOptions() {
+    const isLandscape = this.orientation === "landscape";
+    // The docx package internally swaps w:w/w:h when orientation is landscape,
+    // so we must always pass logical portrait dimensions (width < height).
+    // If callers already provide landscape-oriented dims (width > height),
+    // normalize to portrait first to avoid a double-swap producing portrait output.
+    let w = this.pageWidth;
+    let h = this.pageHeight;
+    if (isLandscape && w > h) {
+      [w, h] = [h, w];
+    }
+    return {
+      width: w,
+      height: h,
+      ...(isLandscape ? { orientation: PageOrientation.LANDSCAPE } : {}),
+    };
+  }
+
   private finishSection(columnsConfig?: { count: number; space: number; separate: boolean }): void {
     if (this.currentChildren.length === 0 && !columnsConfig) {
       return;
@@ -83,10 +102,7 @@ export class SectionBuilder {
 
     const properties: Mutable<ISectionPropertiesOptions> = {
       page: {
-        size: {
-          width: this.pageWidth,
-          height: this.pageHeight,
-        },
+        size: this.pageSizeOptions,
         margin: this.margins,
       },
     };
@@ -134,10 +150,7 @@ export class SectionBuilder {
     return {
       properties: {
         page: {
-          size: {
-            width: this.pageWidth,
-            height: this.pageHeight,
-          },
+          size: this.pageSizeOptions,
           margin: this.margins,
         },
         titlePage: hasFirstPageSpecial,

@@ -108,6 +108,12 @@ const DIRECTIVES: DirectiveContract[] = [
     hasBody: "required",
   },
   {
+    name: "blockquote",
+    allowedIn: ["top", "structural"],
+    hasArgs: "none",
+    hasBody: "required",
+  },
+  {
     name: "align",
     allowedIn: ["top", "structural"],
     hasArgs: "required",
