@@ -109,7 +109,7 @@ export function readParamsContract(cst: Document): IncludeParamsContract {
       );
     } else {
       for (const [name, literal] of Object.entries(rawTypes as Record<string, unknown>)) {
-        if (hasNames && validNames.length > 0 && !validNames.includes(name)) {
+        if (hasNames && !validNames.includes(name)) {
           diagnostics.push(
             diagError(
               DiagnosticCode.MALFORMED_INCLUDE_PARAM_TYPE,
@@ -137,7 +137,12 @@ export function readParamsContract(cst: Document): IncludeParamsContract {
     }
   }
 
-  const requiredNames = [...validNames];
+  // Start with names that are NOT marked optional in types
+  const requiredNames = validNames.filter((n) => {
+    const t = types[n];
+    return !t || !t.optional;
+  });
+  // Add any required type-only keys not already covered by names
   for (const [name, type] of Object.entries(types)) {
     if (type.optional) {
       continue;

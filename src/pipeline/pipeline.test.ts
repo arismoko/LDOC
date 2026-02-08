@@ -680,6 +680,49 @@ describe("cross-file ref validation", () => {
     const malformedDiags = diagnostics.filter((d: any) => d.code === "B014");
     expect(malformedDiags).toHaveLength(1);
   });
+
+  test("bind-time @params: optional typed param in names+types can be omitted without B007", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const { diagnostics } = await parseAndBindWithIncludes(
+      `@include(path: "child.ldoc", args: { name: "Alice" })`,
+      {
+        sourcePath: mainPath,
+        loadFile: createMapLoader({
+          [childPath]: `@params(names: ["name", "title"], types: { name: "string", title: "string?" })\n[Signer]`,
+        }),
+      },
+    );
+
+    // "title" is optional via "string?" — omitting it must NOT trigger B007
+    expect(diagnostics.some((d) => d.code === "B007")).toBe(false);
+    expect(diagnostics.some((d) => d.code === "B015")).toBe(false);
+  });
+
+  test("bind-time @params: empty names array rejects types keys with B014", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    let caught: any;
+    try {
+      await parseAndBindWithIncludes(
+        `@include(path: "child.ldoc", args: { extra: "x" })`,
+        {
+          sourcePath: mainPath,
+          loadFile: createMapLoader({
+            [childPath]: `@params(names: [], types: { extra: "string" })\n[Signer]`,
+          }),
+        },
+      );
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeDefined();
+    const diagnostics: any[] = caught.diagnostics ?? [];
+    const malformedDiags = diagnostics.filter((d: any) => d.code === "B014");
+    expect(malformedDiags).toHaveLength(1);
+    expect(malformedDiags[0]!.message).toContain("extra");
+  });
 });
 
 // =============================================================================
