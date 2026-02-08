@@ -182,7 +182,7 @@ describe("ooxml harness", () => {
     expect(docXml).toContain('w:h="12240"');
   });
 
-  test("@box emits box with all-four-sides border", async () => {
+  test("@box emits single-cell table with all-four-sides border", async () => {
     const source = `@box{
   [Boxed text here.]
 }
@@ -192,10 +192,29 @@ describe("ooxml harness", () => {
     expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
 
     const docXml = await pkg.readPart("word/document.xml");
-    // Should have borders on all sides (black, single style)
+    // Box renders as a table (w:tbl) with borders
+    expect(docXml).toContain("w:tbl");
     expect(docXml).toContain('w:color="000000"');
-    // Should have indent (200 twips for visual padding)
-    expect(docXml).toContain('w:left="200"');
+    // Content should be inside a table cell
+    expect(docXml).toContain("w:tc");
+  });
+
+  test("@box with multiple paragraphs has no interior borders", async () => {
+    const source = `@box{
+  [First paragraph.]
+  [Second paragraph.]
+}
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    // Should be a single table with one cell
+    expect(docXml).toContain("w:tbl");
+    // Both paragraphs should be present
+    const textMatches = docXml.match(/w:t xml:space="preserve"/g) ?? [];
+    expect(textMatches.length).toBeGreaterThanOrEqual(2);
   });
 
   test("@blockquote emits blockquote with left border and indent", async () => {

@@ -17,6 +17,11 @@ import {
   Tab as DocxTab,
   PageNumber,
   BorderStyle,
+  Table as DocxTableClass,
+  TableRow as DocxTableRow,
+  TableCell as DocxTableCell,
+  WidthType,
+  TableLayoutType,
 } from "docx";
 import type { Table as DocxTable, IRunOptions, IParagraphOptions } from "docx";
 
@@ -99,8 +104,6 @@ export interface EmitContext {
   lastNumberingReference: Map<string, string>;
   /** Current blockquote nesting level (0 = not in blockquote) */
   blockquoteLevel: number;
-  /** Whether currently inside a Box container */
-  inBox: boolean;
 }
 
 /**
@@ -163,16 +166,7 @@ function emitParagraph(node: ParagraphNode, ctx: EmitContext): DocxBlock[] {
   const children = emitInlines(node.content, ctx, style);
   
   const paragraphOpts = toParagraphOptions(style);
-  
-  // Apply blockquote styling if inside a blockquote
-  if (ctx.blockquoteLevel > 0) {
-    applyBlockquoteStyle(paragraphOpts, ctx.blockquoteLevel);
-  }
-  
-  // Apply box styling if inside a box
-  if (ctx.inBox) {
-    applyBoxStyle(paragraphOpts);
-  }
+  applyContainerStyles(paragraphOpts, ctx);
   
   return [
     new Paragraph({
@@ -260,9 +254,11 @@ function emitListItem(
   
   // Main list item paragraph with numbering
   if (item.content.length > 0) {
+    const paragraphOpts = toParagraphOptions(style);
+    applyContainerStyles(paragraphOpts, ctx);
     results.push(
       new Paragraph({
-        ...toParagraphOptions(style),
+        ...paragraphOpts,
         children,
         numbering: {
           reference,
@@ -298,6 +294,7 @@ function emitListContinuationParagraph(
   const style = resolveNodeStyle(node.style, ctx);
   const children = emitInlines(node.content, ctx, style);
   const options = toParagraphOptions(style);
+  applyContainerStyles(options, ctx);
   const continuationIndent = getListContinuationIndent(reference, ctx.listLevel, ctx);
   const optionsWithIndent = continuationIndent === undefined
     ? options
@@ -335,6 +332,17 @@ function emitBlockquote(node: Blockquote, ctx: EmitContext): DocxBlock[] {
 const BLOCKQUOTE_INDENT = 400;
 
 /**
+ * Apply container styling (blockquote / box) to paragraph options.
+ * Centralized to avoid duplication between emitParagraph, emitListItem,
+ * and emitListContinuationParagraph.
+ */
+function applyContainerStyles(opts: Mutable<IParagraphOptions>, ctx: EmitContext): void {
+  if (ctx.blockquoteLevel > 0) {
+    applyBlockquoteStyle(opts, ctx.blockquoteLevel);
+  }
+}
+
+/**
  * Apply blockquote visual styling to paragraph options (mutates in place).
  * - Left border: 2pt grey
  * - Left indent: 400 twips per nesting level
@@ -361,37 +369,53 @@ function applyBlockquoteStyle(opts: Mutable<IParagraphOptions>, level: number): 
 /** Box border width (1pt in eighths = 8) */
 const BOX_BORDER_SIZE = 8;
 
-function emitBox(node: Box, ctx: EmitContext): DocxBlock[] {
-  // Create a child context with inBox flag set
-  const childCtx: EmitContext = { ...ctx, inBox: true };
-  return emitBlocks(node.content, childCtx);
-}
-
 /**
- * Apply box visual styling to paragraph options (mutates in place).
- * - Border on all 4 sides: 1pt black
- * - Left indent: 200 twips for visual padding
+ * Emit a Box as a single-cell table with borders on all four sides.
+ *
+ * OOXML has no native "bordered container" primitive for flow content;
+ * a 1×1 table is the standard interoperable pattern (used by Word for
+ * text boxes, callouts, and "Borders and Shading" groups).
  */
-function applyBoxStyle(opts: Mutable<IParagraphOptions>): void {
+function emitBox(node: Box, ctx: EmitContext): DocxBlock[] {
+  const children = emitBlocks(node.content, ctx);
+  // Ensure at least one paragraph in cell (DOCX requirement)
+  const content = children.length > 0 ? children : [new Paragraph({})];
+
   const borderSide = {
     color: "000000",
     size: BOX_BORDER_SIZE,
     style: BorderStyle.SINGLE,
-    space: 4,
   };
-  const border = (opts.border ?? {}) as Mutable<NonNullable<IParagraphOptions["border"]>>;
-  border.top = borderSide;
-  border.bottom = borderSide;
-  border.left = borderSide;
-  border.right = borderSide;
-  opts.border = border;
 
-  // Add left indent for visual padding inside the box
-  const existingLeft = (opts.indent as { left?: number } | undefined)?.left ?? 0;
-  opts.indent = {
-    ...opts.indent,
-    left: existingLeft + 200,
-  };
+  const cell = new DocxTableCell({
+    children: content as (Paragraph | DocxTableClass)[],
+    margins: { top: 100, bottom: 100, left: 150, right: 150 },
+    borders: {
+      top: borderSide,
+      bottom: borderSide,
+      left: borderSide,
+      right: borderSide,
+    },
+  });
+
+  const row = new DocxTableRow({ children: [cell] });
+
+  const table = new DocxTableClass({
+    rows: [row],
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    layout: TableLayoutType.AUTOFIT,
+    // Suppress interior grid lines (single cell, but be explicit)
+    borders: {
+      top: borderSide,
+      bottom: borderSide,
+      left: borderSide,
+      right: borderSide,
+      insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+      insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+    },
+  });
+
+  return [table];
 }
 
 function emitSection(node: Section, ctx: EmitContext): DocxBlock[] {

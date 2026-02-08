@@ -532,13 +532,27 @@ Implementations MAY add an explicit `@cell(...)` form later for literal `">"` an
 
 ### 13.3 Box
 
+A visual container that draws a border around its content. Rendered as a
+single-cell table with borders on all four sides.
+
 ```ldoc
 @box{
   [NOTICE: Important information.]
 }
 ```
 
-### 13.4 Alignment
+### 13.4 Blockquote
+
+Quoted content with a left border and indent. Nesting increases the indent
+level.
+
+```ldoc
+@blockquote{
+  [To be, or not to be, that is the question.]
+}
+```
+
+### 13.5 Alignment
 
 ```ldoc
 @align(value: "center"){

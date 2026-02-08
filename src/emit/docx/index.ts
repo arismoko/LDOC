@@ -119,7 +119,6 @@ function createEmitContext(
     lastNumberingInstance: new Map(),
     lastNumberingReference: new Map(),
     blockquoteLevel: 0,
-    inBox: false,
   };
 }
 

@@ -386,4 +386,51 @@ describe("layout evaluation", () => {
     const { diagnostics } = await compileToDocument(source);
     expect(diagnostics.some((d) => d.message.includes("Invalid margin value"))).toBe(true);
   });
+
+  test("@table(cellPadding: ...) with invalid value emits warning", async () => {
+    const source = `@table(cellPadding: "not-a-length"){
+  @row(cells: ["Data"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E011")).toBe(true);
+  });
+
+  test("@table with non-@row children emits warning", async () => {
+    const source = `@table{
+  @row(cells: ["A", "B"])
+  [Stray paragraph.]
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E010")).toBe(true);
+  });
+
+  test("@blockquote produces Blockquote IR node", async () => {
+    const source = `@blockquote{
+  [Quoted text.]
+}
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const block = document.blocks[0];
+    expect(block?.type).toBe("Blockquote");
+  });
+
+  test("@box produces Box IR node (not Blockquote)", async () => {
+    const source = `@box{
+  [Boxed text.]
+}
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const block = document.blocks[0];
+    expect(block?.type).toBe("Box");
+  });
 });

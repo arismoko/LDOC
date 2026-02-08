@@ -5,13 +5,6 @@
  * Distinct from @blockquote which uses left-border-only quote styling.
  */
 
-import type { BlockDirectiveHandler } from "../handler.ts";
+import { makeContainerHandler } from "./block-container.ts";
 
-export const handleBox: BlockDirectiveHandler = async (node, ctx) => {
-  const content = node.body && node.body.kind === "StructuralBody" ? await ctx.evaluateBlocks(node.body.children) : [];
-  return [{
-    type: "Box",
-    content,
-    loc: node.loc,
-  }];
-};
+export const handleBox = makeContainerHandler("Box");

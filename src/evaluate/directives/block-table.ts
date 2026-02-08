@@ -4,8 +4,9 @@
 
 import type { Directive } from "../../types/cst.ts";
 import type { Table, TableCell, TableRow } from "../../types/document-ir.ts";
-import type { BlockDirectiveHandler } from "../handler.ts";
+import type { BlockDirectiveHandler, EvalContext } from "../handler.ts";
 import { parseLengthToTwips } from "../../shared/units.ts";
+import type { Diagnostic } from "../../types/diagnostics.ts";
 
 function toCellText(value: unknown): string {
   if (typeof value === "string") {
@@ -31,19 +32,42 @@ function createTextCell(value: string, loc: Directive["loc"]): TableCell {
   };
 }
 
-function evaluateTableDirective(node: Directive): Table {
+function evaluateTableDirective(node: Directive, diagnostics: Diagnostic[]): Table {
   const tableArgs = node.args ?? {};
-  const rowNodes = (node.body?.kind === "StructuralBody" ? node.body.children : []).filter(
-    (child): child is Directive => child.kind === "Directive" && child.name === "row",
-  );
+  const bodyChildren = node.body?.kind === "StructuralBody" ? node.body.children : [];
+
+  // Warn on non-@row children (silently dropping user content is P1)
+  const rowNodes: Directive[] = [];
+  for (const child of bodyChildren) {
+    if (child.kind === "Directive" && child.name === "row") {
+      rowNodes.push(child);
+    } else {
+      diagnostics.push({
+        severity: "warning",
+        code: "E010",
+        message: `@table only accepts @row children; ignoring ${child.kind === "Directive" ? `@${child.name}` : child.kind}`,
+        location: child.loc ?? { line: 1, column: 0, endLine: 1, endColumn: 0 },
+      });
+    }
+  }
   const rows: TableRow[] = [];
   const rowColumnOwners: TableCell[][] = [];
 
   // Parse table-level args
   const headerRows = typeof tableArgs.headerRows === "number" ? tableArgs.headerRows : undefined;
-  const cellPadding = typeof tableArgs.cellPadding === "string" || typeof tableArgs.cellPadding === "number"
-    ? parseLengthToTwips(tableArgs.cellPadding, { lenient: true })
-    : undefined;
+  let cellPadding: number | undefined;
+  if (typeof tableArgs.cellPadding === "string" || typeof tableArgs.cellPadding === "number") {
+    try {
+      cellPadding = parseLengthToTwips(tableArgs.cellPadding);
+    } catch {
+      diagnostics.push({
+        severity: "warning",
+        code: "E011",
+        message: `Invalid cellPadding value: "${tableArgs.cellPadding}". Use units like "0.1in", "6pt".`,
+        location: node.loc ?? { line: 1, column: 0, endLine: 1, endColumn: 0 },
+      });
+    }
+  }
 
   for (const rowNode of rowNodes) {
     const args = rowNode.args ?? {};
@@ -107,6 +131,6 @@ function evaluateTableDirective(node: Directive): Table {
   };
 }
 
-export const handleTable: BlockDirectiveHandler = async (node) => {
-  return [evaluateTableDirective(node)];
+export const handleTable: BlockDirectiveHandler = async (node, ctx) => {
+  return [evaluateTableDirective(node, ctx.diagnostics)];
 };
