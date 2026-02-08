@@ -204,7 +204,6 @@ async function runPipelineTo(
   };
   const styleResult = style(
     state.document,
-    state.symbols,
     mergedStyleOptions
   );
   state.diagnostics.push(...styleResult.diagnostics);

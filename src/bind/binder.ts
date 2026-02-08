@@ -3,24 +3,21 @@
  * 
  * Orchestrates:
  * 1. Directive validation (via validator)
- * 2. @def symbol collection
- * 3. Duplicate definition diagnostics
+ * 2. Symbol collection (pass 1): @def bindings + @anchor definitions
+ * 3. Reference validation (pass 2): @ref targets checked against anchors
+ * 4. Duplicate definition diagnostics
  * 
  * Output: BindResult with CST, SymbolTable, and Diagnostics
  */
 
-import type { Document, Block, Directive, ParseResult } from "../types/cst.ts";
+import type { Document, Block, Directive, Inline, ParseResult } from "../types/cst.ts";
 import type { SymbolTable, BindResult } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
-import { error as diagError, DiagnosticCode } from "../types/diagnostics.ts";
-import { createSymbolTable } from "../types/symbols.ts";
+import { error as diagError, warning as diagWarning, DiagnosticCode } from "../types/diagnostics.ts";
+import { createSymbolTable, freezeSymbolTable } from "../types/symbols.ts";
 import { validate } from "./validator.ts";
-import { resolveImports } from "./resolver.ts";
-import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
-
-function isParseError(result: ArgsObject | ParseArgsResult): result is ParseArgsResult {
-  return "ok" in result && result.ok === false;
-}
+import { resolveImports, type IncludeEdge } from "./resolver.ts";
+import { readParamsNames, validateIncludeParams } from "../shared/include-params.ts";
 
 /**
  * Options for the binder.
@@ -32,6 +29,10 @@ export interface BinderOptions {
   includeRoot?: string;
   /** Function to load and parse a file */
   loadFile?: (path: string) => Promise<ParseResult>;
+  /** Enable directive-contract validation diagnostics */
+  validateDirectives?: boolean;
+  /** Enable cross-reference target validation diagnostics */
+  validateRefs?: boolean;
 }
 
 /**
@@ -39,8 +40,9 @@ export interface BinderOptions {
  *
  * Walks v3 CST to:
  * - Validate directives against registry
- * - Collect @def bindings into SymbolTable
- * - Report duplicate definitions
+ * - Collect @def bindings and @anchor definitions into SymbolTable
+ * - Validate @ref targets against collected anchors
+ * - Report duplicate definitions and undefined references
  */
 export class Binder {
   private options: BinderOptions;
@@ -56,9 +58,18 @@ export class Binder {
     const doc = cst as Document;
     const symbols = createSymbolTable();
     const diagnostics: Diagnostic[] = [];
+    const shouldValidateDirectives = this.options.validateDirectives !== false;
+    const shouldValidateRefs = this.options.validateRefs !== false;
 
-    diagnostics.push(...validate(doc));
+    if (shouldValidateDirectives) {
+      diagnostics.push(...validate(doc));
+    }
 
+    // Collect symbols from entry document
+    collectSymbols(doc.children, symbols, diagnostics);
+
+    // Resolve includes and collect anchors from included documents
+    const includedDocs: Document[] = [];
     if (this.options.loadFile && this.options.sourcePath) {
       const importResult = await resolveImports(doc, {
         basePath: this.options.sourcePath,
@@ -66,11 +77,35 @@ export class Binder {
         loadFile: this.options.loadFile,
       });
       diagnostics.push(...importResult.diagnostics);
+      // Validate directives per unique included file (deduplicated by path)
+      for (const includedDoc of importResult.parsedDocuments) {
+        if (shouldValidateDirectives) {
+          diagnostics.push(...validate(includedDoc));
+        }
+        includedDocs.push(includedDoc);
+      }
+
+      // Collect anchors per include site (not per unique file) so that
+      // @anchor in a file included twice is flagged as a duplicate definition.
+      for (const edge of importResult.includeEdges) {
+        if (edge.document) {
+          collectAnchors(edge.document.children, symbols, diagnostics);
+        }
+      }
+
+      // Validate @include args against @params arity (§16: MUST provide declared names)
+      validateIncludeEdges(importResult.includeEdges, diagnostics);
     }
 
-    collectDefs(doc.children, symbols, diagnostics);
+    // Validate refs after all symbols (entry + included) are collected
+    if (shouldValidateRefs) {
+      validateRefs(doc.children, symbols, diagnostics);
+      for (const includedDoc of includedDocs) {
+        validateRefs(includedDoc.children, symbols, diagnostics);
+      }
+    }
 
-    return { cst, symbols, diagnostics };
+    return { cst, symbols: freezeSymbolTable(symbols), diagnostics };
   }
 
   /**
@@ -80,68 +115,71 @@ export class Binder {
     const doc = cst as Document;
     const symbols = createSymbolTable();
     const diagnostics: Diagnostic[] = [];
+    const shouldValidateDirectives = this.options.validateDirectives !== false;
+    const shouldValidateRefs = this.options.validateRefs !== false;
 
-    // Phase 1: Validate directives against registry
-    diagnostics.push(...validate(doc));
+    // Pass 1: Validate directives against registry
+    if (shouldValidateDirectives) {
+      diagnostics.push(...validate(doc));
+    }
 
-    // Phase 2: Collect @def bindings
-    collectDefs(doc.children, symbols, diagnostics);
+    // Pass 2: Collect @def bindings and @anchor definitions
+    collectSymbols(doc.children, symbols, diagnostics);
 
-    return { cst, symbols, diagnostics };
+    // Pass 3: Validate @ref targets against collected anchors
+    if (shouldValidateRefs) {
+      validateRefs(doc.children, symbols, diagnostics);
+    }
+
+    return { cst, symbols: freezeSymbolTable(symbols), diagnostics };
   }
 }
 
 /**
- * Walk blocks and collect @def directives into the symbol table.
+ * Walk blocks and collect @def and @anchor directives into the symbol table.
  */
-function collectDefs(blocks: Block[], symbols: SymbolTable, diagnostics: Diagnostic[]): void {
+function collectSymbols(blocks: Block[], symbols: SymbolTable, diagnostics: Diagnostic[]): void {
   for (const block of blocks) {
     if (block.kind === "Directive" && block.name === "def") {
       collectDefBindings(block, symbols, diagnostics);
     }
 
+    if (block.kind === "Directive" && block.name === "anchor") {
+      collectAnchor(block, symbols, diagnostics);
+    }
+
     // Recurse into structural bodies
-    if (block.kind === "Directive" && block.body) {
-      collectDefs(block.body.children, symbols, diagnostics);
+    if (block.kind === "Directive" && block.body && block.body.kind === "StructuralBody") {
+      collectSymbols(block.body.children, symbols, diagnostics);
     }
     if (block.kind === "ListItemMarker" && block.body) {
-      collectDefs(block.body.children, symbols, diagnostics);
+      collectSymbols(block.body.children, symbols, diagnostics);
     }
     if (block.kind === "StructuralBody") {
-      collectDefs(block.children, symbols, diagnostics);
+      collectSymbols(block.children, symbols, diagnostics);
     }
   }
 }
 
 /**
- * Parse a @def directive's args and add bindings to the symbol table.
+ * Collect a @def directive's bindings from its parsed args.
  */
 function collectDefBindings(dir: Directive, symbols: SymbolTable, diagnostics: Diagnostic[]): void {
-  if (!dir.argsRaw) {
-    diagnostics.push(
-      diagError(
-        DiagnosticCode.PARSE_ERROR,
-        `@def requires arguments: @def(key: value, ...)`,
-        dir.loc,
-      ),
-    );
+  if (!dir.args || Object.keys(dir.args).length === 0) {
+    if (!dir.argsRaw) {
+      diagnostics.push(
+        diagError(
+          DiagnosticCode.PARSE_ERROR,
+          `@def requires arguments: @def(key: value, ...)`,
+          dir.loc,
+        ),
+      );
+    }
+    // If argsRaw exists but args is empty, the parser already emitted a parse error diagnostic
     return;
   }
 
-  // argsRaw includes parens: "(key: value, ...)"
-  // Strip parens, wrap in braces for JSON5 parsing (Spec §6.1)
-  const inner = dir.argsRaw.slice(1, -1);
-  const wrapped = `{${inner}}`;
-  const parsed = parseArgsObject(wrapped, dir.loc);
-
-  // Check for parse failure
-  if (isParseError(parsed)) {
-    diagnostics.push(parsed.error);
-    return;
-  }
-
-  // parsed is an ArgsObject (Record<string, JSON5Value>)
-  const args = parsed;
+  const args = dir.args;
 
   for (const [name, value] of Object.entries(args)) {
     if (symbols.defs.has(name)) {
@@ -163,6 +201,142 @@ function collectDefBindings(dir: Directive, symbols: SymbolTable, diagnostics: D
       usages: [],
     });
   }
+}
+
+/**
+ * Walk blocks collecting only anchors (no defs). Used for included documents
+ * where defs are scoped to the child but anchors are globally referenceable.
+ */
+function collectAnchors(blocks: Block[], symbols: SymbolTable, diagnostics: Diagnostic[]): void {
+  for (const block of blocks) {
+    if (block.kind === "Directive" && block.name === "anchor") {
+      collectAnchor(block, symbols, diagnostics);
+    }
+
+    // Recurse into structural bodies
+    if (block.kind === "Directive" && block.body && block.body.kind === "StructuralBody") {
+      collectAnchors(block.body.children, symbols, diagnostics);
+    }
+    if (block.kind === "ListItemMarker" && block.body) {
+      collectAnchors(block.body.children, symbols, diagnostics);
+    }
+    if (block.kind === "StructuralBody") {
+      collectAnchors(block.children, symbols, diagnostics);
+    }
+  }
+}
+
+/**
+ * Collect an @anchor directive into the symbol table.
+ */
+function collectAnchor(dir: Directive, symbols: SymbolTable, diagnostics: Diagnostic[]): void {
+  const id = dir.args?.id;
+  if (typeof id !== "string" || id.length === 0) {
+    diagnostics.push(
+      diagWarning(
+        DiagnosticCode.PARSE_ERROR,
+        `@anchor requires a non-empty string 'id' argument`,
+        dir.loc,
+      ),
+    );
+    return;
+  }
+
+  if (symbols.anchors.has(id)) {
+    const existing = symbols.anchors.get(id)!;
+    diagnostics.push(
+      diagError(
+        DiagnosticCode.DUPLICATE_DEFINITION,
+        `Duplicate anchor '${id}' (previously defined at line ${existing.definedAt.line})`,
+        dir.loc,
+      ),
+    );
+    return;
+  }
+
+  symbols.anchors.set(id, {
+    name: id,
+    definedAt: dir.loc,
+    usages: [],
+  });
+}
+
+/**
+ * Pass 2: Walk inlines to validate @ref targets against collected anchors.
+ */
+function validateRefs(blocks: Block[], symbols: SymbolTable, diagnostics: Diagnostic[]): void {
+  for (const block of blocks) {
+    if (block.kind === "ParagraphBlock") {
+      for (const inline of block.inlines) {
+        validateRefsInInline(inline, symbols, diagnostics);
+      }
+    }
+
+    // Recurse into structural bodies
+    if (block.kind === "Directive" && block.body && block.body.kind === "StructuralBody") {
+      validateRefs(block.body.children, symbols, diagnostics);
+    }
+    if (block.kind === "ListItemMarker" && block.body) {
+      validateRefs(block.body.children, symbols, diagnostics);
+    }
+    if (block.kind === "StructuralBody") {
+      validateRefs(block.children, symbols, diagnostics);
+    }
+  }
+}
+
+/**
+ * Recursively check an inline node for @ref directives with undefined targets.
+ */
+function validateRefsInInline(node: Inline, symbols: SymbolTable, diagnostics: Diagnostic[]): void {
+  if (node.kind === "InlineDirective") {
+    if (node.name === "ref") {
+      const id = node.args?.id;
+      if (typeof id === "string" && id.length > 0 && !symbols.anchors.has(id)) {
+        diagnostics.push(
+          diagWarning(
+            DiagnosticCode.UNDEFINED_ANCHOR,
+            `Cross-reference target '${id}' not found`,
+            node.loc,
+          ),
+        );
+      }
+    }
+    // Recurse into inline directive body
+    if (node.body) {
+      for (const child of node.body) {
+        validateRefsInInline(child, symbols, diagnostics);
+      }
+    }
+  }
+}
+
+/**
+ * Validate @include args against @params arity for each include edge.
+ * One entry per syntactic @include occurrence (not per unique file).
+ */
+function validateIncludeEdges(edges: IncludeEdge[], diagnostics: Diagnostic[]): void {
+  for (const edge of edges) {
+    if (!edge.document) continue; // parse/load failed — already reported
+
+    const { names, diagnostics: paramsDiags } = readParamsNames(edge.document);
+    diagnostics.push(...paramsDiags);
+
+    if (names.length === 0) continue; // no @params declared
+
+    const includeArgs = toIncludeArgs(edge.directive.args?.args);
+    diagnostics.push(...validateIncludeParams(names, includeArgs, edge.directive.loc));
+  }
+}
+
+/**
+ * Coerce @include args value to a Record.
+ */
+function toIncludeArgs(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
 }
 
 /**

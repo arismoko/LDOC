@@ -69,7 +69,6 @@ export const DiagnosticCode = {
   INVALID_STYLE_PROPERTY: "S001",
   INVALID_STYLE_VALUE: "S002",
   STYLE_NOT_FOUND: "S003",
-  STYLE_CYCLE: "S004",
   
   // Emit errors (M***)
   EMIT_ERROR: "M001",

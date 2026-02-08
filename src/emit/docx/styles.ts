@@ -4,7 +4,7 @@
  * Converts ComputedStyle to docx paragraph and run options.
  */
 
-import { AlignmentType, BorderStyle, HeadingLevel, UnderlineType } from "docx";
+import { AlignmentType, BorderStyle, UnderlineType } from "docx";
 import type { 
   IParagraphOptions, 
   IRunOptions, 
@@ -173,25 +173,6 @@ function toBorderStyle(style: ComputedBorder["style"]): (typeof BorderStyle)[key
     case "dotted": return BorderStyle.DOTTED;
     case "none": return BorderStyle.NONE;
     default: return BorderStyle.SINGLE;
-  }
-}
-
-// =============================================================================
-// Heading Level
-// =============================================================================
-
-/**
- * Map heading level number to docx HeadingLevel.
- */
-export function toHeadingLevel(level: 1 | 2 | 3 | 4 | 5 | 6): (typeof HeadingLevel)[keyof typeof HeadingLevel] {
-  switch (level) {
-    case 1: return HeadingLevel.HEADING_1;
-    case 2: return HeadingLevel.HEADING_2;
-    case 3: return HeadingLevel.HEADING_3;
-    case 4: return HeadingLevel.HEADING_4;
-    case 5: return HeadingLevel.HEADING_5;
-    case 6: return HeadingLevel.HEADING_6;
-    default: return HeadingLevel.HEADING_1;
   }
 }
 

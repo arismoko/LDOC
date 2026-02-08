@@ -2,12 +2,9 @@
  * Import resolution for the BIND phase.
  */
 
-import type { Block, Document, ParseResult } from "../types/cst.ts";
-import type { SymbolTable } from "../types/symbols.ts";
-import { createSymbolTable } from "../types/symbols.ts";
+import type { Block, Document, Directive, ParseResult } from "../types/cst.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { error, DiagnosticCode } from "../types/diagnostics.ts";
-import { parseArgsObject, type ArgsObject, type ParseArgsResult } from "../shared/args.ts";
 import { defaultIncludeRoot, resolveIncludeFilePath } from "../shared/include-path.ts";
 
 /**
@@ -23,15 +20,30 @@ export interface ResolverOptions {
 }
 
 /**
+ * One entry per syntactic @include occurrence.
+ * Maps the include directive to its resolved document (if loading succeeded).
+ */
+export interface IncludeEdge {
+  /** The @include directive node from the source CST */
+  directive: Directive;
+  /** Resolved absolute path of the included file */
+  resolvedPath: string;
+  /** Parsed document of the included file (undefined if load/parse failed) */
+  document?: Document;
+}
+
+/**
  * Result of import resolution.
  */
 export interface ResolveResult {
-  /** Imported symbol table (currently reserved for future use) */
-  symbols: SymbolTable;
   /** Diagnostics from import resolution */
   diagnostics: Diagnostic[];
   /** Resolved paths that were imported */
   importedPaths: Set<string>;
+  /** CST documents from included files (for symbol collection) */
+  parsedDocuments: Document[];
+  /** Per-include-site edges for arity validation (one per @include occurrence) */
+  includeEdges: IncludeEdge[];
 }
 
 /**
@@ -40,8 +52,10 @@ export interface ResolveResult {
 export class ImportResolver {
   private readonly options: ResolverOptions;
   private readonly diagnostics: Diagnostic[] = [];
-  private readonly symbols: SymbolTable = createSymbolTable();
   private readonly importedPaths = new Set<string>();
+  private readonly parsedDocuments: Document[] = [];
+  private readonly includeEdges: IncludeEdge[] = [];
+  private readonly docCache = new Map<string, Document>();
   private readonly visiting = new Set<string>();
   private includeRoot?: string;
 
@@ -49,44 +63,37 @@ export class ImportResolver {
     this.options = options;
   }
 
-  private isParseError(result: ArgsObject | ParseArgsResult): result is ParseArgsResult {
-    return "ok" in result && result.ok === false;
-  }
-
-  private parseIncludePath(argsRaw: string | undefined, pathLoc: { line: number; column: number; endLine: number; endColumn: number }): string | null {
-    if (!argsRaw) {
-      this.diagnostics.push(
-        error(
-          DiagnosticCode.PARSE_ERROR,
-          "@include requires args with path",
-          pathLoc,
-        ),
-      );
+  private parseIncludePath(block: Directive): string | null {
+    if (!block.args) {
+      if (!block.argsRaw) {
+        this.diagnostics.push(
+          error(
+            DiagnosticCode.PARSE_ERROR,
+            "@include requires args with path",
+            block.loc,
+          ),
+        );
+      }
+      // If argsRaw exists but args is empty/undefined, parser already emitted diagnostic
       return null;
     }
 
-    const inner = argsRaw.slice(1, -1);
-    const parsed = parseArgsObject(`{${inner}}`, pathLoc);
-    if (this.isParseError(parsed)) {
-      this.diagnostics.push(parsed.error);
-      return null;
-    }
-
-    if (typeof parsed.path !== "string" || parsed.path.length === 0) {
+    if (typeof block.args.path !== "string" || block.args.path.length === 0) {
       this.diagnostics.push(
         error(
           DiagnosticCode.PARSE_ERROR,
           "@include path must be a non-empty string",
-          pathLoc,
+          block.loc,
         ),
       );
       return null;
     }
 
-    return parsed.path;
+    return block.args.path;
   }
 
-  private async visitInclude(importPathRaw: string, includeLoc: { line: number; column: number; endLine: number; endColumn: number }, sourcePath: string): Promise<void> {
+  private async visitInclude(includeDirective: Directive, importPathRaw: string, sourcePath: string): Promise<void> {
+    const includeLoc = includeDirective.loc;
     const includeRoot = this.includeRoot ?? defaultIncludeRoot(sourcePath);
     const resolved = resolveIncludeFilePath({
       includePath: importPathRaw,
@@ -117,7 +124,12 @@ export class ImportResolver {
       return;
     }
 
+    // If already loaded, record edge from cache and return early
     if (this.importedPaths.has(resolvedPath)) {
+      const cachedDoc = this.docCache.get(resolvedPath);
+      if (cachedDoc) {
+        this.includeEdges.push({ directive: includeDirective, resolvedPath, document: cachedDoc });
+      }
       return;
     }
 
@@ -128,11 +140,15 @@ export class ImportResolver {
 
       const parseErrors = parseResult.diagnostics.filter((d) => d.severity === "error");
       if (parseErrors.length > 0) {
+        this.includeEdges.push({ directive: includeDirective, resolvedPath });
         return;
       }
 
       await this.walkBlocks(parseResult.cst.children, resolvedPath);
       this.importedPaths.add(resolvedPath);
+      this.parsedDocuments.push(parseResult.cst);
+      this.docCache.set(resolvedPath, parseResult.cst);
+      this.includeEdges.push({ directive: includeDirective, resolvedPath, document: parseResult.cst });
     } catch (cause) {
       this.diagnostics.push(
         error(
@@ -141,6 +157,7 @@ export class ImportResolver {
           includeLoc,
         ),
       );
+      this.includeEdges.push({ directive: includeDirective, resolvedPath });
     } finally {
       this.visiting.delete(resolvedPath);
     }
@@ -149,13 +166,13 @@ export class ImportResolver {
   private async walkBlocks(blocks: Block[], sourcePath: string): Promise<void> {
     for (const block of blocks) {
       if (block.kind === "Directive" && block.name === "include") {
-        const includePath = this.parseIncludePath(block.argsRaw, block.loc);
+        const includePath = this.parseIncludePath(block);
         if (includePath) {
-          await this.visitInclude(includePath, block.loc, sourcePath);
+          await this.visitInclude(block, includePath, sourcePath);
         }
       }
 
-      if (block.kind === "Directive" && block.body) {
+      if (block.kind === "Directive" && block.body && block.body.kind === "StructuralBody") {
         await this.walkBlocks(block.body.children, sourcePath);
       }
 
@@ -177,9 +194,10 @@ export class ImportResolver {
     }
 
     return {
-      symbols: this.symbols,
       diagnostics: this.diagnostics,
       importedPaths: this.importedPaths,
+      parsedDocuments: this.parsedDocuments,
+      includeEdges: this.includeEdges,
     };
   }
 }

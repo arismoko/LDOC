@@ -81,9 +81,7 @@ function validateBlocks(blocks: Block[], state: ValidationState): void {
       case "StructuralBody":
         validateBlocks(block.children, state);
         break;
-      // Table, LayoutDirective, HeaderFooter, Include are specialized
-      // CST nodes — they were already validated by the parser.
-      // We don't need to check their directive names.
+      // Keep default for forward-compatible block variants.
       default:
         break;
     }
@@ -96,7 +94,7 @@ function validateDirective(dir: Directive, state: ValidationState): void {
   if (!contract) {
     state.diagnostics.push(unknownDirectiveDiagnostic(dir.name, dir.loc));
     // Still validate body if present (recover and continue)
-    if (dir.body) {
+    if (dir.body && dir.body.kind === "StructuralBody") {
       const childState: ValidationState = {
         ...state,
         context: "structural",
@@ -123,8 +121,48 @@ function validateDirective(dir: Directive, state: ValidationState): void {
     }
   }
 
+  // Check args arity
+  if (contract.hasArgs === "none" && dir.argsRaw) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' does not accept arguments`,
+        dir.loc,
+      ),
+    );
+  }
+  if (contract.hasArgs === "required" && !dir.argsRaw) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' requires arguments`,
+        dir.loc,
+      ),
+    );
+  }
+
+  // Check body arity
+  if (contract.hasBody === "none" && dir.body) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' does not accept a body`,
+        dir.loc,
+      ),
+    );
+  }
+  if (contract.hasBody === "required" && !dir.body) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' requires a body`,
+        dir.loc,
+      ),
+    );
+  }
+
   // Validate body if present
-  if (dir.body) {
+  if (dir.body && dir.body.kind === "StructuralBody") {
     const childState: ValidationState = {
       ...state,
       context: "structural",
@@ -171,6 +209,46 @@ function validateInlineDirective(dir: InlineDirective, state: ValidationState): 
       warning(
         MISPLACED_DIRECTIVE,
         `'@${dir.name}' is not allowed inline`,
+        dir.loc,
+      ),
+    );
+  }
+
+  // Check args arity
+  if (contract.hasArgs === "none" && dir.argsRaw) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' does not accept arguments`,
+        dir.loc,
+      ),
+    );
+  }
+  if (contract.hasArgs === "required" && !dir.argsRaw) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' requires arguments`,
+        dir.loc,
+      ),
+    );
+  }
+
+  // Check body arity
+  if (contract.hasBody === "none" && dir.body) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' does not accept a body`,
+        dir.loc,
+      ),
+    );
+  }
+  if (contract.hasBody === "required" && !dir.body) {
+    state.diagnostics.push(
+      warning(
+        DiagnosticCode.PARSE_ERROR,
+        `'@${dir.name}' requires a body`,
         dir.loc,
       ),
     );

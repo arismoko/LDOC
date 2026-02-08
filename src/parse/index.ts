@@ -13,7 +13,7 @@ import type { ParseResult } from "../types/cst.ts";
  */
 export function parseSource(source: string): ParseResult {
   const { tokens, diagnostics: lexDiagnostics } = tokenize(source);
-  const { cst, diagnostics: parseDiagnostics } = parseTokens(tokens);
+  const { cst, diagnostics: parseDiagnostics } = parseTokens(tokens, source);
   
   return {
     cst,

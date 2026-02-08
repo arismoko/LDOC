@@ -11,7 +11,6 @@
  */
 
 import type { Document, List } from "../types/document-ir.ts";
-import type { SymbolTable } from "../types/symbols.ts";
 import type { Diagnostic } from "../types/diagnostics.ts";
 import type {
   StyledDocument,
@@ -63,19 +62,18 @@ const DEFAULT_OPTIONS = {
  */
 export function style(
   document: Document,
-  symbols: SymbolTable,
   options: StyleOptions = {}
 ): StyleResult {
   const diagnostics: Diagnostic[] = [];
   
   // Create the resolver
-  const resolveStyle = createStyleResolver(symbols, diagnostics);
+  const resolveStyle = createStyleResolver(diagnostics);
   
   // Build document-level styles
   const documentStyles = buildDocumentStyles(options);
   
-  // Build style definitions from symbol table
-  const styleDefinitions = buildStyleDefinitions(symbols, resolveStyle);
+  // Build style definitions from built-in styles
+  const styleDefinitions = buildStyleDefinitions(resolveStyle);
   
   // Collect numbering definitions from document
   const numberingDefinitions = collectNumberingDefinitions(document);
@@ -115,10 +113,9 @@ function buildDocumentStyles(opts: StyleOptions): DocumentStyles {
 
 /**
  * Build style definitions for DOCX styles.xml.
- * Includes both built-in and user-defined styles.
+ * Includes built-in styles.
  */
 function buildStyleDefinitions(
-  symbols: SymbolTable,
   resolveStyle: (ref: { name?: string }) => ComputedStyle
 ): StyleDefinition[] {
   const definitions: StyleDefinition[] = [];
@@ -130,18 +127,6 @@ function buildStyleDefinitions(
       id: name,
       name,
       type: "paragraph",
-      style: extractStyleDiff(DEFAULT_STYLE, computed),
-    });
-  }
-  
-  // Add user-defined styles
-  for (const [name, symbol] of symbols.styles) {
-    const computed = resolveStyle({ name });
-    definitions.push({
-      id: name,
-      name,
-      type: "paragraph",
-      basedOn: symbol.extends,
       style: extractStyleDiff(DEFAULT_STYLE, computed),
     });
   }

@@ -24,7 +24,6 @@ import type {
   Block,
   Inline,
   Paragraph as ParagraphNode,
-  Heading,
   List,
   ListItem,
   Table,
@@ -48,7 +47,7 @@ import type {
   Image,
   FootnoteRef,
   CrossRef,
-  Bookmark as BookmarkNode,
+  Anchor,
   HardBreak,
   Tab,
   Field,
@@ -57,7 +56,7 @@ import type {
 import type { ComputedStyle, NumberingDefinition, StyleResolver } from "../../types/styled.ts";
 import type { Diagnostic } from "../../types/diagnostics.ts";
 import type { SourceLocation } from "../../types/source-location.ts";
-import { toRunOptions, toParagraphOptions, toHeadingLevel } from "./styles.ts";
+import { toRunOptions, toParagraphOptions } from "./styles.ts";
 import { getNumberingReference } from "./numbering.ts";
 import { emitTable } from "./tables.ts";
 import { bookmarkSafeName } from "../../shared/bookmarks.ts";
@@ -120,8 +119,6 @@ export function emitBlock(block: Block, ctx: EmitContext): DocxBlock[] {
   switch (block.type) {
     case "Paragraph":
       return emitParagraph(block, ctx);
-    case "Heading":
-      return emitHeading(block, ctx);
     case "List":
       return emitList(block, ctx);
     case "Table":
@@ -138,6 +135,8 @@ export function emitBlock(block: Block, ctx: EmitContext): DocxBlock[] {
       return emitHorizontalRule();
     case "Footnote":
       return emitFootnote(block, ctx);
+    case "Anchor":
+      return emitAnchor(block, ctx);
     default:
       const _exhaustive: never = block;
       throw new Error(`Unknown block type: ${(block as Block).type}`);
@@ -159,34 +158,6 @@ function emitParagraph(node: ParagraphNode, ctx: EmitContext): DocxBlock[] {
     new Paragraph({
       ...toParagraphOptions(style),
       children,
-    }),
-  ];
-}
-
-function emitHeading(node: Heading, ctx: EmitContext): DocxBlock[] {
-  const style = resolveNodeStyle(node.style, ctx);
-  const inlineChildren = emitInlines(node.content, ctx, style);
-  
-  // Register bookmark if anchor is specified
-  if (node.anchor) {
-    const anchorId = bookmarkSafeName(node.anchor);
-    ctx.bookmarks.add(anchorId);
-    // For bookmarks, wrap inline content in a Bookmark
-    // docx Bookmark wraps content, so we pass children to it
-    return [
-      new Paragraph({
-        ...toParagraphOptions(style),
-        heading: toHeadingLevel(node.level),
-        children: [new Bookmark({ id: anchorId, children: inlineChildren })],
-      }),
-    ];
-  }
-  
-  return [
-    new Paragraph({
-      ...toParagraphOptions(style),
-      heading: toHeadingLevel(node.level),
-      children: inlineChildren,
     }),
   ];
 }
@@ -433,8 +404,6 @@ export function emitInline(node: Inline, ctx: EmitContext, parentStyle: Computed
       return emitFootnoteRef(node, ctx);
     case "CrossRef":
       return emitCrossRef(node, ctx, parentStyle);
-    case "Bookmark":
-      return emitBookmark(node, ctx);
     case "HardBreak":
       return emitHardBreak();
     case "Tab":
@@ -563,19 +532,16 @@ function emitFootnoteRef(node: FootnoteRef, ctx: EmitContext): (TextRun | Footno
   return [new FootnoteReferenceRun(id)];
 }
 
-function emitCrossRef(node: CrossRef, ctx: EmitContext, parentStyle: ComputedStyle): (TextRun | InternalHyperlink)[] {
+function emitCrossRef(node: CrossRef, ctx: EmitContext, _parentStyle: ComputedStyle): (TextRun | InternalHyperlink)[] {
   const anchorId = bookmarkSafeName(node.target);
   
+  // Defense-in-depth: binder warns about missing targets (B009),
+  // but if the document still reaches emit, fall back to plain text
+  // instead of emitting a dead hyperlink.
   if (!ctx.bookmarks.has(anchorId)) {
-    ctx.diagnostics.push({
-      severity: "warning",
-      code: "E003",
-      message: `Cross-reference target not found: ${node.target}`,
-      location: node.loc ?? SYNTHETIC_LOC,
-    });
     return [new TextRun({ text: node.text ?? node.target, italics: true })];
   }
-  
+
   return [
     new InternalHyperlink({
       anchor: anchorId,
@@ -584,11 +550,13 @@ function emitCrossRef(node: CrossRef, ctx: EmitContext, parentStyle: ComputedSty
   ];
 }
 
-function emitBookmark(node: BookmarkNode, ctx: EmitContext): Bookmark[] {
-  const anchorId = bookmarkSafeName(node.name);
+function emitAnchor(node: Anchor, ctx: EmitContext): DocxBlock[] {
+  const anchorId = bookmarkSafeName(node.id);
   ctx.bookmarks.add(anchorId);
-  // Emit a zero-width bookmark (start + end markers with no visible content)
-  return [new Bookmark({ id: anchorId, children: [] })];
+  // Emit an empty paragraph containing only a zero-width bookmark
+  return [new Paragraph({
+    children: [new Bookmark({ id: anchorId, children: [] })],
+  })];
 }
 
 function emitHardBreak(): TextRun[] {

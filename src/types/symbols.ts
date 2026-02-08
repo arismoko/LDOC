@@ -3,7 +3,6 @@
  * 
  * Output of the BIND phase:
  * - Symbol table with all @def bindings indexed
- * - Style table with all @style definitions indexed
  * - Bound AST where references are linked to their definitions
  */
 
@@ -18,8 +17,6 @@ import type { Diagnostic } from "./diagnostics.ts";
 export interface SymbolTable {
   /** All @def bindings (Spec §9) */
   defs: Map<string, DefSymbol>;
-  /** All style definitions */
-  styles: Map<string, StyleSymbol>;
   /** All anchor definitions (for cross-references) */
   anchors: Map<string, AnchorSymbol>;
 }
@@ -38,17 +35,6 @@ export interface DefSymbol {
   usages: SourceLocation[];
 }
 
-export interface StyleSymbol {
-  name: string;
-  /** Style properties */
-  properties: Record<string, unknown>;
-  /** Parent style (for inheritance) */
-  extends?: string;
-  /** Where the style was defined */
-  definedAt: SourceLocation;
-  usages: SourceLocation[];
-}
-
 export interface AnchorSymbol {
   name: string;
   definedAt: SourceLocation;
@@ -58,17 +44,6 @@ export interface AnchorSymbol {
 // =============================================================================
 // Bound AST Nodes
 // =============================================================================
-
-/**
- * A style reference with its symbol resolved.
- */
-export interface BoundStyleRef {
-  type: "BoundStyleRef";
-  symbol: StyleSymbol | null; // null if inline-only style
-  /** Inline overrides */
-  overrides: Record<string, unknown>[];
-  loc: SourceLocation;
-}
 
 /**
  * A cross-reference with its target resolved.
@@ -87,8 +62,8 @@ export interface BoundCrossRef {
 export interface BindResult {
   /** The original CST (unmodified) */
   cst: Document;
-  /** Symbol table with all definitions */
-  symbols: SymbolTable;
+  /** Frozen symbol table — immutable after bind phase */
+  symbols: Readonly<SymbolTable>;
   /** Binding diagnostics (undefined refs, cycles, etc.) */
   diagnostics: Diagnostic[];
 }
@@ -100,7 +75,57 @@ export interface BindResult {
 export function createSymbolTable(): SymbolTable {
   return {
     defs: new Map(),
-    styles: new Map(),
     anchors: new Map(),
   };
+}
+
+/**
+ * Freeze a symbol table so downstream phases cannot mutate it.
+ *
+ * Maps are sealed by replacing mutating methods (`set`, `delete`, `clear`)
+ * with throwing stubs. The table object itself is frozen.
+ */
+export function freezeSymbolTable(symbols: SymbolTable): Readonly<SymbolTable> {
+  for (const symbol of symbols.defs.values()) {
+    Object.freeze(symbol.usages);
+    deepFreeze(symbol.value);
+    Object.freeze(symbol);
+  }
+  for (const symbol of symbols.anchors.values()) {
+    Object.freeze(symbol.usages);
+    Object.freeze(symbol);
+  }
+  freezeMap(symbols.defs);
+  freezeMap(symbols.anchors);
+  return Object.freeze(symbols);
+}
+
+function freezeMap<K, V>(map: Map<K, V>): void {
+  const name = "SymbolTable";
+  map.set = () => { throw new Error(`Cannot mutate frozen ${name}`); };
+  map.delete = () => { throw new Error(`Cannot mutate frozen ${name}`); };
+  map.clear = () => { throw new Error(`Cannot mutate frozen ${name}`); };
+}
+
+/**
+ * Recursively freeze a value and all nested objects/arrays.
+ * Primitives and already-frozen values are no-ops.
+ */
+function deepFreeze(value: unknown): void {
+  if (value === null || value === undefined || typeof value !== "object") {
+    return;
+  }
+  if (Object.isFrozen(value)) {
+    return;
+  }
+  Object.freeze(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      deepFreeze(item);
+    }
+  } else {
+    for (const v of Object.values(value as Record<string, unknown>)) {
+      deepFreeze(v);
+    }
+  }
 }

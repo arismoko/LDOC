@@ -58,28 +58,42 @@ Fixed all spec promises that failed silently — compiler accepted input, did no
 
 ---
 
-# 4. PR: Architectural Debt Purge
+# 4. PR: Architectural Debt Purge — DONE (merged to `main`)
 
-**Branch**: `refactor/architectural-debt`
-**Plan**: `PRESCRIPTION.md` (9-step commit plan, success criteria, risk assessment)
-**Audit**: `REVIEW.md` (oracle findings for 7 issues)
-**Spec changes**: `LDOC-V3-SPEC.md` §15.3 (footnotes), §18 (architecture invariants), §18.2 (conformance)
+**Branch**: `refactor/architectural-debt` — 20 commits, 6 review rounds (Codex + oracle)
+**Plan**: `PRESCRIPTION.md` | **Audit**: `REVIEW.md` | **Spec**: `LDOC-V3-SPEC.md` §15.3, §18, §18.2
 
-Full architectural audit landed 7 issues covering every compiler phase. Evaluator modularization promoted to Step 3 so subsequent changes (anchor IR, @lua, dead code) target isolated handler files instead of repeatedly patching a 1,227-line monolith.
+Full architectural audit covering every compiler phase. Evaluator split from 1,227-line monolith into per-directive handlers. 9 prescription steps + 6 review fix rounds.
 
-### Implementation order (see PRESCRIPTION.md for full details)
+### What changed
 
-1. Parse args once → CST nodes
-2. Remove downstream args re-parsing
-3. **Evaluator modularization** (handler/registry/per-directive files)
-4. Binder anchors + ref validation + remove hollow `SymbolTable.styles`
-5. Anchor IR → block `Anchor`, remove inline `Bookmark`
-6. `@lua` raw-body parsing (balanced brace scanner)
-7. SOL list marker gating
-8. Dead code purge (CST `Include`, IR `Heading`)
-9. Phase boundary hardening
+**Parse phase**:
+- Args parsed once into CST nodes; downstream re-parsing removed.
+- `@lua{...}` raw-body via balanced brace scanner; `@lua[...]` sugar rejected (P005).
+- SOL list marker gating; mid-line stacked `@@` preserved as text.
+- Raw-body token sync uses precomputed line-start offsets (linear).
+- Tagged union for `ParseArgsResult` (fixes `@foo(ok: false)` false-positive).
+- Diagnostic locations rebased to source coordinates for args spans.
 
-**Done when**: All 10 success criteria in `PRESCRIPTION.md` are met (109+ tests, 0 type errors, all architectural invariants enforced).
+**Bind phase**:
+- Evaluator modularized into handler registry + per-directive files.
+- `@anchor`/`@ref` validation with cross-file resolution via `parsedDocuments`.
+- `@params` arity validation at bind time via `includeEdges` (§16).
+- Duplicate anchor detection per include site (not per unique file).
+- `BinderOptions` flags for selective validation.
+- `deepFreeze` on symbol table; `structuredClone` for runtime defs (§18.1.1).
+- Shared helpers in `src/shared/include-params.ts` (DRY with evaluator).
+
+**IR / Types**:
+- Anchors modeled as block `Anchor` nodes; inline `Bookmark` removed.
+- Dead CST surfaces removed (Table, TableRow, LayoutDirective, Include, IR Heading).
+- Dead style-cycle branch and `STYLE_CYCLE` diagnostic removed.
+- `Object.create(null)` in args parser (prototype safety).
+- All bare diagnostic code strings replaced with `DiagnosticCode.X` constants.
+
+**Phase boundaries**: Hardened parse → bind → evaluate contracts. Dead code across all phases purged.
+
+**Final stats**: 162 tests, 374 expect() calls, 0 type errors.
 
 ---
 

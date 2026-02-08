@@ -10,6 +10,7 @@ import type {
   Document,
   Directive,
   StructuralBody,
+  RawBody,
   ParagraphBlock,
   ListItemMarker,
   InlineDirective,
@@ -19,6 +20,8 @@ import type {
 import type { Diagnostic } from "../types/diagnostics.ts";
 import { error, warning, DiagnosticCode } from "../types/diagnostics.ts";
 import { loc } from "../types/source-location.ts";
+import { parseArgsObject, type ArgsObject } from "../shared/args.ts";
+import { getDirectiveContract } from "../bind/contracts.ts";
 
 /**
  * Current parsing context.
@@ -27,18 +30,37 @@ interface ParseContext {
   tokens: Token[];
   pos: number;
   diagnostics: Diagnostic[];
+  /** Original source text — needed for raw body extraction (Spec §7.2) */
+  source: string;
   /** EOF-close recovery flag */
   incomplete?: boolean;
 }
 
 /**
+ * Parse raw args string into structured ArgsObject.
+ * Strips parens, wraps in braces for JSON5 parsing (Spec §6.1).
+ * On failure: emits a diagnostic, returns empty object (Spec §6.4 recovery).
+ */
+function parseArgsToObject(argsRaw: string, location: ReturnType<typeof loc>, diagnostics: Diagnostic[]): ArgsObject {
+  const inner = argsRaw.slice(1, -1); // strip parens
+  const wrapped = `{${inner}}`;
+  const result = parseArgsObject(wrapped, location);
+  if (!result.ok) {
+    diagnostics.push(result.error);
+    return {};
+  }
+  return result.value;
+}
+
+/**
  * Main parsing function.
  */
-export function parseSource(tokens: Token[]): ParseResult {
+export function parseSource(tokens: Token[], source: string): ParseResult {
   const ctx: ParseContext = {
     tokens,
     pos: 0,
     diagnostics: [],
+    source,
   };
 
   const cst = parseDocument(ctx);
@@ -201,7 +223,8 @@ function parseDirective(ctx: ParseContext): Directive | null {
   ctx.pos++;
 
   let argsRaw: string | undefined;
-  let body: StructuralBody | undefined;
+  let args: ArgsObject | undefined;
+  let body: StructuralBody | RawBody | undefined;
 
   // Skip whitespace between name and args/body (Spec §5.1)
   skipWhitespaceText(ctx);
@@ -210,12 +233,28 @@ function parseDirective(ctx: ParseContext): Directive | null {
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
+    args = parseArgsToObject(argsRaw, loc(nextToken.line, nextToken.column), ctx.diagnostics);
     skipWhitespaceText(ctx);
   }
+
+  // Look up directive contract once for body-syntax decisions
+  const contract = getDirectiveContract(name);
 
   // Parse body if present and it's a structural opener
   const bodyToken = peekToken(ctx);
   if (bodyToken && bodyToken.type === TokenType.LBRACE) {
+    // Check if this directive uses raw body syntax (e.g. @lua — Spec §7.2)
+    if (contract?.bodySyntax === "raw") {
+      const rawBody = parseRawBody(ctx, contract.rawFormat ?? "lua");
+      return {
+        kind: "Directive",
+        loc: loc(startToken.line, startToken.column),
+        name,
+        argsRaw,
+        args,
+        body: rawBody ?? undefined,
+      };
+    }
     body = parseStructuralBody(ctx) ?? undefined;
     skipWhitespaceText(ctx);
   }
@@ -223,6 +262,25 @@ function parseDirective(ctx: ParseContext): Directive | null {
   // Sugar form @name[...]
   const paraToken = peekToken(ctx);
   if (paraToken && paraToken.type === TokenType.PARA_OPEN) {
+    // Raw-body directives must use brace syntax — paragraph sugar is invalid (Spec §7.2)
+    if (contract?.bodySyntax === "raw") {
+      ctx.diagnostics.push(
+        warning(
+          DiagnosticCode.INVALID_DIRECTIVE,
+          `@${name} requires brace syntax {...}, not paragraph sugar [...]`,
+          loc(startToken.line, startToken.column),
+        ),
+      );
+      // Skip the paragraph block to avoid misinterpreting raw content
+      parseParagraphBlock(ctx);
+      return {
+        kind: "Directive",
+        loc: loc(startToken.line, startToken.column),
+        name,
+        argsRaw,
+        args,
+      };
+    }
     const para = parseParagraphBlock(ctx);
     if (para) {
       return {
@@ -230,6 +288,7 @@ function parseDirective(ctx: ParseContext): Directive | null {
         loc: loc(startToken.line, startToken.column),
         name,
         argsRaw,
+        args,
         body: {
           kind: "StructuralBody",
           loc: loc(startToken.line, startToken.column),
@@ -244,6 +303,7 @@ function parseDirective(ctx: ParseContext): Directive | null {
     loc: loc(startToken.line, startToken.column),
     name,
     argsRaw,
+    args,
     body,
   };
 }
@@ -327,6 +387,225 @@ function parseStructuralBody(ctx: ParseContext): StructuralBody | null {
 }
 
 /**
+ * Precompute line start offsets for O(1) line/column -> absolute offset lookup.
+ * Lines are 1-based, columns are 0-based (matching lexer convention).
+ */
+function buildLineStartOffsets(source: string): number[] {
+  const lineStarts = [0];
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] === "\n") {
+      lineStarts.push(i + 1);
+    }
+  }
+  return lineStarts;
+}
+
+function sourceOffset(
+  source: string,
+  lineStarts: number[],
+  line: number,
+  column: number,
+): number {
+  if (line <= 0) {
+    return column;
+  }
+  const start = lineStarts[line - 1];
+  if (start === undefined) {
+    return source.length + column;
+  }
+  return start + column;
+}
+
+/**
+ * Parse a raw body for directives like @lua (Spec §7.2).
+ *
+ * Scans the source text with balanced brace counting that respects
+ * Lua strings (single, double, long brackets) and comments (line, long).
+ * This ensures nested {} in Lua tables/code don't prematurely end the block.
+ *
+ * After extracting the raw text, advances ctx.pos past all tokens that
+ * fall within the raw body range.
+ */
+function parseRawBody(ctx: ParseContext, format: "lua"): RawBody | null {
+  const startToken = peekToken(ctx);
+  if (!startToken || startToken.type !== TokenType.LBRACE) return null;
+
+  const startLoc = loc(startToken.line, startToken.column);
+  const source = ctx.source;
+  const lineStarts = buildLineStartOffsets(source);
+
+  // Find the absolute offset of the opening brace in source
+  const openOffset = sourceOffset(source, lineStarts, startToken.line, startToken.column);
+
+  // Scan source from after the opening brace with Lua-aware balanced brace counting
+  let depth = 1;
+  let i = openOffset + 1; // skip the opening {
+  const len = source.length;
+
+  while (i < len && depth > 0) {
+    const ch = source[i]!;
+
+    // Lua single-line comment: -- (may start long comment --[[ or --[=[ )
+    if (ch === "-" && i + 1 < len && source[i + 1] === "-") {
+      i += 2;
+      // Check for long comment: --[=*[
+      const longLevel = scanLongBracketOpen(source, i);
+      if (longLevel >= 0) {
+        i = skipLongString(source, i, longLevel);
+      } else {
+        // Single-line comment: skip to end of line
+        while (i < len && source[i] !== "\n") i++;
+      }
+      continue;
+    }
+
+    // Lua long string: [=*[
+    if (ch === "[") {
+      const longLevel = scanLongBracketOpen(source, i);
+      if (longLevel >= 0) {
+        i = skipLongString(source, i, longLevel);
+        continue;
+      }
+    }
+
+    // Lua single-quoted string
+    if (ch === "'") {
+      i = skipLuaShortString(source, i, "'");
+      continue;
+    }
+
+    // Lua double-quoted string
+    if (ch === '"') {
+      i = skipLuaShortString(source, i, '"');
+      continue;
+    }
+
+    // Brace counting (only in code context)
+    if (ch === "{") {
+      depth++;
+      i++;
+      continue;
+    }
+
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        // Found the matching close brace
+        const rawText = source.slice(openOffset + 1, i);
+
+        // Advance ctx.pos past all tokens within this range
+        ctx.pos++; // skip the opening LBRACE token
+        while (ctx.pos < ctx.tokens.length) {
+          const tok = ctx.tokens[ctx.pos]!;
+          const tokOffset = sourceOffset(source, lineStarts, tok.line, tok.column);
+          // Stop at any token at or beyond the closing brace offset
+          if (tokOffset >= i) {
+            // Exact match: consume the closing RBRACE token
+            if (tok.type === TokenType.RBRACE && tokOffset === i) {
+              ctx.pos++;
+            }
+            break;
+          }
+          ctx.pos++;
+        }
+
+        return {
+          kind: "RawBody",
+          format,
+          text: rawText,
+          loc: startLoc,
+        };
+      }
+      i++;
+      continue;
+    }
+
+    i++;
+  }
+
+  // Unterminated — EOF-close recovery
+  ctx.pos++; // skip the opening LBRACE token
+  // Advance past all remaining tokens
+  while (ctx.pos < ctx.tokens.length) {
+    const tok = ctx.tokens[ctx.pos]!;
+    if (tok.type === TokenType.EOF) break;
+    ctx.pos++;
+  }
+
+  ctx.incomplete = true;
+  ctx.diagnostics.push(
+    error(
+      DiagnosticCode.UNCLOSED_DELIMITER,
+      `Unterminated raw body at line ${startLoc.line}`,
+      startLoc
+    )
+  );
+
+  return {
+    kind: "RawBody",
+    format,
+    text: source.slice(openOffset + 1),
+    loc: startLoc,
+  };
+}
+
+/**
+ * Check if source at position `i` starts a Lua long bracket opening: [=*[
+ * Returns the level (number of = signs, 0 for [[) or -1 if not a long bracket.
+ */
+function scanLongBracketOpen(source: string, i: number): number {
+  if (i >= source.length || source[i] !== "[") return -1;
+  let j = i + 1;
+  let level = 0;
+  while (j < source.length && source[j] === "=") {
+    level++;
+    j++;
+  }
+  if (j < source.length && source[j] === "[") {
+    return level;
+  }
+  return -1;
+}
+
+/**
+ * Skip past a Lua long string/comment body.
+ * `i` points to the opening `[` of `[=*[`.
+ * Returns position after the closing `]=*]`.
+ */
+function skipLongString(source: string, i: number, level: number): number {
+  // Skip past the opening [=*[
+  i += 2 + level; // [ + =*level + [
+  const closer = "]" + "=".repeat(level) + "]";
+  const end = source.indexOf(closer, i);
+  if (end === -1) return source.length; // unterminated — skip to EOF
+  return end + closer.length;
+}
+
+/**
+ * Skip past a Lua short string (single or double quoted).
+ * `i` points to the opening quote.
+ * Returns position after the closing quote.
+ */
+function skipLuaShortString(source: string, i: number, quote: string): number {
+  i++; // skip opening quote
+  while (i < source.length) {
+    if (source[i] === "\\") {
+      i += 2; // skip escape sequence
+      continue;
+    }
+    if (source[i] === quote) {
+      return i + 1; // skip closing quote
+    }
+    if (source[i] === "\n") {
+      // Lua short strings don't span lines (unless escaped with \)
+      return i; // unterminated — stop at newline
+    }
+    i++;
+  }
+  return i; // unterminated — hit EOF
+}
+
+/**
  * Parse a list marker: @- or @# with optional body.
  */
 function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
@@ -338,6 +617,7 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
   ctx.pos++;
 
   let argsRaw: string | undefined;
+  let args: ArgsObject | undefined;
   let body: StructuralBody | undefined;
 
   // Skip whitespace between marker and args/body (Spec §5.1)
@@ -347,6 +627,7 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
+    args = parseArgsToObject(argsRaw, loc(nextToken.line, nextToken.column), ctx.diagnostics);
     skipWhitespaceText(ctx);
   }
 
@@ -376,6 +657,7 @@ function parseListItemMarker(ctx: ParseContext): ListItemMarker | null {
     ordered,
     depth,
     argsRaw,
+    args,
     body,
   };
 }
@@ -602,6 +884,7 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
   ctx.pos++; // consume DIRECTIVE
 
   let argsRaw: string | undefined;
+  let args: ArgsObject | undefined;
   let body: any[] | undefined;
 
   // Skip whitespace between name and args/body only if followed by a delimiter (Spec §5.1).
@@ -612,6 +895,7 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
   const nextToken = peekToken(ctx);
   if (nextToken && nextToken.type === TokenType.LPAREN) {
     argsRaw = parseArgs(ctx);
+    args = parseArgsToObject(argsRaw, loc(nextToken.line, nextToken.column), ctx.diagnostics);
     skipWhitespaceBeforeDelimiter(ctx, TokenType.LBRACE);
   }
 
@@ -715,6 +999,7 @@ function parseInlineDirective(ctx: ParseContext): InlineDirective | null {
     loc: startLoc,
     name,
     argsRaw,
+    args,
     body,
   };
 }

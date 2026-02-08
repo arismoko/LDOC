@@ -27,6 +27,10 @@ export interface DirectiveContract {
   hasArgs: "required" | "optional" | "none";
   /** Whether this directive accepts a body {...} or [...] */
   hasBody: "required" | "optional" | "none";
+  /** How the body should be parsed: "structural" (default) or "raw" (Spec §7.2) */
+  bodySyntax?: "structural" | "raw";
+  /** Raw body format hint (e.g. "lua") — only meaningful when bodySyntax is "raw" */
+  rawFormat?: "lua";
   /** If set, this directive may only appear as a child of the given parent */
   parentDirective?: string;
   /** If set, this directive may appear as a child of any listed parent */
@@ -73,6 +77,8 @@ const DIRECTIVES: DirectiveContract[] = [
     allowedIn: ["top", "structural"],
     hasArgs: "none",
     hasBody: "required",
+    bodySyntax: "raw",
+    rawFormat: "lua",
   },
 
   // Layout directives (Spec §13)

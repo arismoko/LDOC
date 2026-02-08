@@ -9,7 +9,7 @@ import { Document, Packer, Paragraph, Footer, Header } from "docx";
 import type { IPropertiesOptions, ISectionOptions, Table, IStylesOptions } from "docx";
 
 import type { StyledDocument, NumberingDefinition } from "../../types/styled.ts";
-import type { Block, Inline, Document as DocIR, Section, HeaderFooter } from "../../types/document-ir.ts";
+import type { Block, Document as DocIR, Section, HeaderFooter } from "../../types/document-ir.ts";
 import type { Diagnostic } from "../../types/diagnostics.ts";
 
 import { createNumberingConfig, ensureDefaultNumberingDefs } from "./numbering.ts";
@@ -124,31 +124,12 @@ function createEmitContext(
 /**
  * First pass: collect all bookmark/anchor names.
  * This allows cross-references to work even if target appears after reference.
- * Scans both heading anchors and inline Bookmark nodes (from @anchor directives).
+ * Scans Anchor block nodes (from @anchor directives).
  */
 function collectBookmarks(doc: DocIR, ctx: EmitContext): void {
-  function visitInline(inline: Inline): void {
-    if (inline.type === "Bookmark") {
-      ctx.bookmarks.add(bookmarkSafeName(inline.name));
-    }
-    // Recurse into inline containers
-    if ("content" in inline && Array.isArray(inline.content)) {
-      for (const child of inline.content as Inline[]) {
-        visitInline(child);
-      }
-    }
-  }
-
   function visitBlock(block: Block): void {
-    if (block.type === "Heading" && block.anchor) {
-      ctx.bookmarks.add(bookmarkSafeName(block.anchor));
-    }
-
-    // Scan inline content for Bookmark nodes
-    if (block.type === "Paragraph" || block.type === "Heading") {
-      for (const inline of block.content) {
-        visitInline(inline);
-      }
+    if (block.type === "Anchor") {
+      ctx.bookmarks.add(bookmarkSafeName(block.id));
     }
     
     // Recurse into nested structures
@@ -159,9 +140,6 @@ function collectBookmarks(doc: DocIR, ctx: EmitContext): void {
     }
     if (block.type === "List") {
       for (const item of block.items) {
-        for (const inline of item.content) {
-          visitInline(inline);
-        }
         for (const child of item.children) {
           visitBlock(child);
         }
@@ -343,6 +321,6 @@ function compileFootnotes(ctx: EmitContext): Record<number, { children: Paragrap
 // =============================================================================
 
 export { createNumberingConfig } from "./numbering.ts";
-export { toRunOptions, toParagraphOptions, toHeadingLevel } from "./styles.ts";
+export { toRunOptions, toParagraphOptions } from "./styles.ts";
 export { emitBlock, emitBlocks, emitInline, emitInlines } from "./nodes.ts";
 export type { EmitContext, DocxBlock } from "./nodes.ts";

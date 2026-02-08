@@ -5,12 +5,7 @@
 import type { Position, Location } from "vscode-languageserver";
 import type { Block, Document, Directive } from "../types/cst.ts";
 import type { SymbolTable } from "../types/symbols.ts";
-import { parseArgsObject } from "../shared/args.ts";
 import { positionInLocation, sourceLocationToRange } from "./position.ts";
-
-function isArgsParseError(value: ReturnType<typeof parseArgsObject>): value is { ok: false } {
-  return "ok" in value && value.ok === false;
-}
 
 /**
  * Context for navigation operations.
@@ -24,7 +19,7 @@ export interface NavigationContext {
 function walkBlock(block: Block, visit: (node: Block) => void): void {
   visit(block);
 
-  if (block.kind === "Directive" && block.body) {
+  if (block.kind === "Directive" && block.body && block.body.kind === "StructuralBody") {
     for (const child of block.body.children) {
       walkBlock(child, visit);
     }
@@ -86,23 +81,15 @@ function definitionLocation(uri: string, name: string, symbols: SymbolTable): Lo
   };
 }
 
-function extractDefReferencesFromArgs(argsRaw: string | undefined, loc: Directive["loc"]): string[] {
-  if (!argsRaw) {
+function extractDefReferencesFromArgs(directive: Directive): string[] {
+  if (!directive.args) {
     return [];
   }
-
-  const parsed = parseArgsObject(`{${argsRaw.slice(1, -1)}}`, loc);
-  if (isArgsParseError(parsed)) {
-    return [];
-  }
-
-  const args = parsed;
-
-  return typeof args.ref === "string" ? [args.ref] : [];
+  return typeof directive.args.ref === "string" ? [directive.args.ref] : [];
 }
 
 function directiveReferencesDef(directive: Directive, symbolName: string): boolean {
-  const refs = extractDefReferencesFromArgs(directive.argsRaw, directive.loc);
+  const refs = extractDefReferencesFromArgs(directive);
   return refs.some((ref) => ref === symbolName);
 }
 
@@ -131,7 +118,7 @@ function findSymbolAtPosition(ctx: NavigationContext, pos: Position): string | n
     return null;
   }
 
-  const refs = extractDefReferencesFromArgs(node.argsRaw, node.loc);
+  const refs = extractDefReferencesFromArgs(node);
   for (const ref of refs) {
     if (ctx.symbols.defs.has(ref)) {
       return ref;
@@ -179,7 +166,7 @@ export function getDefinition(
   }
 
   if (node.kind === "Directive") {
-    const refs = extractDefReferencesFromArgs(node.argsRaw, node.loc);
+    const refs = extractDefReferencesFromArgs(node);
     for (const ref of refs) {
       const location = definitionLocation(ctx.uri, ref, ctx.symbols);
       if (location) {
