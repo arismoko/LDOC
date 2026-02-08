@@ -59,6 +59,8 @@ export const DiagnosticCode = {
   UNUSED_MACRO: "B011",
   UNUSED_FOOTNOTE: "B012",
   UNUSED_STYLE: "B013",
+  MALFORMED_INCLUDE_PARAM_TYPE: "B014",
+  INCLUDE_PARAM_TYPE_MISMATCH: "B015",
   
   // Evaluation errors (E***)
   CONDITION_ERROR: "E001",

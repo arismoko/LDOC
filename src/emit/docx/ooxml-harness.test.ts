@@ -286,6 +286,42 @@ describe("ooxml harness", () => {
     expect(docXml).toContain('w:w="144"');
   });
 
+  test("header/footer variants emit first/even references and settings", async () => {
+    const source = `@header{ @left[Default header] }
+@header(variant: "first"){ @left[First header] }
+@header(variant: "even"){ @left[Even header] }
+@footer(variant: "even"){ @center[Even footer] }
+[Body]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    expect(docXml).toContain('w:headerReference w:type="default"');
+    expect(docXml).toContain('w:headerReference w:type="first"');
+    expect(docXml).toContain('w:headerReference w:type="even"');
+    expect(docXml).toContain('w:footerReference w:type="even"');
+
+    const settingsXml = await pkg.readPart("word/settings.xml");
+    expect(settingsXml).toContain("w:evenAndOddHeaders");
+  });
+
+  test("first-page header variant sets title page in section properties", async () => {
+    const source = `@header(variant: "first"){
+  @left[First header only]
+}
+[Body]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    expect(docXml).toContain("w:titlePg");
+    expect(docXml).toContain('w:headerReference w:type="first"');
+  });
+
   test("inline @footnote emits w:footnoteReference in document.xml", async () => {
     const source = `[Important point@footnote{This is the footnote.}.]
 `;

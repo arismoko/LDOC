@@ -120,56 +120,75 @@ Visual and formatting emission for real legal document output. Enabled by PR #4'
 
 ---
 
-# 6. PR: Footnotes end-to-end (spec parity)
+# 6. PR: Footnotes end-to-end (spec parity) — DONE (merged to `main`)
 
-**Branch**: `feat/footnotes-core`
+**Branch**: `feat/footnotes-core` — merged via PR #6
 
-Close the remaining v3 core gap for §15.3. The backend surface exists (`Footnote`/`FootnoteRef` IR + DOCX emit), but the language surface is not wired — `@footnote` has no contract, no handler, no LSP completion. Implement structural + inline footnotes with diagnostics/recovery and OOXML coverage.
+Closed §15.3 end-to-end:
 
-### A — `feat(bind): add @footnote directive contract and validation wiring`
+- Added `@footnote` directive contract + LSP completion.
+- Implemented structural and inline footnote handlers with deferred registration.
+- Stabilized DOCX footnote emission (ordering, include-boundary ordering, non-paragraph recovery diagnostics).
+- Added IR-level and OOXML-level regression coverage.
 
-`@footnote` must be recognized and validated like other core directives.
+**Final stats at merge**: 192 tests, 463 expect() calls, 0 type errors.
 
-- `src/bind/contracts.ts`: add `footnote` contract (structural + inline; body required; args: label).
-- `src/lsp/completion.ts`: add footnote completion detail/snippet.
+---
 
-**Done when**: `@footnote{...}` no longer emits unknown-directive diagnostics, and completion suggests `@footnote`.
+# 7. PR: Args-first deferred tranche (header/footer variants + typed include params)
 
-### B — `feat(evaluate): implement block and inline footnote handlers`
+**Branch**: `feat/args-first-deferred-tranche-1`
 
-Wire runtime behavior for both forms per §15.3.
+Apply an args-first rule to deferred items: extend existing directives instead of creating new directive names. Scope this PR to two high-ROI deferred features with tight tests.
 
-- Add `block-footnote.ts` and `inline-footnote.ts` handlers; register in `src/evaluate/registry.ts`.
-- Structural form (`@footnote(label: "x"){ ... }`) evaluates to footnote content; inline form (`@footnote[...]`) inserts `FootnoteRef` and registers body.
-- Missing-body inline form emits diagnostic and recovers.
+### A — `spec: formalize args-first surfaces for this tranche`
 
-**Done when**: `[Text@footnote{Note}.]` produces `FootnoteRef` + footnote content in IR.
+- `LDOC-V3-SPEC.md`: define
+  - `@header(variant: "default" | "first" | "even")`
+  - `@footer(variant: "default" | "first" | "even")`
+  - `@params(types: { key: "string|number|boolean|object|array[?]" })`
+- `SUGAR_BACKLOG.md`: mark `SG-001` active for this PR.
 
-### C — `fix(emit): finalize DOCX footnote emission and diagnostics consistency`
+**Done when**: spec and backlog clearly define accepted args, fallback behavior, and diagnostics for invalid values/types.
 
-Ensure collected footnotes are emitted deterministically.
+### B — `feat(evaluate+emit): wire header/footer variant args`
 
-- `src/emit/docx/nodes.ts` and `src/emit/docx/index.ts`: verify registration/order/id assignment.
-- Standardize diagnostic codes for undefined footnotes.
+- `src/bind/contracts.ts`: allow `variant` arg on `@header`/`@footer`.
+- `src/evaluate/directives/block-header-footer.ts`: route header/footer body to metadata slot (`default`/`first`/`even`) from `variant`.
+- `src/emit/docx/index.ts` and `src/emit/docx/sections.ts`: read and emit all configured slots (not only `default`).
 
-**Done when**: generated DOCX contains valid `footnotes.xml` entries with matching in-text references.
+**Done when**: variant-specific header/footer content is emitted to the correct DOCX references, with diagnostics for invalid `variant` or duplicate slot overwrites.
 
-### D — `test(pipeline): footnote spec-level coverage`
+### C — `feat(bind): enforce typed include params contracts (no coercion)`
 
-- `src/evaluate/layout.test.ts`: structural form, inline form, sugar form, missing body recovery.
-- `src/emit/docx/ooxml-harness.test.ts`: assert `w:footnoteReference` + footnote bodies in OOXML.
+- `src/bind/contracts.ts`: permit `types` on `@params`.
+- `src/shared/include-params.ts` + binder/validator wiring: validate include callsite args against child `@params(types: ...)` declarations.
+- `src/types/diagnostics.ts`: add explicit codes for malformed type literals and include arg type mismatch.
 
-**Done when**: tests prove §15.3 behavior; no silent footnote loss.
+**Done when**: include arg type mismatches produce source-located diagnostics; existing untyped `@params(names: [...])` behavior remains unchanged.
+
+### D — `test: add focused regression coverage`
+
+- `src/evaluate/layout.test.ts` + `src/emit/docx/ooxml-harness.test.ts`: default/first/even header/footer variant behavior.
+- `src/evaluate/include.test.ts` + binder tests: typed include params happy/mismatch/malformed cases.
+
+**Done when**: all new argument surfaces have positive + negative tests and no silent fallback behavior.
+
+**Explicit non-goals for PR #7**
+
+- No new directives for these capabilities (`@headerFirst`, `@paramType`, etc.).
+- No direct expression-valued args (`SG-002`) and no runtime coercion/casting.
+- No markdown sugar (`SG-003`/`SG-004`/`SG-005`) and no control-flow directives (`@if`, `@for`).
 
 ---
 
 ## Deferred (not in v3 core path)
 
-- Typed include params (`SG-001`, partial: arity validation shipped in PR #4; type annotations/coercion deferred)
+- Typed include params (`SG-001`, partial: arity validation shipped in PR #4; type annotations now scheduled in PR #7)
 - Direct expression args (`SG-002`)
 - Markdown emphasis sugar (`SG-004`)
 - Table of contents generation
-- Section-specific header/footer variants (first page, odd/even)
+- Section-specific header/footer variants (first/even via `variant` arg now scheduled in PR #7)
 - Images/logo embedding API
 - Watermarks and background text
 - Defined-terms system (first occurrence styling)

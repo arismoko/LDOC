@@ -126,12 +126,12 @@ const DIRECTIVE_INFO: Record<string, DirectiveInfo> = {
   header: {
     kind: CompletionItemKind.Keyword,
     detail: "Page header",
-    snippet: "@header{\n  @left[$1]\n}",
+    snippet: "@header(variant: \"${1|default,first,even|}\"){\n  @left[$0]\n}",
   },
   footer: {
     kind: CompletionItemKind.Keyword,
     detail: "Page footer",
-    snippet: "@footer{\n  @center[$1]\n}",
+    snippet: "@footer(variant: \"${1|default,first,even|}\"){\n  @center[$0]\n}",
   },
   anchor: { kind: CompletionItemKind.Reference, detail: "Cross-reference anchor" },
   footnote: { kind: CompletionItemKind.Reference, detail: "Footnote", snippet: "@footnote{$1}" },
@@ -142,7 +142,11 @@ const DIRECTIVE_INFO: Record<string, DirectiveInfo> = {
   },
   box: { kind: CompletionItemKind.Keyword, detail: "Box block" },
   align: { kind: CompletionItemKind.Keyword, detail: "Alignment block" },
-  params: { kind: CompletionItemKind.Keyword, detail: "Declare include parameters" },
+  params: {
+    kind: CompletionItemKind.Keyword,
+    detail: "Declare include parameters",
+    snippet: "@params(names: [\"${1:name}\"], types: { ${1:name}: \"${2|string,number,boolean,object,array,string?,number?,boolean?,object?,array?|}\" })",
+  },
   row: { kind: CompletionItemKind.Keyword, detail: "Table row" },
   left: { kind: CompletionItemKind.Keyword, detail: "Header/footer left region" },
   center: { kind: CompletionItemKind.Keyword, detail: "Header/footer center region" },
