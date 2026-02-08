@@ -534,4 +534,101 @@ describe("layout evaluation", () => {
       expect(firstCell?.rowspan).toBe(3);
     }
   });
+
+  test("inline @footnote{...} creates FootnoteRef inline and deferred Footnote block", async () => {
+    const source = `[Important point@footnote{This is the footnote text.}.]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    // First block: paragraph with FootnoteRef inline
+    const para = document.blocks[0];
+    expect(para?.type).toBe("Paragraph");
+    if (para?.type === "Paragraph") {
+      const fnRef = para.content.find((n) => n.type === "FootnoteRef");
+      expect(fnRef).toBeDefined();
+      if (fnRef?.type === "FootnoteRef") {
+        expect(fnRef.label).toBeDefined();
+      }
+    }
+
+    // Deferred Footnote block should appear after body blocks
+    const footnote = document.blocks.find((b) => b.type === "Footnote");
+    expect(footnote).toBeDefined();
+    if (footnote?.type === "Footnote") {
+      // Footnote content should be a paragraph with the footnote text
+      expect(footnote.content.length).toBeGreaterThanOrEqual(1);
+      const fnPara = footnote.content[0];
+      expect(fnPara?.type).toBe("Paragraph");
+      if (fnPara?.type === "Paragraph") {
+        expect(paragraphText(fnPara)).toBe("This is the footnote text.");
+      }
+    }
+  });
+
+  test("inline sugar @footnote[...] creates FootnoteRef and deferred Footnote", async () => {
+    const source = `[See @footnote[Inline footnote text].]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const para = document.blocks[0];
+    expect(para?.type).toBe("Paragraph");
+    if (para?.type === "Paragraph") {
+      const fnRef = para.content.find((n) => n.type === "FootnoteRef");
+      expect(fnRef).toBeDefined();
+    }
+
+    const footnote = document.blocks.find((b) => b.type === "Footnote");
+    expect(footnote).toBeDefined();
+    if (footnote?.type === "Footnote") {
+      const fnPara = footnote.content[0];
+      expect(fnPara?.type).toBe("Paragraph");
+      if (fnPara?.type === "Paragraph") {
+        expect(paragraphText(fnPara)).toBe("Inline footnote text");
+      }
+    }
+  });
+
+  test("inline @footnote without body emits diagnostic and no FootnoteRef", async () => {
+    const source = `[Text @footnote here.]
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+
+    // Should produce a diagnostic about requiring a body
+    expect(diagnostics.some((d) => d.message.includes("requires a body"))).toBe(true);
+
+    // Paragraph should not contain a FootnoteRef
+    const para = document.blocks[0];
+    expect(para?.type).toBe("Paragraph");
+    if (para?.type === "Paragraph") {
+      const fnRef = para.content.find((n) => n.type === "FootnoteRef");
+      expect(fnRef).toBeUndefined();
+    }
+  });
+
+  test("structural @footnote{...} emits a Footnote block with content", async () => {
+    const source = `@footnote{
+  [This is a structural footnote body.]
+}
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const footnote = document.blocks.find((b) => b.type === "Footnote");
+    expect(footnote).toBeDefined();
+    if (footnote?.type === "Footnote") {
+      expect(footnote.label).toBeDefined();
+      expect(footnote.content.length).toBeGreaterThanOrEqual(1);
+      const fnPara = footnote.content[0];
+      expect(fnPara?.type).toBe("Paragraph");
+      if (fnPara?.type === "Paragraph") {
+        expect(paragraphText(fnPara)).toBe("This is a structural footnote body.");
+      }
+    }
+  });
 });

@@ -15,6 +15,7 @@ import type {
   EvaluateResult,
   Inline,
 } from "../types/document-ir.ts";
+import type { SourceLocation } from "../types/source-location.ts";
 import type { LuaEngine } from "wasmoon";
 
 export type SourceLoader = (path: string) => Promise<string>;
@@ -56,6 +57,10 @@ export interface EvalContext {
 
   // Re-entry point for @include (breaks circular dependency)
   evaluateSubdocument: EvaluateSubdocument;
+
+  // Footnote support
+  allocateFootnoteLabel(): string;
+  queueFootnote(content: Block[], loc?: SourceLocation): string;
 }
 
 export type BlockDirectiveHandler = (

@@ -274,4 +274,74 @@ describe("ooxml harness", () => {
     // 0.1in = 144 twips; cell margins should use this value
     expect(docXml).toContain('w:w="144"');
   });
+
+  test("inline @footnote emits w:footnoteReference in document.xml", async () => {
+    const source = `[Important point@footnote{This is the footnote.}.]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    expect(docXml).toContain("w:footnoteReference");
+  });
+
+  test("footnotes part exists and includes expected note text", async () => {
+    const source = `[See this@footnote{Footnote content here.}.]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    expect(pkg.hasPart("word/footnotes.xml")).toBe(true);
+    const footnotesXml = await pkg.readPart("word/footnotes.xml");
+    expect(footnotesXml).toContain("Footnote content here.");
+  });
+
+  test("footnote reference before definition still resolves (pre-pass)", async () => {
+    // The inline footnote emits a FootnoteRef inline and a deferred Footnote block.
+    // The pre-pass in the emitter must assign footnote IDs before emitting the ref.
+    const source = `[First point@footnote{Note for first point.}.]
+[Second point@footnote{Note for second point.}.]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    // Both footnote references should be present
+    const refMatches = docXml.match(/w:footnoteReference/g) ?? [];
+    expect(refMatches.length).toBeGreaterThanOrEqual(2);
+
+    // Footnotes part should have both notes
+    expect(pkg.hasPart("word/footnotes.xml")).toBe(true);
+    const footnotesXml = await pkg.readPart("word/footnotes.xml");
+    expect(footnotesXml).toContain("Note for first point.");
+    expect(footnotesXml).toContain("Note for second point.");
+
+    // No unresolved footnote warnings
+    const fnWarnings = pkg.diagnostics.filter(
+      (d) => d.message.includes("Footnote not found")
+    );
+    expect(fnWarnings.length).toBe(0);
+  });
+
+  test("structural footnote with non-paragraph content recovers with warning", async () => {
+    const source = `@footnote{
+  @table{
+    @row(cells: ["A"])
+  }
+}
+[Body text.]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    // Recovery must be explicit (diagnostic), not a crash.
+    expect(pkg.diagnostics.some((d) => d.code === "M001")).toBe(true);
+
+    // Footnotes part should still be emitted.
+    expect(pkg.hasPart("word/footnotes.xml")).toBe(true);
+  });
 });

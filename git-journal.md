@@ -103,43 +103,63 @@ Full architectural audit covering every compiler phase. Evaluator split from 1,2
 
 ---
 
-# 5. PR: Professional output polish
+# 5. PR: Professional output polish — DONE (merged to `main`)
 
-**Branch**: `feat/professional-output`
+**Branch**: `feat/professional-output` — 7 commits, 4 review rounds (Oracle + Codex)
 
-Visual and formatting emission for real legal document output. Enabled by PR #4's anchor IR cleanup; no synthetic anchor-wrapper workaround needed.
+Visual and formatting emission for real legal document output. Enabled by PR #4's anchor IR cleanup.
 
-### A — `fix(emit): wire document orientation (R4-3)`
+- Wired `@document(orientation: "landscape")` to DOCX section properties with portrait-normalization.
+- Completed `toParagraphOptions()` — indent, spacing, border, keep flags, shading, highlight.
+- Split Box from Blockquote IR; `@blockquote` directive with left-border indent; `@box` as single-cell bordered table.
+- Table layout controls: `headerRows`, `cellPadding`, `cantSplit`, horizontal/vertical merge markers (`>`, `^`).
+- Full diagnostic coverage: E010–E018 for table validation, type mismatches, invalid merge markers.
+- Vertical merge chain propagation fix for 3+ row spans.
 
-Deferred from PR #3 review. `@document(orientation: "landscape")` is parsed but not wired to DOCX section properties.
+**Final stats**: 182 tests, 411 expect() calls, 0 type errors.
 
-**Done when**: `@document(orientation: "landscape")` produces landscape pages.
+---
 
-### B — `feat(emit): paragraph formatting controls`
+# 6. PR: Footnotes end-to-end (spec parity)
 
-Legal docs need full paragraph control. Indent/spacing/keep flags are partially wired; remaining gaps (notably tab stops and widow/orphan behavior) need completion and coverage tests.
+**Branch**: `feat/footnotes-core`
 
-- `src/emit/docx/styles.ts`: audit and complete `toParagraphOptions()` — indent (left, right, hanging, firstLine), tabStops, widowControl, keepNext, keepLines, spacing (before, after, line).
-- Add tests for each property.
+Close the remaining v3 core gap for §15.3. The backend surface exists (`Footnote`/`FootnoteRef` IR + DOCX emit), but the language surface is not wired — `@footnote` has no contract, no handler, no LSP completion. Implement structural + inline footnotes with diagnostics/recovery and OOXML coverage.
 
-**Done when**: `@style(p: { indent: { left: "0.5in", hanging: "0.25in" } })[text]` renders correctly; `keepNext` works.
+### A — `feat(bind): add @footnote directive contract and validation wiring`
 
-### C — `fix(emit): add blockquote/box visual styling`
+`@footnote` must be recognized and validated like other core directives.
 
-`@box{...}` maps to `Blockquote` IR but emits with no visual distinction — no border, no indent.
+- `src/bind/contracts.ts`: add `footnote` contract (structural + inline; body required; args: label).
+- `src/lsp/completion.ts`: add footnote completion detail/snippet.
 
-- `src/emit/docx/nodes.ts`: in `emitBlockquote()`, apply left border + indentation.
+**Done when**: `@footnote{...}` no longer emits unknown-directive diagnostics, and completion suggests `@footnote`.
 
-**Done when**: `@box{ [Notice text.] }` renders with visible left border and indent in Word.
+### B — `feat(evaluate): implement block and inline footnote handlers`
 
-### D — `feat(emit): table layout controls`
+Wire runtime behavior for both forms per §15.3.
 
-Legal schedules need header row repeat, cell padding, and no-split rows.
+- Add `block-footnote.ts` and `inline-footnote.ts` handlers; register in `src/evaluate/registry.ts`.
+- Structural form (`@footnote(label: "x"){ ... }`) evaluates to footnote content; inline form (`@footnote[...]`) inserts `FootnoteRef` and registers body.
+- Missing-body inline form emits diagnostic and recovers.
 
-- End-to-end support across evaluator → IR/types → contracts → DOCX emit for `@table(headerRows: 1)`, `@table(cellPadding: "0.05in")`, `@row(cantSplit: true)`.
-- `src/bind/contracts.ts`: validate new args.
+**Done when**: `[Text@footnote{Note}.]` produces `FootnoteRef` + footnote content in IR.
 
-**Done when**: header rows repeat on page breaks; `cantSplit` rows don't break.
+### C — `fix(emit): finalize DOCX footnote emission and diagnostics consistency`
+
+Ensure collected footnotes are emitted deterministically.
+
+- `src/emit/docx/nodes.ts` and `src/emit/docx/index.ts`: verify registration/order/id assignment.
+- Standardize diagnostic codes for undefined footnotes.
+
+**Done when**: generated DOCX contains valid `footnotes.xml` entries with matching in-text references.
+
+### D — `test(pipeline): footnote spec-level coverage`
+
+- `src/evaluate/layout.test.ts`: structural form, inline form, sugar form, missing body recovery.
+- `src/emit/docx/ooxml-harness.test.ts`: assert `w:footnoteReference` + footnote bodies in OOXML.
+
+**Done when**: tests prove §15.3 behavior; no silent footnote loss.
 
 ---
 

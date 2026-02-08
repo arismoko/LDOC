@@ -16,9 +16,11 @@ import { handleHeader, handleFooter } from "./directives/block-header-footer.ts"
 import { handleInclude } from "./directives/block-include.ts";
 import { handleTable } from "./directives/block-table.ts";
 import { handleBlockStyle } from "./directives/block-style.ts";
+import { handleBlockFootnote } from "./directives/block-footnote.ts";
 
 import { handleInlineRef } from "./directives/inline-ref.ts";
 import { handleInlineStyle } from "./directives/inline-style.ts";
+import { handleInlineFootnote } from "./directives/inline-footnote.ts";
 
 const blockHandlers: Record<string, BlockDirectiveHandler> = {
   document: handleDocument,
@@ -37,11 +39,13 @@ const blockHandlers: Record<string, BlockDirectiveHandler> = {
   include: handleInclude,
   style: handleBlockStyle,
   table: handleTable,
+  footnote: handleBlockFootnote,
 };
 
 const inlineHandlers: Record<string, InlineDirectiveHandler> = {
   ref: handleInlineRef,
   style: handleInlineStyle,
+  footnote: handleInlineFootnote,
 };
 
 export const blockDefaultHandler: BlockDirectiveHandler = async (node, ctx) => {

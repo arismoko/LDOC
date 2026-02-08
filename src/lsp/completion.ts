@@ -134,6 +134,7 @@ const DIRECTIVE_INFO: Record<string, DirectiveInfo> = {
     snippet: "@footer{\n  @center[$1]\n}",
   },
   anchor: { kind: CompletionItemKind.Reference, detail: "Cross-reference anchor" },
+  footnote: { kind: CompletionItemKind.Reference, detail: "Footnote", snippet: "@footnote{$1}" },
   table: {
     kind: CompletionItemKind.Keyword,
     detail: "Table block",

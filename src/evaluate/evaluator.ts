@@ -24,6 +24,7 @@ import type {
   Document,
   DocumentMetadata,
   EvaluateResult,
+  Footnote,
   Inline,
   List,
   ListItem,
@@ -51,6 +52,17 @@ interface EvaluationState {
   includeRoot?: string;
   loadFile?: SourceLoader;
   includeStack: string[];
+  footnoteNamespace: string;
+  footnoteCounter: number;
+  deferredFootnotes: Footnote[];
+}
+
+// Module-level counter to ensure unique footnote namespaces across evaluate() calls
+let footnoteNamespaceCounter = 0;
+
+function allocateFootnoteLabel(state: EvaluationState): string {
+  state.footnoteCounter += 1;
+  return `fn_${state.footnoteNamespace}_${state.footnoteCounter}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +99,15 @@ function createContext(state: EvaluationState): EvalContext {
 
     // Re-entry point for @include (breaks circular dependency)
     evaluateSubdocument: (cst, symbols, options) => evaluate(cst, symbols, options),
+
+    // Footnote support
+    allocateFootnoteLabel: () => allocateFootnoteLabel(state),
+    queueFootnote: (content, loc) => {
+      const label = allocateFootnoteLabel(state);
+      const footnote: Footnote = { type: "Footnote", label, content, loc };
+      state.deferredFootnotes.push(footnote);
+      return label;
+    },
   };
   return ctx;
 }
@@ -310,6 +331,8 @@ export async function evaluate(
   const data = options.variables ?? {};
   const luaEngine = await createEnv(data, defs, styles);
 
+  footnoteNamespaceCounter += 1;
+
   const state: EvaluationState = {
     diagnostics,
     metadata,
@@ -321,9 +344,15 @@ export async function evaluate(
     includeRoot: options.includeRoot ?? (options.sourcePath ? defaultIncludeRoot(options.sourcePath) : undefined),
     loadFile: options.loadFile,
     includeStack: options.includeStack ?? (options.sourcePath ? [options.sourcePath] : []),
+    footnoteNamespace: String(footnoteNamespaceCounter),
+    footnoteCounter: 0,
+    deferredFootnotes: [],
   };
 
   const blocks = await evaluateBlocks(cst.children, state);
+
+  // Append deferred (inline) footnotes after all document blocks
+  blocks.push(...state.deferredFootnotes);
 
   const document: Document = {
     type: "Document",

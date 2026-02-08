@@ -15,6 +15,7 @@ describe("lsp completion", () => {
     expect(labels.includes("@params")).toBe(true);
     expect(labels.includes("@row")).toBe(true);
     expect(labels.includes("@center")).toBe(true);
+    expect(labels.includes("@footnote")).toBe(true);
   });
 
   test("filters directive completion by prefix", () => {
@@ -24,7 +25,9 @@ describe("lsp completion", () => {
       { snippetSupport: false },
     );
 
-    expect(items.length).toBe(1);
-    expect(items[0]?.label).toBe("@footer");
+    const labels = items.map((item) => item.label);
+    expect(labels).toContain("@footer");
+    expect(labels).toContain("@footnote");
+    expect(items.length).toBe(2);
   });
 });
