@@ -6,7 +6,7 @@
 - Prefer correctness gates over feature breadth.
 - Do not promote deferred sugar into core without spec updates.
 - Fix semantic correctness bugs immediately; schedule DRY/YAGNI refactors separately.
-- Stabilize types and remove dead code before adding new features.
+- Before major feature expansion, stabilize touched types and remove dead code in the affected subsystem.
 
 ---
 
@@ -28,6 +28,10 @@
 - **27**: Evaluator + include regression fixtures
 - **28**: LSP reference lookup for @def usages
 - **29**: Directive suggestions and fix-it diagnostics
+- **30**: Dead code removal
+- **31**: Type system migration
+- **32**: Spec correctness fixes
+- **33**: Architectural debt purge
 
 ---
 
@@ -76,13 +80,15 @@ Full architectural audit covering every compiler phase. Evaluator split from 1,2
 - Diagnostic locations rebased to source coordinates for args spans.
 
 **Bind phase**:
-- Evaluator modularized into handler registry + per-directive files.
 - `@anchor`/`@ref` validation with cross-file resolution via `parsedDocuments`.
 - `@params` arity validation at bind time via `includeEdges` (§16).
 - Duplicate anchor detection per include site (not per unique file).
 - `BinderOptions` flags for selective validation.
-- `deepFreeze` on symbol table; `structuredClone` for runtime defs (§18.1.1).
+- Symbol values deep-frozen at bind boundary; runtime defs cloned during evaluate execution (§18.1.1).
 - Shared helpers in `src/shared/include-params.ts` (DRY with evaluator).
+
+**Evaluate phase**:
+- Evaluator modularized into handler registry + per-directive files.
 
 **IR / Types**:
 - Anchors modeled as block `Anchor` nodes; inline `Bookmark` removed.
@@ -101,9 +107,24 @@ Full architectural audit covering every compiler phase. Evaluator split from 1,2
 
 **Branch**: `feat/professional-output`
 
-Visual and formatting emission for real legal document output. Depends on PR #4 (clean anchor IR) to avoid paragraph formatting hacks around synthetic anchor wrappers.
+Visual and formatting emission for real legal document output. Enabled by PR #4's anchor IR cleanup; no synthetic anchor-wrapper workaround needed.
 
-### A — `fix(emit): add blockquote/box visual styling`
+### A — `fix(emit): wire document orientation (R4-3)`
+
+Deferred from PR #3 review. `@document(orientation: "landscape")` is parsed but not wired to DOCX section properties.
+
+**Done when**: `@document(orientation: "landscape")` produces landscape pages.
+
+### B — `feat(emit): paragraph formatting controls`
+
+Legal docs need full paragraph control. Indent/spacing/keep flags are partially wired; remaining gaps (notably tab stops and widow/orphan behavior) need completion and coverage tests.
+
+- `src/emit/docx/styles.ts`: audit and complete `toParagraphOptions()` — indent (left, right, hanging, firstLine), tabStops, widowControl, keepNext, keepLines, spacing (before, after, line).
+- Add tests for each property.
+
+**Done when**: `@style(p: { indent: { left: "0.5in", hanging: "0.25in" } })[text]` renders correctly; `keepNext` works.
+
+### C — `fix(emit): add blockquote/box visual styling`
 
 `@box{...}` maps to `Blockquote` IR but emits with no visual distinction — no border, no indent.
 
@@ -111,35 +132,20 @@ Visual and formatting emission for real legal document output. Depends on PR #4 
 
 **Done when**: `@box{ [Notice text.] }` renders with visible left border and indent in Word.
 
-### B — `feat(emit): paragraph formatting controls`
-
-Legal docs need hanging indents, tab stops, widow/orphan, keep-with-next. Available in `ComputedStyle` but not all wired through emission.
-
-- `src/emit/docx/styles.ts`: audit and complete `toParagraphOptions()` — indent (left, right, hanging, firstLine), tabStops, widowControl, keepNext, keepLines, spacing (before, after, line).
-- Add tests for each property.
-
-**Done when**: `@style(p: { indent: { left: "0.5in", hanging: "0.25in" } })[text]` renders correctly; `keepNext` works.
-
-### C — `feat(emit): table layout controls`
+### D — `feat(emit): table layout controls`
 
 Legal schedules need header row repeat, cell padding, and no-split rows.
 
-- `src/emit/docx/tables.ts`: support `@table(headerRows: 1)`, `@table(cellPadding: "0.05in")`, `@row(cantSplit: true)`.
+- End-to-end support across evaluator → IR/types → contracts → DOCX emit for `@table(headerRows: 1)`, `@table(cellPadding: "0.05in")`, `@row(cantSplit: true)`.
 - `src/bind/contracts.ts`: validate new args.
 
 **Done when**: header rows repeat on page breaks; `cantSplit` rows don't break.
-
-### D — `fix(emit): wire document orientation (R4-3)`
-
-Deferred from PR #3 review. `@document(orientation: "landscape")` is parsed but not wired to DOCX section properties.
-
-**Done when**: `@document(orientation: "landscape")` produces landscape pages.
 
 ---
 
 ## Deferred (not in v3 core path)
 
-- Typed include params (`SG-001`)
+- Typed include params (`SG-001`, partial: arity validation shipped in PR #4; type annotations/coercion deferred)
 - Direct expression args (`SG-002`)
 - Markdown emphasis sugar (`SG-004`)
 - Table of contents generation
