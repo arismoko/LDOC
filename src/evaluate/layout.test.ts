@@ -513,4 +513,25 @@ describe("layout evaluation", () => {
     const { diagnostics } = await compileToDocument(source);
     expect(diagnostics.some((d) => d.code === "E012")).toBe(true);
   });
+
+  test("vertical merge ^ chains across 3+ rows", async () => {
+    const source = `@table{
+  @row(cells: ["A", "B"])
+  @row(cells: ["^", "C"])
+  @row(cells: ["^", "D"])
+}
+`;
+
+    const { document, diagnostics } = await compileToDocument(source);
+    // No spurious E015 warnings
+    expect(diagnostics.some((d) => d.code === "E015")).toBe(false);
+
+    const table = document.blocks[0];
+    expect(table?.type).toBe("Table");
+    if (table?.type === "Table") {
+      // First row, first cell should have rowspan 3
+      const firstCell = table.rows[0]?.cells[0];
+      expect(firstCell?.rowspan).toBe(3);
+    }
+  });
 });

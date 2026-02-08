@@ -141,6 +141,7 @@ function evaluateTableDirective(node: Directive, diagnostics: Diagnostic[]): Tab
         const aboveCell = rowColumnOwners[rowColumnOwners.length - 1]?.[column];
         if (aboveCell) {
           aboveCell.rowspan = (aboveCell.rowspan ?? 1) + 1;
+          columnOwners[column] = aboveCell; // Propagate owner for 3+ row merge chains
         } else {
           diagnostics.push({
             severity: "warning",
