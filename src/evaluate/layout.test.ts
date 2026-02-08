@@ -56,9 +56,9 @@ describe("layout evaluation", () => {
 
     const { document } = await compileToDocument(source);
     const block = document.blocks[0];
-    expect(block?.type).toBe("Blockquote");
+    expect(block?.type).toBe("Box");
 
-    if (block?.type === "Blockquote") {
+    if (block?.type === "Box") {
       const firstChild = block.content[0];
       expect(firstChild?.type).toBe("Paragraph");
       if (firstChild?.type === "Paragraph") {

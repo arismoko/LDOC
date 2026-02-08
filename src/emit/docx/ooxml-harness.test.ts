@@ -182,8 +182,24 @@ describe("ooxml harness", () => {
     expect(docXml).toContain('w:h="12240"');
   });
 
-  test("@box emits blockquote with left border and indent", async () => {
+  test("@box emits box with all-four-sides border", async () => {
     const source = `@box{
+  [Boxed text here.]
+}
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    // Should have borders on all sides (black, single style)
+    expect(docXml).toContain('w:color="000000"');
+    // Should have indent (200 twips for visual padding)
+    expect(docXml).toContain('w:left="200"');
+  });
+
+  test("@blockquote emits blockquote with left border and indent", async () => {
+    const source = `@blockquote{
   [Quoted text here.]
 }
 `;
@@ -193,7 +209,6 @@ describe("ooxml harness", () => {
 
     const docXml = await pkg.readPart("word/document.xml");
     // Should have a left border (999999 color, single style)
-    expect(docXml).toContain("w:left");
     expect(docXml).toContain('w:color="999999"');
     // Should have indent (400 twips for level 1)
     expect(docXml).toContain('w:left="400"');

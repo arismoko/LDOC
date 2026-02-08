@@ -190,6 +190,12 @@ export interface Blockquote extends IRBase {
   style?: StyleRef;
 }
 
+export interface Box extends IRBase {
+  type: "Box";
+  content: Block[];
+  style?: StyleRef;
+}
+
 export interface Section extends IRBase {
   type: "Section";
   content: Block[];
@@ -361,6 +367,7 @@ export type Block =
   | List
   | Table
   | Blockquote
+  | Box
   | Section
   | PageBreak
   | ColumnBreak

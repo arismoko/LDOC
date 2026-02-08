@@ -10,6 +10,7 @@ import { handleDef, handlePagebreak, handleBreak, handleParams, handleAnchor } f
 import { handleLua } from "./directives/block-lua.ts";
 import { handleColumns } from "./directives/block-columns.ts";
 import { handleBox } from "./directives/block-box.ts";
+import { handleBlockquote } from "./directives/block-blockquote.ts";
 import { handleAlign } from "./directives/block-align.ts";
 import { handleHeader, handleFooter } from "./directives/block-header-footer.ts";
 import { handleInclude } from "./directives/block-include.ts";
@@ -29,6 +30,7 @@ const blockHandlers: Record<string, BlockDirectiveHandler> = {
   lua: handleLua,
   columns: handleColumns,
   box: handleBox,
+  blockquote: handleBlockquote,
   align: handleAlign,
   header: handleHeader,
   footer: handleFooter,

@@ -30,6 +30,7 @@ import type {
   TableRow,
   TableCell,
   Blockquote,
+  Box,
   Section,
   PageBreak as PageBreakNode,
   ColumnBreak as ColumnBreakNode,
@@ -98,6 +99,8 @@ export interface EmitContext {
   lastNumberingReference: Map<string, string>;
   /** Current blockquote nesting level (0 = not in blockquote) */
   blockquoteLevel: number;
+  /** Whether currently inside a Box container */
+  inBox: boolean;
 }
 
 /**
@@ -128,6 +131,8 @@ export function emitBlock(block: Block, ctx: EmitContext): DocxBlock[] {
       return [emitTable(block, ctx)];
     case "Blockquote":
       return emitBlockquote(block, ctx);
+    case "Box":
+      return emitBox(block, ctx);
     case "Section":
       return emitSection(block, ctx);
     case "PageBreak":
@@ -162,6 +167,11 @@ function emitParagraph(node: ParagraphNode, ctx: EmitContext): DocxBlock[] {
   // Apply blockquote styling if inside a blockquote
   if (ctx.blockquoteLevel > 0) {
     applyBlockquoteStyle(paragraphOpts, ctx.blockquoteLevel);
+  }
+  
+  // Apply box styling if inside a box
+  if (ctx.inBox) {
+    applyBoxStyle(paragraphOpts);
   }
   
   return [
@@ -345,6 +355,42 @@ function applyBlockquoteStyle(opts: Mutable<IParagraphOptions>, level: number): 
   opts.indent = {
     ...opts.indent,
     left: existingLeft + BLOCKQUOTE_INDENT * level,
+  };
+}
+
+/** Box border width (1pt in eighths = 8) */
+const BOX_BORDER_SIZE = 8;
+
+function emitBox(node: Box, ctx: EmitContext): DocxBlock[] {
+  // Create a child context with inBox flag set
+  const childCtx: EmitContext = { ...ctx, inBox: true };
+  return emitBlocks(node.content, childCtx);
+}
+
+/**
+ * Apply box visual styling to paragraph options (mutates in place).
+ * - Border on all 4 sides: 1pt black
+ * - Left indent: 200 twips for visual padding
+ */
+function applyBoxStyle(opts: Mutable<IParagraphOptions>): void {
+  const borderSide = {
+    color: "000000",
+    size: BOX_BORDER_SIZE,
+    style: BorderStyle.SINGLE,
+    space: 4,
+  };
+  const border = (opts.border ?? {}) as Mutable<NonNullable<IParagraphOptions["border"]>>;
+  border.top = borderSide;
+  border.bottom = borderSide;
+  border.left = borderSide;
+  border.right = borderSide;
+  opts.border = border;
+
+  // Add left indent for visual padding inside the box
+  const existingLeft = (opts.indent as { left?: number } | undefined)?.left ?? 0;
+  opts.indent = {
+    ...opts.indent,
+    left: existingLeft + 200,
   };
 }
 

@@ -119,6 +119,7 @@ function createEmitContext(
     lastNumberingInstance: new Map(),
     lastNumberingReference: new Map(),
     blockquoteLevel: 0,
+    inBox: false,
   };
 }
 
@@ -134,7 +135,7 @@ function collectBookmarks(doc: DocIR, ctx: EmitContext): void {
     }
     
     // Recurse into nested structures
-    if (block.type === "Blockquote" || block.type === "Section") {
+    if (block.type === "Blockquote" || block.type === "Box" || block.type === "Section") {
       for (const child of block.content) {
         visitBlock(child);
       }
