@@ -23,7 +23,7 @@ import {
   WidthType,
   TableLayoutType,
 } from "docx";
-import type { Table as DocxTable, IRunOptions, IParagraphOptions } from "docx";
+import type { Table as DocxTable, IParagraphOptions } from "docx";
 
 import type {
   Block,
@@ -31,15 +31,9 @@ import type {
   Paragraph as ParagraphNode,
   List,
   ListItem,
-  Table,
-  TableRow,
-  TableCell,
   Blockquote,
   Box,
   Section,
-  PageBreak as PageBreakNode,
-  ColumnBreak as ColumnBreakNode,
-  HorizontalRule,
   Footnote,
   Text,
   Styled,
@@ -54,8 +48,6 @@ import type {
   FootnoteRef,
   CrossRef,
   Anchor,
-  HardBreak,
-  Tab,
   Field,
   StyleRef,
 } from "../../types/document-ir.ts";

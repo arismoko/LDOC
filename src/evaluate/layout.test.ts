@@ -453,4 +453,64 @@ describe("layout evaluation", () => {
     const { diagnostics } = await compileToDocument(source);
     expect(diagnostics.some((d) => d.code === "E013")).toBe(true);
   });
+
+  test("merge marker > at column 0 emits E014 warning", async () => {
+    const source = `@table{
+  @row(cells: [">", "B"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E014")).toBe(true);
+  });
+
+  test("merge marker ^ in first row emits E015 warning", async () => {
+    const source = `@table{
+  @row(cells: ["A", "^"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E015")).toBe(true);
+  });
+
+  test("headerRows with string type emits E016 warning", async () => {
+    const source = `@table(headerRows: "1"){
+  @row(cells: ["A", "B"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E016")).toBe(true);
+  });
+
+  test("cellPadding with boolean type emits E017 warning", async () => {
+    const source = `@table(cellPadding: true){
+  @row(cells: ["A", "B"])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E017")).toBe(true);
+  });
+
+  test("@row with non-array cells emits E018 warning", async () => {
+    const source = `@table{
+  @row(cells: "not-an-array")
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E018")).toBe(true);
+  });
+
+  test("unsupported cell value type emits E012 warning", async () => {
+    const source = `@table{
+  @row(cells: [null])
+}
+`;
+
+    const { diagnostics } = await compileToDocument(source);
+    expect(diagnostics.some((d) => d.code === "E012")).toBe(true);
+  });
 });
