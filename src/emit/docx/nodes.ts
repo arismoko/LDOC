@@ -18,7 +18,7 @@ import {
   PageNumber,
   BorderStyle,
 } from "docx";
-import type { Table as DocxTable, IRunOptions } from "docx";
+import type { Table as DocxTable, IRunOptions, IParagraphOptions } from "docx";
 
 import type {
   Block,
@@ -60,6 +60,7 @@ import { toRunOptions, toParagraphOptions } from "./styles.ts";
 import { getNumberingReference } from "./numbering.ts";
 import { emitTable } from "./tables.ts";
 import { bookmarkSafeName } from "../../shared/bookmarks.ts";
+import { type Mutable } from "./utils.ts";
 
 /** Synthetic location for diagnostics when node has no source location */
 const SYNTHETIC_LOC: SourceLocation = { line: 1, column: 0, endLine: 1, endColumn: 0 };
@@ -95,6 +96,8 @@ export interface EmitContext {
   lastNumberingInstance: Map<string, number>;
   /** Tracks the last reference used per continuation key (for continue after start) */
   lastNumberingReference: Map<string, string>;
+  /** Current blockquote nesting level (0 = not in blockquote) */
+  blockquoteLevel: number;
 }
 
 /**
@@ -154,9 +157,16 @@ function emitParagraph(node: ParagraphNode, ctx: EmitContext): DocxBlock[] {
   const style = resolveNodeStyle(node.style, ctx);
   const children = emitInlines(node.content, ctx, style);
   
+  const paragraphOpts = toParagraphOptions(style);
+  
+  // Apply blockquote styling if inside a blockquote
+  if (ctx.blockquoteLevel > 0) {
+    applyBlockquoteStyle(paragraphOpts, ctx.blockquoteLevel);
+  }
+  
   return [
     new Paragraph({
-      ...toParagraphOptions(style),
+      ...paragraphOpts,
       children,
     }),
   ];
@@ -306,24 +316,36 @@ function getListContinuationIndent(
 }
 
 function emitBlockquote(node: Blockquote, ctx: EmitContext): DocxBlock[] {
-  // Blockquotes render as indented, italic paragraphs with left border
-  const results: DocxBlock[] = [];
-  
-  for (const child of node.content) {
-    const blocks = emitBlock(child, ctx);
-    for (const block of blocks) {
-      if (block instanceof Paragraph) {
-        // Add blockquote styling (left border, indent, italic)
-        // Note: We'd need to modify the paragraph options here
-        // For now, just pass through - full styling in Phase 6
-        results.push(block);
-      } else {
-        results.push(block);
-      }
-    }
-  }
-  
-  return results;
+  // Create a child context with incremented blockquote level
+  const childCtx: EmitContext = { ...ctx, blockquoteLevel: ctx.blockquoteLevel + 1 };
+  return emitBlocks(node.content, childCtx);
+}
+
+/** Indent per blockquote nesting level (400 twips ≈ 0.28 inches) */
+const BLOCKQUOTE_INDENT = 400;
+
+/**
+ * Apply blockquote visual styling to paragraph options (mutates in place).
+ * - Left border: 2pt grey
+ * - Left indent: 400 twips per nesting level
+ */
+function applyBlockquoteStyle(opts: Mutable<IParagraphOptions>, level: number): void {
+  // Left border — grey, 2pt
+  const border = (opts.border ?? {}) as Mutable<NonNullable<IParagraphOptions["border"]>>;
+  border.left = {
+    color: "999999",
+    size: 16, // 2pt in eighths
+    style: BorderStyle.SINGLE,
+    space: 4,
+  };
+  opts.border = border;
+
+  // Left indent stacks with existing indent
+  const existingLeft = (opts.indent as { left?: number } | undefined)?.left ?? 0;
+  opts.indent = {
+    ...opts.indent,
+    left: existingLeft + BLOCKQUOTE_INDENT * level,
+  };
 }
 
 function emitSection(node: Section, ctx: EmitContext): DocxBlock[] {

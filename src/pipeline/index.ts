@@ -201,6 +201,7 @@ async function runPipelineTo(
         ...layout.margins,
       },
     } : {}),
+    ...(layout?.orientation ? { orientation: layout.orientation } : {}),
   };
   const styleResult = style(
     state.document,

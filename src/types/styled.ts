@@ -164,6 +164,8 @@ export interface DocumentStyles {
   marginBottom: number;
   marginLeft: number;
   marginRight: number;
+  /** Page orientation */
+  orientation?: "portrait" | "landscape";
 }
 
 export interface StyleDefinition {

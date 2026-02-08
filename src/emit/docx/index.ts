@@ -118,6 +118,7 @@ function createEmitContext(
     numberingInstances: new Map(),
     lastNumberingInstance: new Map(),
     lastNumberingReference: new Map(),
+    blockquoteLevel: 0,
   };
 }
 
@@ -225,7 +226,8 @@ function compileSections(
       right: documentStyles.marginRight,
     },
     headers,
-    footers
+    footers,
+    documentStyles.orientation,
   );
   
   const flushPending = (pendingBlocks: Block[]): void => {

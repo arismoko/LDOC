@@ -5,6 +5,7 @@
 import type { Directive } from "../../types/cst.ts";
 import type { Table, TableCell, TableRow } from "../../types/document-ir.ts";
 import type { BlockDirectiveHandler } from "../handler.ts";
+import { parseLengthToTwips } from "../../shared/units.ts";
 
 function toCellText(value: unknown): string {
   if (typeof value === "string") {
@@ -31,11 +32,18 @@ function createTextCell(value: string, loc: Directive["loc"]): TableCell {
 }
 
 function evaluateTableDirective(node: Directive): Table {
+  const tableArgs = node.args ?? {};
   const rowNodes = (node.body?.kind === "StructuralBody" ? node.body.children : []).filter(
     (child): child is Directive => child.kind === "Directive" && child.name === "row",
   );
   const rows: TableRow[] = [];
   const rowColumnOwners: TableCell[][] = [];
+
+  // Parse table-level args
+  const headerRows = typeof tableArgs.headerRows === "number" ? tableArgs.headerRows : undefined;
+  const cellPadding = typeof tableArgs.cellPadding === "string" || typeof tableArgs.cellPadding === "number"
+    ? parseLengthToTwips(tableArgs.cellPadding, { lenient: true })
+    : undefined;
 
   for (const rowNode of rowNodes) {
     const args = rowNode.args ?? {};
@@ -72,17 +80,29 @@ function evaluateTableDirective(node: Directive): Table {
       column += 1;
     }
 
+    const cantSplit = args.cantSplit === true ? true : undefined;
+
     rows.push({
       type: "TableRow",
       cells,
+      cantSplit,
       loc: rowNode.loc,
     });
     rowColumnOwners.push(columnOwners);
   }
 
+  // Auto-mark header rows based on headerRows arg
+  if (headerRows !== undefined && headerRows > 0) {
+    for (let i = 0; i < Math.min(headerRows, rows.length); i++) {
+      rows[i]!.isHeader = true;
+    }
+  }
+
   return {
     type: "Table",
     rows,
+    headerRows,
+    cellPadding,
     loc: node.loc,
   };
 }

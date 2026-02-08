@@ -163,4 +163,81 @@ describe("ooxml harness", () => {
     const continuedId = numIds[numIds.length - 1];
     expect(continuedId).toBe(startedListId);
   });
+
+  test("@document(orientation: 'landscape') produces landscape page dimensions", async () => {
+    const source = `@document(orientation: "landscape")
+[Hello landscape world.]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+
+    // DOCX landscape: docx package swaps w:w and w:h internally.
+    // Default letter = 12240 x 15840 twips; landscape → w:w=15840, w:h=12240, w:orient="landscape"
+    expect(docXml).toContain('w:orient="landscape"');
+    // The docx package swaps: w:w gets the height (15840) and w:h gets the width (12240)
+    expect(docXml).toContain('w:w="15840"');
+    expect(docXml).toContain('w:h="12240"');
+  });
+
+  test("@box emits blockquote with left border and indent", async () => {
+    const source = `@box{
+  [Quoted text here.]
+}
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    // Should have a left border (999999 color, single style)
+    expect(docXml).toContain("w:left");
+    expect(docXml).toContain('w:color="999999"');
+    // Should have indent (400 twips for level 1)
+    expect(docXml).toContain('w:left="400"');
+  });
+
+  test("@table(headerRows: 1) marks first row as table header", async () => {
+    const source = `@table(headerRows: 1){
+  @row(cells: ["Name", "Age"])
+  @row(cells: ["Alice", "30"])
+}
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    // First row should have tblHeader (table header repeat)
+    expect(docXml).toContain("w:tblHeader");
+  });
+
+  test("@row(cantSplit: true) emits cantSplit property", async () => {
+    const source = `@table{
+  @row(cells: ["A", "B"], cantSplit: true)
+}
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    expect(docXml).toContain("w:cantSplit");
+  });
+
+  test("@table(cellPadding: '0.1in') applies uniform cell margins", async () => {
+    const source = `@table(cellPadding: "0.1in"){
+  @row(cells: ["Data"])
+}
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    // 0.1in = 144 twips; cell margins should use this value
+    expect(docXml).toContain('w:w="144"');
+  });
 });

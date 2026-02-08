@@ -156,6 +156,10 @@ export interface Table extends IRBase {
   style?: StyleRef;
   /** Column widths in twips (optional - can be auto) */
   columnWidths?: number[];
+  /** Number of header rows (repeat at top of each page) */
+  headerRows?: number;
+  /** Cell padding in twips (uniform for all cells) */
+  cellPadding?: number;
 }
 
 export interface TableRow extends IRBase {
@@ -163,6 +167,8 @@ export interface TableRow extends IRBase {
   cells: TableCell[];
   /** Is this a header row? */
   isHeader?: boolean;
+  /** Prevent row from splitting across pages */
+  cantSplit?: boolean;
   style?: StyleRef;
 }
 
