@@ -206,4 +206,37 @@ describe("include evaluation", () => {
 
     expect(diagnostics.some((d) => d.code === "B009")).toBe(false);
   });
+
+  test("inline footnotes preserve encounter order across include boundaries", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const loadFile = createMapLoader({
+      [childPath]: `[Child text@footnote{Child note}.]\n`,
+    });
+
+    const source = `[Parent text@footnote{Parent note}.]
+@include(path: "child.ldoc")
+`;
+
+    const { document, diagnostics } = await compileToDocument(source, {
+      sourcePath: mainPath,
+      loadFile,
+    });
+
+    expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const footnotes = document.blocks.filter((b) => b.type === "Footnote");
+    expect(footnotes.length).toBe(2);
+
+    const first = footnotes[0];
+    const second = footnotes[1];
+    expect(first?.type).toBe("Footnote");
+    expect(second?.type).toBe("Footnote");
+    if (first?.type === "Footnote") {
+      expect(paragraphText(first.content[0]!)).toBe("Parent note");
+    }
+    if (second?.type === "Footnote") {
+      expect(paragraphText(second.content[0]!)).toBe("Child note");
+    }
+  });
 });

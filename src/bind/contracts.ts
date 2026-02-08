@@ -183,6 +183,12 @@ const DIRECTIVES: DirectiveContract[] = [
     hasArgs: "required",
     hasBody: "optional",
   },
+  {
+    name: "footnote",
+    allowedIn: ["top", "structural", "inline"],
+    hasArgs: "none",
+    hasBody: "required",
+  },
 
   // Composition (Spec §16)
   {

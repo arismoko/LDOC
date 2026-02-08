@@ -52,6 +52,7 @@ import type {
   StyleRef,
 } from "../../types/document-ir.ts";
 import type { ComputedStyle, NumberingDefinition, StyleResolver } from "../../types/styled.ts";
+import { DiagnosticCode } from "../../types/diagnostics.ts";
 import type { Diagnostic } from "../../types/diagnostics.ts";
 import type { SourceLocation } from "../../types/source-location.ts";
 import { toRunOptions, toParagraphOptions } from "./styles.ts";
@@ -610,7 +611,7 @@ function emitFootnoteRef(node: FootnoteRef, ctx: EmitContext): (TextRun | Footno
   if (id === undefined) {
     ctx.diagnostics.push({
       severity: "warning",
-      code: "E002",
+      code: DiagnosticCode.UNDEFINED_FOOTNOTE,
       message: `Footnote not found: ${node.label}`,
       location: node.loc ?? SYNTHETIC_LOC,
     });

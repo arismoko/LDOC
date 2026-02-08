@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { resolve as resolvePath } from "node:path";
 
 import { compileToOoxml } from "./test-utils.ts";
+
+function createMapLoader(files: Record<string, string>) {
+  return async (path: string): Promise<string> => {
+    const value = files[path];
+    if (value === undefined) {
+      throw new Error(`Missing fixture file: ${path}`);
+    }
+    return value;
+  };
+}
 
 describe("ooxml harness", () => {
   test("exposes document, numbering, and styles parts", async () => {
@@ -309,5 +320,105 @@ describe("ooxml harness", () => {
     const docXml = await pkg.readPart("word/document.xml");
     expect(docXml).toContain("w:titlePg");
     expect(docXml).toContain('w:headerReference w:type="first"');
+  });
+
+  test("inline @footnote emits w:footnoteReference in document.xml", async () => {
+    const source = `[Important point@footnote{This is the footnote.}.]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    expect(docXml).toContain("w:footnoteReference");
+  });
+
+  test("footnotes part exists and includes expected note text", async () => {
+    const source = `[See this@footnote{Footnote content here.}.]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    expect(pkg.hasPart("word/footnotes.xml")).toBe(true);
+    const footnotesXml = await pkg.readPart("word/footnotes.xml");
+    expect(footnotesXml).toContain("Footnote content here.");
+  });
+
+  test("footnote reference before definition still resolves (pre-pass)", async () => {
+    // The inline footnote emits a FootnoteRef inline and a deferred Footnote block.
+    // The pre-pass in the emitter must assign footnote IDs before emitting the ref.
+    const source = `[First point@footnote{Note for first point.}.]
+[Second point@footnote{Note for second point.}.]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    // Both footnote references should be present
+    const refMatches = docXml.match(/w:footnoteReference/g) ?? [];
+    expect(refMatches.length).toBeGreaterThanOrEqual(2);
+
+    // Footnotes part should have both notes
+    expect(pkg.hasPart("word/footnotes.xml")).toBe(true);
+    const footnotesXml = await pkg.readPart("word/footnotes.xml");
+    expect(footnotesXml).toContain("Note for first point.");
+    expect(footnotesXml).toContain("Note for second point.");
+
+    // No unresolved footnote warnings
+    const fnWarnings = pkg.diagnostics.filter(
+      (d) => d.message.includes("Footnote not found")
+    );
+    expect(fnWarnings.length).toBe(0);
+  });
+
+  test("structural footnote with non-paragraph content recovers with warning", async () => {
+    const source = `@footnote{
+  @table{
+    @row(cells: ["A"])
+  }
+}
+[Body text.]
+`;
+
+    const pkg = await compileToOoxml(source);
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    // Recovery must be explicit (diagnostic), not a crash.
+    expect(pkg.diagnostics.some((d) => d.code === "M001")).toBe(true);
+
+    // Footnotes part should still be emitted.
+    expect(pkg.hasPart("word/footnotes.xml")).toBe(true);
+  });
+
+  test("footnote reference numbering preserves encounter order with @include", async () => {
+    const mainPath = "/virtual/main.ldoc";
+    const childPath = resolvePath("/virtual", "child.ldoc");
+    const source = `[Parent@footnote{Parent note}.]
+@include(path: "child.ldoc")
+`;
+
+    const pkg = await compileToOoxml(source, {
+      sourcePath: mainPath,
+      loadFile: createMapLoader({
+        [childPath]: `[Child@footnote{Child note}.]\n`,
+      }),
+    });
+
+    expect(pkg.diagnostics.some((d) => d.severity === "error")).toBe(false);
+
+    const docXml = await pkg.readPart("word/document.xml");
+    const idMatches = [...docXml.matchAll(/w:footnoteReference w:id="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(idMatches.length).toBeGreaterThanOrEqual(2);
+    expect(idMatches[0]).toBe(1);
+    expect(idMatches[1]).toBe(2);
+
+    const footnotesXml = await pkg.readPart("word/footnotes.xml");
+    const parentPos = footnotesXml.indexOf("Parent note");
+    const childPos = footnotesXml.indexOf("Child note");
+    expect(parentPos).toBeGreaterThanOrEqual(0);
+    expect(childPos).toBeGreaterThanOrEqual(0);
+    expect(parentPos).toBeLessThan(childPos);
   });
 });
