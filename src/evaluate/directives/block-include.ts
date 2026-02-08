@@ -2,9 +2,6 @@
  * @include directive handler.
  */
 
-import type * as CST from "../../types/cst.ts";
-import type { Directive } from "../../types/cst.ts";
-import type { Block } from "../../types/document-ir.ts";
 import type { Diagnostic } from "../../types/diagnostics.ts";
 import type { SourceLocation } from "../../types/source-location.ts";
 import type { BlockDirectiveHandler, EvalContext } from "../handler.ts";

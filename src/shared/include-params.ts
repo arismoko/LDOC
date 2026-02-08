@@ -155,7 +155,7 @@ export function validateIncludeParams(
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   for (const name of requiredNames) {
-    if (!(name in providedArgs)) {
+    if (!Object.prototype.hasOwnProperty.call(providedArgs, name)) {
       diagnostics.push(
         diagError(
           DiagnosticCode.ARITY_MISMATCH,
@@ -178,7 +178,7 @@ export function validateIncludeParamTypes(
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   for (const [name, contract] of Object.entries(typeContracts)) {
-    if (!(name in providedArgs)) {
+    if (!Object.prototype.hasOwnProperty.call(providedArgs, name)) {
       continue;
     }
 

@@ -24,7 +24,7 @@ Each item must define:
 
 | ID | Status | Theme | Proposal | Notes |
 | --- | --- | --- | --- | --- |
-| SG-001 | planned | include params | typed params for `@params` (e.g. `name: "string?"`) | PR #7 args-first tranche: `@params(types: {...})` + no-coercion validation |
+| SG-001 | shipped | include params | typed params for `@params` (e.g. `name: "string?"`) | Shipped in PR #7: `@params(types: {...})` + no-coercion validation; promoted to spec §16.1 |
 | SG-002 | deferred | args expressions | allow direct `$(...)` inside args objects | requires clear value-context evaluation rules |
 | SG-003 | candidate | alignment sugar | `@center{...}`, `@right{...}` shorthand for `@align(value: ...)` | parser-level sugar only |
 | SG-004 | candidate | emphasis sugar | markdown-style `**bold**`, `_italic_` as pure desugar | must not degrade diagnostics precision |

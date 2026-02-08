@@ -48,7 +48,7 @@ function detectFromText(text: string, position: Position): CompletionContext {
   const before = line.slice(0, position.character);
 
   // Directive: @ at line start or after whitespace
-  const atMatch = before.match(/@([A-Za-z_][A-Za-z0-9_]*)?$/);
+  const atMatch = before.match(/@([A-Za-z_][A-Za-z0-9_-]*)?$/);
   if (atMatch) {
     return { kind: "directive", prefix: atMatch[1] ?? "" };
   }

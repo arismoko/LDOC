@@ -135,7 +135,7 @@ Closed §15.3 end-to-end:
 
 ---
 
-# 7. PR: Args-first deferred tranche (header/footer variants + typed include params)
+# 7. PR: Args-first deferred tranche (header/footer variants + typed include params) — DONE (merged to `main`)
 
 **Branch**: `feat/args-first-deferred-tranche-1`
 
@@ -184,11 +184,11 @@ Apply an args-first rule to deferred items: extend existing directives instead o
 
 ## Deferred (not in v3 core path)
 
-- Typed include params (`SG-001`, partial: arity validation shipped in PR #4; type annotations now scheduled in PR #7)
+- Typed include params (`SG-001`, shipped in PR #7: arity + type validation)
 - Direct expression args (`SG-002`)
 - Markdown emphasis sugar (`SG-004`)
 - Table of contents generation
-- Section-specific header/footer variants (first/even via `variant` arg now scheduled in PR #7)
+- Section-specific header/footer variants (shipped in PR #7: first/even via `variant` arg)
 - Images/logo embedding API
 - Watermarks and background text
 - Defined-terms system (first occurrence styling)
