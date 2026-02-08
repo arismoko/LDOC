@@ -5,8 +5,8 @@
  * Uses the `docx` npm package for DOCX generation.
  */
 
-import { Document, Packer, Paragraph, Footer, Header } from "docx";
-import type { IPropertiesOptions, ISectionOptions, Table, IStylesOptions } from "docx";
+import { Document, Packer, Paragraph } from "docx";
+import type { IPropertiesOptions, ISectionOptions, IStylesOptions } from "docx";
 
 import type { StyledDocument, NumberingDefinition } from "../../types/styled.ts";
 import type {
@@ -14,11 +14,12 @@ import type {
   Document as DocIR,
   HeaderFooterConfig,
 } from "../../types/document-ir.ts";
+// Note: DocxBlock is only used via re-export (line 377), not in this file.
 import type { Diagnostic } from "../../types/diagnostics.ts";
 
 import { createNumberingConfig, ensureDefaultNumberingDefs } from "./numbering.ts";
 import { toStyleDefinition } from "./styles.ts";
-import { emitBlocks, type EmitContext, type DocxBlock } from "./nodes.ts";
+import { emitBlocks, type EmitContext } from "./nodes.ts";
 import {
   SectionBuilder,
   compileHeader,

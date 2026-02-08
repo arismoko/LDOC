@@ -21,6 +21,7 @@ import {
   readParamsContract,
   validateIncludeParams,
   validateIncludeParamTypes,
+  toIncludeArgs,
 } from "../shared/include-params.ts";
 
 /**
@@ -330,16 +331,6 @@ function validateIncludeEdges(edges: IncludeEdge[], diagnostics: Diagnostic[]): 
     diagnostics.push(...validateIncludeParams(names, includeArgs, edge.directive.loc));
     diagnostics.push(...validateIncludeParamTypes(types, includeArgs, edge.directive.loc));
   }
-}
-
-/**
- * Coerce @include args value to a Record.
- */
-function toIncludeArgs(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return value as Record<string, unknown>;
 }
 
 /**

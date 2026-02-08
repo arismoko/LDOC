@@ -17,6 +17,7 @@ import {
   readParamsContract,
   validateIncludeParams,
   validateIncludeParamTypes,
+  toIncludeArgs,
 } from "../../shared/include-params.ts";
 import { parseSource } from "../../parse/index.ts";
 import { bindSync } from "../../bind/index.ts";
@@ -37,14 +38,6 @@ function withDiagnosticSource(diagnostic: Diagnostic, sourcePath: string): Diagn
     ...diagnostic,
     location: withLocationSource(diagnostic.location, sourcePath),
   };
-}
-
-function toIncludeArgs(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-
-  return value as Record<string, unknown>;
 }
 
 export const handleInclude: BlockDirectiveHandler = async (node, ctx) => {

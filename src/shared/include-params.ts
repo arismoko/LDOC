@@ -26,18 +26,6 @@ export interface IncludeParamsContract {
 const INCLUDE_PARAM_TYPE_PATTERN = /^(string|number|boolean|object|array)(\?)?$/;
 
 /**
- * Extract required parameter names from a document's @params directive.
- *
- * Returns the valid names array and any diagnostics from malformed @params.
- */
-export function readParamsNames(
-  cst: Document,
-): { names: string[]; diagnostics: Diagnostic[] } {
-  const contract = readParamsContract(cst);
-  return { names: contract.names, diagnostics: contract.diagnostics };
-}
-
-/**
  * Extract @params include contract (names + optional types) from a document.
  */
 export function readParamsContract(cst: Document): IncludeParamsContract {
@@ -249,4 +237,14 @@ function describeType(value: unknown): string {
     return "array";
   }
   return typeof value;
+}
+
+/**
+ * Coerce @include args value to a Record.
+ */
+export function toIncludeArgs(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
 }
