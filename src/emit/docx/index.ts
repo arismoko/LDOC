@@ -11,6 +11,7 @@ import type { IPropertiesOptions, ISectionOptions, Table, IStylesOptions } from 
 import type { StyledDocument, NumberingDefinition } from "../../types/styled.ts";
 import type { Block, Document as DocIR, Section, HeaderFooter } from "../../types/document-ir.ts";
 import type { Diagnostic } from "../../types/diagnostics.ts";
+import { DiagnosticCode } from "../../types/diagnostics.ts";
 
 import { createNumberingConfig, ensureDefaultNumberingDefs } from "./numbering.ts";
 import { toStyleDefinition } from "./styles.ts";
@@ -74,6 +75,8 @@ export function emitSync(
 // Internal Implementation
 // =============================================================================
 
+const SYNTHETIC_LOC = { line: 1, column: 0, endLine: 1, endColumn: 0 } as const;
+
 /**
  * Shared orchestration for emit() and emitSync():
  * create context → collect bookmarks → compile document.
@@ -123,14 +126,30 @@ function createEmitContext(
 }
 
 /**
- * First pass: collect all bookmark/anchor names.
- * This allows cross-references to work even if target appears after reference.
- * Scans Anchor block nodes (from @anchor directives).
+ * First pass: collect all bookmark/anchor names AND footnote definitions.
+ * This allows cross-references and footnote-refs to work even if the
+ * target/definition appears after the reference.
+ * Scans Anchor block nodes (from @anchor directives) and Footnote block
+ * nodes, recursing into all container structures.
  */
 function collectBookmarks(doc: DocIR, ctx: EmitContext): void {
   function visitBlock(block: Block): void {
     if (block.type === "Anchor") {
       ctx.bookmarks.add(bookmarkSafeName(block.id));
+    }
+    
+    // Pre-collect footnote definitions so FootnoteRef nodes that appear
+    // before the Footnote block can resolve during emission.
+    if (block.type === "Footnote") {
+      ctx.footnotes.set(block.label, block.content);
+      if (!ctx.footnoteIds.has(block.label)) {
+        ctx.footnoteIds.set(block.label, ctx.footnoteIds.size + 1);
+      }
+      // Also recurse into footnote content (it may contain nested anchors/footnotes)
+      for (const child of block.content) {
+        visitBlock(child);
+      }
+      return;
     }
     
     // Recurse into nested structures
@@ -310,7 +329,28 @@ function compileFootnotes(ctx: EmitContext): Record<number, { children: Paragrap
   for (const [label, content] of ctx.footnotes) {
     const id = ctx.footnoteIds.get(label);
     if (id !== undefined) {
-      const children = emitBlocks(content, ctx) as Paragraph[];
+      const emitted = emitBlocks(content, ctx);
+      const children: Paragraph[] = [];
+
+      for (const block of emitted) {
+        if (block instanceof Paragraph) {
+          children.push(block);
+          continue;
+        }
+
+        ctx.diagnostics.push({
+          severity: "warning",
+          code: DiagnosticCode.EMIT_ERROR,
+          message: `Footnote '${label}' contains unsupported non-paragraph content; omitting that content in DOCX output.`,
+          location: content[0]?.loc ?? SYNTHETIC_LOC,
+        });
+      }
+
+      if (children.length === 0) {
+        // DOCX footnotes require at least one paragraph child.
+        children.push(new Paragraph({}));
+      }
+
       footnotes[id] = { children };
     }
   }
