@@ -784,7 +784,6 @@ Recommended stages:
 
 - Markdown headings (`#`) and inline emphasis (`**bold**`, etc.) are deferred (may be added as pure sugar later).
 - Dynamic “Lua-defined directives” (metamethod directives, user-defined directive surfaces) are deferred; directives are static/registered for LSP and diagnostics quality.
-- Control flow directives (`@if`, `@for`) are deferred until scoping + evaluation semantics are finalized (they can be reintroduced later powered by Lua).
 - Expression-valued args (direct `$(...)` inside directive args objects) are deferred for v3 core.
 
 ### 19.1 Tracking deferred sugar and UX ideas
