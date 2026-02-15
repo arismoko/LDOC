@@ -104,14 +104,17 @@ describe("Lexer // in paragraph context (§3.2)", () => {
     expect(paraCloseTokens.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("[text // comment] closes correctly", () => {
+  test("[text // comment] treats // as literal text per spec §3.2", () => {
     const { tokens } = tokenize("[text // comment]");
     const paraCloseTokens = tokens.filter((t) => t.type === TokenType.PARA_CLOSE);
     expect(paraCloseTokens.length).toBe(1);
-    // Comment should not include the ] bracket
+    // Per spec §3.2, // in paragraph context is literal text, not a comment
     const commentTokens = tokens.filter((t) => t.type === TokenType.COMMENT);
-    expect(commentTokens.length).toBe(1);
-    expect(commentTokens[0]!.value).not.toContain("]");
+    expect(commentTokens.length).toBe(0);
+    // The // should be part of TEXT tokens
+    const textTokens = tokens.filter((t) => t.type === TokenType.TEXT);
+    const combined = textTokens.map(t => t.value).join("");
+    expect(combined).toContain("//");
   });
 
   test("// outside [] still consumes to end of line", () => {
