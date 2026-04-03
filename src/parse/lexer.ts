@@ -27,6 +27,8 @@ export class Lexer {
   private diagnostics: Diagnostic[] = [];
   /** True when no non-whitespace token has been emitted on the current line yet. */
   private atLineStart = true;
+  /** Depth of nested [...] paragraph blocks (0 = not inside paragraph). */
+  private paragraphDepth = 0;
 
   constructor(input: string) {
     this.input = input;
@@ -82,6 +84,7 @@ export class Lexer {
 
     // Paragraph block open
     if (char === "[") {
+      this.paragraphDepth++;
       this.emit(TokenType.PARA_OPEN, "[");
       this.advance();
       return;
@@ -89,6 +92,9 @@ export class Lexer {
 
     // Paragraph block close
     if (char === "]") {
+      if (this.paragraphDepth > 0) {
+        this.paragraphDepth--;
+      }
       this.emit(TokenType.PARA_CLOSE, "]");
       this.advance();
       return;
@@ -108,8 +114,8 @@ export class Lexer {
       return;
     }
 
-    // Line comment
-    if (char === "/" && this.peek(1) === "/") {
+    // Line comment (only outside paragraph context - Spec §3.2)
+    if (char === "/" && this.peek(1) === "/" && this.paragraphDepth === 0) {
       this.scanLineComment();
       return;
     }

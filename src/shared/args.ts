@@ -417,13 +417,20 @@ function parseValue(input: string, start: number): ParseValueResult {
   if (i > numStart) {
     const numStr = input.slice(numStart, i);
     const num = parseFloat(numStr);
-    if (isNaN(num)) {
-      return {
-        ok: false,
-        error: error(DiagnosticCode.PARSE_ERROR, 'Invalid number', { line: 1, column: numStart, endLine: 1, endColumn: i }),
-        end: i,
-        value: undefined,
-      };
+    // parseFloat silently truncates at first invalid char (e.g., "1-2" -> 1)
+    // Validate the entire string was consumed as a valid number
+    if (isNaN(num) || String(num) !== numStr) {
+      // Also allow cases like ".5" which String(0.5) != ".5"
+      // So check with a regex for valid JSON5 number format
+      const validNumber = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(numStr);
+      if (!validNumber) {
+        return {
+          ok: false,
+          error: error(DiagnosticCode.PARSE_ERROR, `Invalid number: '${numStr}'`, { line: 1, column: numStart, endLine: 1, endColumn: i }),
+          end: i,
+          value: undefined,
+        };
+      }
     }
     return { ok: true, value: num, end: i };
   }

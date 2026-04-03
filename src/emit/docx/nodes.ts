@@ -7,8 +7,6 @@
 import {
   Paragraph,
   TextRun,
-  ImageRun,
-  ExternalHyperlink,
   InternalHyperlink,
   Bookmark,
   PageBreak,
@@ -37,14 +35,6 @@ import type {
   Footnote,
   Text,
   Styled,
-  Bold,
-  Italic,
-  Underline,
-  Strikethrough,
-  Highlight,
-  Code,
-  Link,
-  Image,
   FootnoteRef,
   CrossRef,
   Anchor,
@@ -135,8 +125,6 @@ export function emitBlock(block: Block, ctx: EmitContext): DocxBlock[] {
       return emitPageBreak();
     case "ColumnBreak":
       return emitColumnBreak();
-    case "HorizontalRule":
-      return emitHorizontalRule();
     case "Footnote":
       return emitFootnote(block, ctx);
     case "Anchor":
@@ -429,21 +417,6 @@ function emitColumnBreak(): DocxBlock[] {
   return [new Paragraph({ children: [new ColumnBreak()] })];
 }
 
-function emitHorizontalRule(): DocxBlock[] {
-  return [
-    new Paragraph({
-      border: {
-        bottom: {
-          color: "000000",
-          space: 1,
-          style: BorderStyle.SINGLE,
-          size: 6,
-        },
-      },
-    }),
-  ];
-}
-
 function emitFootnote(node: Footnote, ctx: EmitContext): DocxBlock[] {
   // Register footnote for later emission
   ctx.footnotes.set(node.label, node.content);
@@ -462,7 +435,7 @@ function emitFootnote(node: Footnote, ctx: EmitContext): DocxBlock[] {
 // =============================================================================
 
 /** Result type for inline emission */
-export type DocxInline = TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | Bookmark | FootnoteReferenceRun;
+export type DocxInline = TextRun | InternalHyperlink | Bookmark | FootnoteReferenceRun;
 
 /**
  * Emit an Inline node to docx run/element array.
@@ -473,22 +446,6 @@ export function emitInline(node: Inline, ctx: EmitContext, parentStyle: Computed
       return emitText(node, parentStyle, options);
     case "Styled":
       return emitStyled(node, ctx, parentStyle, options);
-    case "Bold":
-      return emitBold(node, ctx, parentStyle, options);
-    case "Italic":
-      return emitItalic(node, ctx, parentStyle, options);
-    case "Underline":
-      return emitUnderline(node, ctx, parentStyle, options);
-    case "Strikethrough":
-      return emitStrikethrough(node, ctx, parentStyle, options);
-    case "Highlight":
-      return emitHighlight(node, ctx, parentStyle, options);
-    case "Code":
-      return emitCode(node, parentStyle, options);
-    case "Link":
-      return emitLink(node, ctx, parentStyle);
-    case "Image":
-      return emitImage(node, ctx);
     case "FootnoteRef":
       return emitFootnoteRef(node, ctx);
     case "CrossRef":
@@ -535,74 +492,6 @@ function emitStyled(node: Styled, ctx: EmitContext, parentStyle: ComputedStyle, 
   if (s.fontFamily !== undefined) mergedStyle.fontFamily = s.fontFamily;
   
   return emitInlines(node.content, ctx, mergedStyle, options) as TextRun[];
-}
-
-function emitBold(node: Bold, ctx: EmitContext, parentStyle: ComputedStyle, options?: InlineEmitOptions): TextRun[] {
-  const style = { ...parentStyle, bold: true };
-  return emitInlines(node.content, ctx, style, options) as TextRun[];
-}
-
-function emitItalic(node: Italic, ctx: EmitContext, parentStyle: ComputedStyle, options?: InlineEmitOptions): TextRun[] {
-  const style = { ...parentStyle, italic: true };
-  return emitInlines(node.content, ctx, style, options) as TextRun[];
-}
-
-function emitUnderline(node: Underline, ctx: EmitContext, parentStyle: ComputedStyle, options?: InlineEmitOptions): TextRun[] {
-  const style = { ...parentStyle, underline: true };
-  return emitInlines(node.content, ctx, style, options) as TextRun[];
-}
-
-function emitStrikethrough(node: Strikethrough, ctx: EmitContext, parentStyle: ComputedStyle, options?: InlineEmitOptions): TextRun[] {
-  const style = { ...parentStyle, strikethrough: true };
-  return emitInlines(node.content, ctx, style, options) as TextRun[];
-}
-
-function emitHighlight(node: Highlight, ctx: EmitContext, parentStyle: ComputedStyle, options?: InlineEmitOptions): TextRun[] {
-  const style = { ...parentStyle, highlightColor: node.color ?? "yellow" };
-  return emitInlines(node.content, ctx, style, options) as TextRun[];
-}
-
-function emitCode(node: Code, parentStyle: ComputedStyle, options?: InlineEmitOptions): TextRun[] {
-  const style = { ...parentStyle, fontFamily: "Courier New" };
-  return [new TextRun({ text: node.value, ...toRunOptions(style), ...(options?.runStyle ? { style: options.runStyle } : {}) })];
-}
-
-function emitLink(node: Link, ctx: EmitContext, parentStyle: ComputedStyle): ExternalHyperlink[] {
-  const children = emitInlines(node.content, ctx, parentStyle, { runStyle: "Hyperlink" });
-  return [
-    new ExternalHyperlink({
-      children,
-      link: node.url,
-    }),
-  ];
-}
-
-function emitImage(node: Image, ctx: EmitContext): (TextRun | ImageRun)[] {
-  // Try to get image data
-  const data = node.data ?? ctx.imageData.get(node.src);
-  
-  if (!data) {
-    // Image not found - emit placeholder
-    ctx.diagnostics.push({
-      severity: "warning",
-      code: "E001",
-      message: `Image not found: ${node.src}`,
-      location: node.loc ?? SYNTHETIC_LOC,
-    });
-    return [new TextRun({ text: `[Image: ${node.alt ?? node.src}]`, color: "999999" })];
-  }
-  
-  // Default dimensions if not specified
-  const width = node.width ?? 200;
-  const height = node.height ?? 200;
-  
-  return [
-    new ImageRun({
-      data,
-      transformation: { width, height },
-      type: "png",
-    }),
-  ];
 }
 
 function emitFootnoteRef(node: FootnoteRef, ctx: EmitContext): (TextRun | FootnoteReferenceRun)[] {

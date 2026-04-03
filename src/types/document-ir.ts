@@ -235,11 +235,6 @@ export interface ColumnBreak extends IRBase {
   type: "ColumnBreak";
 }
 
-export interface HorizontalRule extends IRBase {
-  type: "HorizontalRule";
-  style?: StyleRef;
-}
-
 export interface Footnote extends IRBase {
   type: "Footnote";
   label: string;
@@ -264,55 +259,6 @@ export interface Styled extends IRBase {
   type: "Styled";
   content: Inline[];
   style: InlineStyleProps;
-}
-
-export interface Bold extends IRBase {
-  type: "Bold";
-  content: Inline[];
-}
-
-export interface Italic extends IRBase {
-  type: "Italic";
-  content: Inline[];
-}
-
-export interface Underline extends IRBase {
-  type: "Underline";
-  content: Inline[];
-}
-
-export interface Strikethrough extends IRBase {
-  type: "Strikethrough";
-  content: Inline[];
-}
-
-export interface Highlight extends IRBase {
-  type: "Highlight";
-  content: Inline[];
-  color?: string;
-}
-
-export interface Code extends IRBase {
-  type: "Code";
-  value: string;
-}
-
-export interface Link extends IRBase {
-  type: "Link";
-  content: Inline[];
-  url: string;
-  title?: string;
-}
-
-export interface Image extends IRBase {
-  type: "Image";
-  src: string;
-  alt?: string;
-  title?: string;
-  width?: number; // in EMUs
-  height?: number;
-  /** Resolved image data (filled in during emit) */
-  data?: Uint8Array;
 }
 
 export interface FootnoteRef extends IRBase {
@@ -348,14 +294,6 @@ export interface Field extends IRBase {
 export type Inline =
   | Text
   | Styled
-  | Bold
-  | Italic
-  | Underline
-  | Strikethrough
-  | Highlight
-  | Code
-  | Link
-  | Image
   | FootnoteRef
   | CrossRef
   | HardBreak
@@ -371,7 +309,6 @@ export type Block =
   | Section
   | PageBreak
   | ColumnBreak
-  | HorizontalRule
   | Footnote
   | Anchor;
 
